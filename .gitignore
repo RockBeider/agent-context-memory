@@ -1,0 +1,17 @@
+# Context Memorial System Ignored Entries
+.agent
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment and OS
+.env
+.env.local
+.DS_Store
+Thumbs.db

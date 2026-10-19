@@ -109,6 +109,33 @@ function updateTargetPackageJson(targetDir) {
   console.log(`  -> package.json 내 git:* 스크립트 ${addedCount}개 항목 동기화 완료.`);
 }
 
+function updateGitIgnore(targetDir) {
+  const gitignorePath = path.join(targetDir, '.gitignore');
+  const targetEntry = '.agent';
+
+  if (!fs.existsSync(gitignorePath)) {
+    const initialContent = `# Context Memorial System Ignored Entries\n${targetEntry}\n`;
+    fs.writeFileSync(gitignorePath, initialContent, 'utf-8');
+    console.log(`  [생성] .gitignore (${targetEntry} 등록 완료)`);
+    return { created: true, appended: false, exists: false };
+  }
+
+  const content = fs.readFileSync(gitignorePath, 'utf-8');
+  const lines = content.split(/\r?\n/).map((line) => line.trim());
+  const alreadyExists = lines.some((line) => line === targetEntry || line === `${targetEntry}/`);
+
+  if (alreadyExists) {
+    console.log(`  [보존] .gitignore (이미 ${targetEntry} 항목 등록됨)`);
+    return { created: false, appended: false, exists: true };
+  }
+
+  const needsNewline = content.length > 0 && !content.endsWith('\n') && !content.endsWith('\r');
+  const appendContent = (needsNewline ? '\n' : '') + `${targetEntry}\n`;
+  fs.appendFileSync(gitignorePath, appendContent, 'utf-8');
+  console.log(`  [동기화] .gitignore (${targetEntry} 등록 추가)`);
+  return { created: false, appended: true, exists: false };
+}
+
 async function install(targetPath = '.', options = {}) {
   const force = Boolean(options.force);
   const targetDir = path.resolve(process.cwd(), targetPath);
@@ -148,8 +175,16 @@ async function install(targetPath = '.', options = {}) {
   applyGovernanceRules(targetDir, targetRuleFiles);
 
   // 5단계: 대상 package.json 스크립트 연동
-  console.log('\n[추가 연동] 대상 package.json 스크립트 설정 중...');
+  console.log('\n[추가 연동 1/2] 대상 package.json 스크립트 설정 중...');
   updateTargetPackageJson(targetDir);
+
+  // 6단계: Git 환경 감지 시 .gitignore 동기화 (.agent 등록)
+  if (hasGit) {
+    console.log('\n[추가 연동 2/2] Git 환경 감지: .gitignore 동기화 중...');
+    updateGitIgnore(targetDir);
+  } else {
+    console.log('\n[추가 연동 2/2] Git 미설치 환경: .gitignore 동기화를 건너뜁니다.');
+  }
 
   // 6단계: 최종 안내
   console.log('\n=======================================================');
@@ -207,5 +242,6 @@ if (require.main === module) {
 
 module.exports = {
   install,
+  updateGitIgnore,
   printUsage,
 };
