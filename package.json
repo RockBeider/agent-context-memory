@@ -1,0 +1,31 @@
+{
+  "name": "context-memorial-system",
+  "version": "0.1.0",
+  "description": "Agentic Three-Tier Context Memorial System & Task-Centric Git Engine",
+  "keywords": [
+    "ai-agent",
+    "context-management",
+    "working-memory",
+    "long-term-memory",
+    "task-centric-commit",
+    "three-tier-memory"
+  ],
+  "license": "MIT",
+  "author": "Rock Beider",
+  "type": "commonjs",
+  "main": "scripts/group-status.cjs",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "cms:install": "node scripts/install-template.cjs",
+    "git:status": "node scripts/group-status.cjs",
+    "git:commit": "node scripts/group-status.cjs --all",
+    "git:pull": "node scripts/smart-pull.cjs",
+    "git:resolve": "node scripts/smart-pull.cjs --resolve",
+    "git:audit-push": "node scripts/audit-push.cjs"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "context-monitor": {
+    "enabled": true,
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "node -e \"const fs=require('fs'),path=require('path');const p=fs.existsSync('./.agents/scripts/token-monitor.cjs')?'./.agents/scripts/token-monitor.cjs':fs.existsSync('./scripts/token-monitor.cjs')?'./scripts/token-monitor.cjs':'../.agents/scripts/token-monitor.cjs';require(path.resolve(p));\"",
+        "timeout": 5
+      }
+    ]
+  }
+}
