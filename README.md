@@ -79,8 +79,13 @@ Git 워킹 트리의 변경된 파일들을 메모리얼 시스템의 정본 문
 ### 2) `.agents/scripts/token-monitor.cjs` (세션 토큰 감시)
 Antigravity IDE의 `hooks.json` PreInvocation 훅과 연동하여, 에이전트 세션의 누적 트랜스크립트 크기를 모니터링하고 임계치 초과 시 경고를 주입합니다.
 
-### 3) `scripts/install-template.cjs` (신규 프로젝트 원클릭 인스톨러)
+### 3) `scripts/install-template.cjs` & `scripts/sync-agent-rules.cjs` (멀티 에이전트 원클릭 인스톨러)
 순수 배포 자산인 `cms_template/`의 구조를 대상 프로젝트로 자동 복제하고, 대상 `package.json`에 `git:*` 명령어 체계를 한 번에 주입합니다.
+- **스캔 우선 에이전트 규칙 연동**:
+  1. 대상 프로젝트에 이미 존재하는 규칙 파일(`CLAUDE.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, `.windsurfrules`)을 우선 자동 스캔하여 감지된 모든 파일에 3계층 거버넌스를 즉시 주입합니다.
+  2. 규칙 파일이 감지되지 않는 경우에 한해, 터미널 대화형 프롬프트를 통해 사용할 에이전트 규칙 파일명을 사용자에게 질의(기본값: `AGENTS.md`)합니다.
+  3. `--rule-file=<파일명>` 옵션을 통해 임의의 커스텀 규칙 파일명을 직접 지정하여 비대화형 자동 배포도 지원합니다.
+  4. 모든 주입은 마커 태그(`<!-- CMS_GOVERNANCE_START -->`)를 사용하여 기존 사용자 규칙을 100% 보존합니다.
 
 ### 4) `scripts/smart-pull.cjs` & `scripts/audit-push.cjs`
 - `smart-pull.cjs`: 원격 브랜치 변경사항을 당겨올 때 로컬 활성 작업(`task.md`)과의 충돌을 선제 차단하는 지능형 풀 및 해결 도구.
@@ -97,9 +102,10 @@ context_memorial_system_bundle/
 ├── cms_template/       # [배포 자산] 신규 프로젝트에 순수 복사될 클린 보일러플레이트
 │   ├── .agents/        # 클린 태스크(TSK-1 온보딩 샘플), 색인표, 훅
 │   ├── rules/          # 불변 거버넌스 규격 (MEMORIAL_GOVERNANCE.md)
-│   └── scripts/        # 3대 실행 엔진 (group-status, smart-pull, audit-push)
+│   └── scripts/        # 4대 실행 엔진 (group-status, smart-pull, audit-push, sync-agent-rules)
 ├── .agents/            # [자체 개발] 본 번들 자체의 실시간 작업 기억 (Dogfooding)
-├── scripts/            # 본 번들 도구 및 설치 스크립트 (install-template.cjs)
+├── bin/                # 통합 CLI 진입점 (context-memorial.js)
+├── scripts/            # 본 번들 도구 및 설치 스크립트 (install-template.cjs 등)
 └── package.json        # 본 번들 매니페스트 ("cms:install", "git:status" 등)
 ```
 
@@ -107,17 +113,30 @@ context_memorial_system_bundle/
 
 ## 5. 신규 프로젝트 적용 퀵스타트
 
-### 방법 A. 원클릭 인스톨러 실행 (권장)
-본 저장소 터미널에서 대상 프로젝트 디렉터리를 지정하여 즉시 설치합니다:
+### 방법 A. npx CLI 실행 (가장 간편한 방법)
+신규 또는 기존 프로젝트 디렉터리에서 즉시 실행합니다:
 ```bash
-# 대상 프로젝트에 템플릿 복제 및 package.json 자동 연동
-npm run cms:install -- /path/to/my-new-project
+# 기본 실행: 기존 에이전트 규칙 파일 자동 스캔 (부재 시 질의)
+npx context-memorial init
 
-# 이미 파일이 존재하는 경우 덮어쓰기
-npm run cms:install -- /path/to/my-new-project --force
+# 특정 디렉터리에 설치 및 특정 에이전트 규칙 파일 직접 지정
+npx context-memorial init ./my-project --rule-file=CLAUDE.md
+
+# 기존 파일 강제 덮어쓰기 모드
+npx context-memorial init --force
 ```
 
-### 방법 B. 수동 복사
+### 방법 B. 로컬 번들 인스톨러 실행
+본 저장소 터미널에서 대상 프로젝트 디렉터리를 지정하여 설치합니다:
+```bash
+# 대상 프로젝트에 템플릿 복제 및 규칙 자동 주입
+node scripts/install-template.cjs /path/to/my-project
+
+# 특정 규칙 파일 지정 설치
+node scripts/install-template.cjs /path/to/my-project --rule-file=CLAUDE.md,GEMINI.md
+```
+
+### 방법 C. 수동 복사
 1. `cms_template/` 디렉터리 내의 `.agents/`, `rules/`, `scripts/`를 신규 프로젝트 루트로 복사합니다.
 2. 대상 프로젝트 `package.json`의 `scripts` 섹션에 다음 명령어를 등록합니다:
    ```json
@@ -129,5 +148,6 @@ npm run cms:install -- /path/to/my-new-project --force
      "git:audit-push": "node scripts/audit-push.cjs"
    }
    ```
-3. 대상 프로젝트의 `GEMINI.md` 또는 `AGENTS.md`에 `rules/MEMORIAL_GOVERNANCE.md` 내용을 주입합니다.
+3. 사용 중인 AI 에이전트 규칙 파일(`CLAUDE.md`, `GEMINI.md`, `AGENTS.md` 등)에 `rules/MEMORIAL_GOVERNANCE.md` 참조 명세를 주입합니다.
 4. 대상 프로젝트 터미널에서 `npm run git:status`를 실행하여 3계층 메모리얼 시스템을 시작합니다.
+
