@@ -13,11 +13,23 @@
   "license": "MIT",
   "author": "Rock Beider",
   "type": "commonjs",
-  "main": "scripts/group-status.cjs",
+  "main": "bin/context-memorial.js",
+  "bin": {
+    "context-memorial": "bin/context-memorial.js"
+  },
+  "files": [
+    "bin",
+    "cms_template",
+    "scripts",
+    "rules",
+    "AGENTS.md",
+    "README.md"
+  ],
   "directories": {
     "doc": "docs"
-  },
-  "scripts": {
+  },  "scripts": {
+    "init": "node bin/context-memorial.js init",
+    "check-git": "node scripts/check-git.cjs",
     "cms:install": "node scripts/install-template.cjs",
     "git:status": "node scripts/group-status.cjs",
     "git:commit": "node scripts/group-status.cjs --all",
