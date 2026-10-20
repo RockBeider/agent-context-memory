@@ -6,6 +6,11 @@
 
 ## 2026-10-20
 
+- [x] **TSK-8. 레거시 memorial 파일 영구 삭제 및 코드/템플릿 전수 클린업** (Commit: fb1e7e5)
+  - 등록일: 2026-10-20 / 완료일: 2026-10-20
+  - 대상 영역: `bin/`, `rules/`, `cms_template/`, `package.json`, `scripts/`, `README.md`, `.agents/`
+  - 수행 내역: 신규 시스템 특성을 반영하여 레거시 memorial 파일 3개(bin/context-memorial.js, rules/MEMORIAL_GOVERNANCE.md, cms_template/rules/MEMORIAL_GOVERNANCE.md) 영구 삭제, package.json 별칭 및 cms-manifest.cjs 엔트리 제거, group-status.cjs 내 '메모리얼' 한글 표기 정규화, cms_template/.agents/ 및 .agents/ 내 태스크/스킬/체인지로그 문서 전수 클린업, README.md 단일 정본화 완료.
+
 - [x] **TSK-7. Context Memory System 명칭 리팩토링 및 CLI/템플릿 일관성 정비** (Commit: 7df162c)
   - 등록일: 2026-10-20 / 완료일: 2026-10-20
   - 대상 영역: `package.json`, `bin/`, `rules/`, `scripts/`, `cms_template/`, `README.md`, `AGENTS.md`
