@@ -6,6 +6,11 @@
 
 ## 2026-10-19
 
+- [x] **TSK-5. Git 감지 기반 .gitignore 자동 생성 및 .agent 엔트리 동기화** (Commit: 7b97b1a)
+  - 등록일: 2026-10-19 / 완료일: 2026-10-19
+  - 대상 영역: `scripts/install-template.cjs`, `.gitignore`, `.agents/task/task.md`
+  - 수행 내역: 템플릿 설치 시 대상 디렉토리의 Git 환경을 감지하여 .gitignore 파일 생성 및 .agent 무시 규칙의 멱등적 자동 주입 파이프라인 구현 완료.
+
 - [x] **TSK-4. 거버넌스 규칙 초경량화(Micro-Guardrail) 및 표준 규격서 고밀도 정제** (Commit: c8e00a1, d8b7955)
   - 등록일: 2026-10-19 / 완료일: 2026-10-19
   - 대상 영역: `rules/MEMORIAL_GOVERNANCE.md`, `cms_template/rules/MEMORIAL_GOVERNANCE.md`, `scripts/sync-agent-rules.cjs`, `cms_template/scripts/sync-agent-rules.cjs`, `AGENTS.md`, `cms_template/AGENTS.md`
