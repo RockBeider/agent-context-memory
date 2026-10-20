@@ -11,15 +11,5 @@
 
 ## 활성 태스크 목록
 
-- [커밋 대기] **TSK-8. 레거시 memorial 파일 영구 삭제 및 코드/템플릿 전수 클린업**
-  - **담당**: Antigravity Agent
-  - **목적**: 기존 사용처가 없는 신규 시스템 특성을 반영하여 레거시 memorial 파일 및 코드/문서 내 잔여 표기를 영구 제거하고 클린한 Memory 규격으로 단일화
-  - **대상 영역**: bin/, rules/, cms_template/, package.json, scripts/, README.md, .agents/
-  - 세부 목표:
-    1. bin/context-memorial.js, rules/MEMORIAL_GOVERNANCE.md, cms_template/rules/MEMORIAL_GOVERNANCE.md 파일 삭제
-    2. package.json bin 별칭 및 cms-manifest.cjs 엔트리 제거
-    3. scripts/group-status.cjs 및 cms_template 내 '메모리얼' 한글 표기 정규화
-    4. cms_template/.agents/ 및 .agents/ 내 태스크/스킬/체인지로그 문서 전수 클린업
-    5. README.md 내 하위 호환 별칭 설명 제거 및 단일 정본 반영
-    6. 동작 검증 및 원자적 커밋 완료
+(현재 활성화된 작업이 없습니다. 모든 작업이 정상 완료되어 task_completed.md로 이관되었습니다. 신규 작업 발급 시 TSK-9로 채번됩니다.)
 
