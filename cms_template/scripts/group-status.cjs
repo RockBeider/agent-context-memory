@@ -577,7 +577,7 @@ function classifyChanges() {
         files: [],
       },
       memory: {
-        title: '메모리얼 태스크 및 지식 베이스 동기화',
+        title: '메모리 태스크 및 지식 베이스 동기화',
         type: 'docs(memory)',
         purpose: '작업 정본(task) 및 패턴/체인지로그(memory) 문서 갱신',
         files: [],

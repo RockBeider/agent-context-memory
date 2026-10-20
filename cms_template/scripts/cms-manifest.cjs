@@ -20,7 +20,6 @@ const CMS_MANIFEST = {
   // 2. CMS 배포 개별 파일 (타 파일 공존 디렉터리에서 선별 삭제 대상)
   files: [
     { path: 'rules/MEMORY_GOVERNANCE.md', parentDirCleanup: true },
-    { path: 'rules/MEMORIAL_GOVERNANCE.md', parentDirCleanup: true },
     { path: 'scripts/audit-push.cjs', parentDirCleanup: true },
     { path: 'scripts/check-git.cjs', parentDirCleanup: true },
     { path: 'scripts/group-status.cjs', parentDirCleanup: true },

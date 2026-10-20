@@ -1,4 +1,4 @@
-# Context Memorial Task Master (작업 단일 정본)
+# Context Memory Task Master (작업 단일 정본)
 
 > [!IMPORTANT]
 > **거버넌스 원칙 (Rule)**:
@@ -11,12 +11,12 @@
 
 ## 활성 태스크 목록
 
-### TSK-1. Context Memorial System 도입 및 초기 프로젝트 형상 점검
+### TSK-1. Context Memory System 도입 및 초기 프로젝트 형상 점검
 - **상태**: [진행 중]
 - **등록일**: 2026-10-19
 - **우선순위**: P1 (Critical)
-- **대상 영역**: `package.json`, `README.md`, `rules/MEMORIAL_GOVERNANCE.md`
-- **목적**: 프로젝트에 3계층 인지 메모리얼 거버넌스를 정착시키고 초기 형상 관리 환경을 검증한다.
+- **대상 영역**: `package.json`, `README.md`, `rules/MEMORY_GOVERNANCE.md`
+- **목적**: 프로젝트에 3계층 인지 메모리 거버넌스를 정착시키고 초기 형상 관리 환경을 검증한다.
 - **세부 작업**:
   - [ ] package.json 내 git:* 스크립트 동작 확인 (`npm run git:status`)
   - [ ] 프로젝트 룰 문서(`GEMINI.md`, `AGENTS.md`)에 거버넌스 규격 반영

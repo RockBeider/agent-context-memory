@@ -5,7 +5,7 @@ description: 작업 단위(Task-Centric) 자동 분류 커밋, 지능형 3-Way �
 
 # Git Workflow Governance Skill
 
-본 스킬은 3계층 메모리얼 모델과 연동하여 작업 단위(Task-Centric) 원자적 분할 커밋, 지능형 3-Way 병합 및 원격 배포 전 형상 위생을 점검하는 표준 워크플로우를 제공합니다.
+본 스킬은 3계층 메모리 모델과 연동하여 작업 단위(Task-Centric) 원자적 분할 커밋, 지능형 3-Way 병합 및 원격 배포 전 형상 위생을 점검하는 표준 워크플로우를 제공합니다.
 
 ## 1. 작업 단위 자동 분류 및 원자적 커밋 (`scripts/group-status.cjs`)
 

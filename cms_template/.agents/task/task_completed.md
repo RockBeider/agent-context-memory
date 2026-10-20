@@ -1,4 +1,4 @@
-# Context Memorial Task Completed Master (완료 태스크 이력 보관소)
+# Context Memory Task Completed Master (완료 태스크 이력 보관소)
 
 > [!NOTE]
 > 실제 터미널 `git commit` 완료 후 획득한 SHA 해시가 명기된 작업만 보관하는 콜드 아카이브(Cold Archive) 정본입니다.

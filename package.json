@@ -15,8 +15,7 @@
   "type": "commonjs",
   "main": "bin/context-memory.js",
   "bin": {
-    "context-memory": "bin/context-memory.js",
-    "context-memorial": "bin/context-memory.js"
+    "context-memory": "bin/context-memory.js"
   },
   "files": [
     "bin",

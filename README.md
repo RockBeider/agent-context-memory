@@ -104,13 +104,13 @@ Antigravity IDE의 `hooks.json` PreInvocation 훅과 연동하여, 에이전트 
 본 저장소는 배포용 클린 템플릿과 본 패키지 자체의 개발 환경이 완벽히 격리되어 있습니다.
 
 ```
-context_memorial_system_bundle/
+context-memory-system/
 ├── cms_template/       # [배포 자산] 신규 프로젝트에 순수 복사될 클린 보일러플레이트
 │   ├── .agents/        # 클린 태스크(TSK-1 온보딩 샘플), 색인표, 훅
 │   ├── rules/          # 불변 거버넌스 규격 (MEMORY_GOVERNANCE.md)
 │   └── scripts/        # 6대 실행 엔진 (group-status, smart-pull, audit-push, sync-agent-rules, cms-manifest, uninstall-template)
 ├── .agents/            # [자체 개발] 본 번들 자체의 실시간 작업 기억 (Dogfooding)
-├── bin/                # 통합 CLI 진입점 (context-memory.js / 하위 호환 context-memorial.js)
+├── bin/                # 통합 CLI 진입점 (context-memory.js)
 ├── scripts/            # 본 번들 도구 및 설치/제거 스크립트 (install-template.cjs, uninstall-template.cjs 등)
 ├── rules/              # 표준 거버넌스 규격 (MEMORY_GOVERNANCE.md)
 └── package.json        # 본 번들 매니페스트 ("cms:install", "cms:uninstall", "git:status" 등)
@@ -121,7 +121,7 @@ context_memorial_system_bundle/
 ## 5. 신규 프로젝트 적용 퀵스타트
 
 ### 방법 A. npx CLI 실행 (가장 간편한 방법)
-신규 또는 기존 프로젝트 디렉터리에서 즉시 실행합니다 (하위 호환을 위해 `context-memorial` 별칭도 지원):
+신규 또는 기존 프로젝트 디렉터리에서 즉시 실행합니다:
 ```bash
 # 기본 실행: 기존 에이전트 규칙 파일 자동 스캔 (부재 시 질의)
 npx context-memory init
