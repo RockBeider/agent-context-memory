@@ -1,7 +1,7 @@
 /**
  * scripts/smart-pull.cjs
  *
- * Context Memorial 원격 브랜치 동기화 및 충돌 정밀 하이브리드 병합 통합 CLI 도구
+ * Context Memory 원격 브랜치 동기화 및 충돌 정밀 하이브리드 병합 통합 CLI 도구
  *
  * [주요 동작 모드]
  *   node scripts/smart-pull.cjs          : [기본] fetch -> 가상 진단 -> 병합 -> 충돌 정밀 해소 -> 3대 품질 게이트 -> 머지 커밋
@@ -350,7 +350,7 @@ function resolveFileConflicts(filePath, dryRun = false) {
  */
 function runQualityGates() {
   console.log('\n=======================================================');
-  console.log('  Context Memorial 병합 후 3대 품질 게이트 검증');
+  console.log('  Context Memory 병합 후 3대 품질 게이트 검증');
   console.log('=======================================================\n');
 
   // Gate 1: 충돌 마커 잔여 전수 검사
@@ -433,7 +433,7 @@ async function main() {
   const skipBuild = args.includes('--no-build');
 
   console.log('=======================================================');
-  console.log('  Context Memorial 스마트 원격 동기화 및 정밀 병합 엔진 (smart-pull)');
+  console.log('  Context Memory 스마트 원격 동기화 및 정밀 병합 엔진 (smart-pull)');
   console.log('=======================================================\n');
 
   const currentBranch = getCurrentBranch();

@@ -1,7 +1,7 @@
 /**
  * scripts/group-status.cjs
  *
- * Context Memorial 작업 단위(Task-Centric) 변경사항 자동 분류 및 커밋 실행 도구
+ * Context Memory 작업 단위(Task-Centric) 변경사항 자동 분류 및 커밋 실행 도구
  *
  * [참조 우선순위 정본]
  * 1순위: .agents/task/task.md 중 [커밋 대기] 및 [진행 중] 활성 작업
@@ -90,10 +90,10 @@ function parseTaskMd() {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
-      // 1) 불릿 헤더 감지: - [상태] **TSK-26. 작업명** 또는 - [상태] **26. 작업명**
-      const bulletHeaderMatch = line.match(/^-\s*\[([^\]]*)\]\s*\*\*(?:(TSK-[0-9]+|[0-9]+)\.\s*)(.+?)\*\*/i);
+      // 1) 불릿 헤더 감지: - [상태] **TSK-26. 작업명** 또는 - [상태] **26. 작업명** 또는 **TSK-26: 작업명**
+      const bulletHeaderMatch = line.match(/^-\s*\[([^\]]*)\]\s*\*\*(?:(TSK-[0-9]+|[0-9]+)[\.:]\s*)(.+?)\*\*/i);
       // 2) 마크다운 헤더 감지: ### TSK-1. 작업명 또는 ### 1. 작업명 (## ~ #### 허용)
-      const mdHeaderMatch = !bulletHeaderMatch ? line.match(/^#{2,4}\s*(?:(TSK-[0-9]+|[0-9]+)\.\s*)(.+)$/i) : null;
+      const mdHeaderMatch = !bulletHeaderMatch ? line.match(/^#{2,4}\s*(?:(TSK-[0-9]+|[0-9]+)[\.:]\s*)(.+)$/i) : null;
 
       if (bulletHeaderMatch || mdHeaderMatch) {
         if (currentTask) tasks.push(currentTask);
@@ -798,7 +798,7 @@ function main() {
 
   // 4) 표준 리포트 출력
   console.log('=======================================================');
-  console.log('  Context Memorial 작업 단위(Task-Centric) 커밋 도구');
+  console.log('  Context Memory 작업 단위(Task-Centric) 커밋 도구');
   console.log('  [대원칙] task.md 및 memory 문서를 기반으로 작업별 원자 커밋!');
   console.log('=======================================================\n');
   console.log(`[안내] 총 ${totalFiles}개 파일이 ${groups.length}개 작업 단위로 분류되었습니다:\n`);

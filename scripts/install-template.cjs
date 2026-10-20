@@ -2,7 +2,7 @@
 /**
  * scripts/install-template.cjs
  *
- * Context Memorial System(CMS) 배포 템플릿을 신규/기존 프로젝트에 설치/초기화하는 스크립트
+ * Context Memory System(CMS) 배포 템플릿을 신규/기존 프로젝트에 설치/초기화하는 스크립트
  *
  * 사용법:
  *   node scripts/install-template.cjs [target-directory] [--force] [--rule-file=<파일명>]
@@ -20,7 +20,7 @@ const TEMPLATE_DIR = path.join(ROOT_DIR, 'cms_template');
 
 function printUsage() {
   console.log('=======================================================');
-  console.log('  Context Memorial System 템플릿 인스톨러');
+  console.log('  Context Memory System 템플릿 인스톨러');
   console.log('=======================================================\n');
   console.log('사용법:');
   console.log('  node scripts/install-template.cjs [target-directory] [옵션]\n');
@@ -136,7 +136,7 @@ async function install(targetPath = '.', options = {}) {
   const targetDir = path.resolve(process.cwd(), targetPath);
 
   console.log('=======================================================');
-  console.log('  Context Memorial System 설치 및 초기화 시작');
+  console.log('  Context Memory System 설치 및 초기화 시작');
   console.log(`  출처 자산 : ${TEMPLATE_DIR}`);
   console.log(`  대상 경로 : ${targetDir}`);
   console.log(`  옵션      : ${force ? '강제 덮어쓰기 (--force)' : '안전 보존 모드'}`);
@@ -183,14 +183,14 @@ async function install(targetPath = '.', options = {}) {
 
   // 6단계: 최종 안내
   console.log('\n=======================================================');
-  console.log('  Context Memorial System 설치가 완료되었습니다.');
+  console.log('  Context Memory System 설치가 완료되었습니다.');
   console.log('=======================================================\n');
   console.log('다음 단계 가이드:');
   if (targetDir !== process.cwd()) {
     console.log(`  1. 대상 프로젝트로 이동: cd "${targetDir}"`);
   }
   console.log('  - 작업 기억 정본 확인: .agents/task/task.md');
-  console.log(`  - 거버넌스 규칙 점검: ${targetRuleFiles.join(', ')} 및 rules/MEMORIAL_GOVERNANCE.md`);
+  console.log(`  - 거버넌스 규칙 점검: ${targetRuleFiles.join(', ')} 및 rules/MEMORY_GOVERNANCE.md`);
   if (hasGit) {
     console.log('  - 작업 단위 커밋 상태 확인: npm run git:status');
   } else {

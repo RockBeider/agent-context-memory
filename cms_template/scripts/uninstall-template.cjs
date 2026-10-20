@@ -2,7 +2,7 @@
 /**
  * scripts/uninstall-template.cjs
  *
- * Context Memorial System(CMS) 자산을 대상 프로젝트에서 안전하고 완전하게 제거(Uninstall) 및 원복하는 스크립트
+ * Context Memory System(CMS) 자산을 대상 프로젝트에서 안전하고 완전하게 제거(Uninstall) 및 원복하는 스크립트
  * scripts/cms-manifest.cjs 단일 정본 매니페스트를 기반으로 동작합니다.
  *
  * 사용법:
@@ -28,7 +28,7 @@ const {
 
 function printUsage() {
   console.log('=======================================================');
-  console.log('  Context Memorial System 템플릿 언인스톨러 (Uninstall)');
+  console.log('  Context Memory System 템플릿 언인스톨러 (Uninstall)');
   console.log('=======================================================\n');
   console.log('사용법:');
   console.log('  node scripts/uninstall-template.cjs [target-directory] [옵션]\n');
@@ -329,14 +329,14 @@ async function uninstall(targetPath = '.', options = {}) {
     : Boolean(process.stdin.isTTY);
 
   console.log('=======================================================');
-  console.log('  Context Memorial System 제거(Uninstall) 및 롤백 시작');
+  console.log('  Context Memory System 제거(Uninstall) 및 롤백 시작');
   console.log(`  대상 경로 : ${targetDir}`);
   console.log(`  실행 모드 : ${dryRun ? '시뮬레이션 모드 (--dry-run)' : '실제 삭제 모드'}`);
   console.log(`  백업 정책 : ${options.noBackup ? '백업 생략 (--no-backup)' : '안전 백업 활성화'}`);
   console.log('=======================================================');
 
   if (!dryRun && !force && isInteractive) {
-    const confirm = await promptConfirm('\n정말 대상 프로젝트에서 Context Memorial System을 제거하시겠습니까? (y/N): ');
+    const confirm = await promptConfirm('\n정말 대상 프로젝트에서 Context Memory System을 제거하시겠습니까? (y/N): ');
     if (!confirm) {
       console.log('\n[취소] 사용자에 의해 제거 작업이 중단되었습니다.\n');
       return { success: false, cancelled: true };
@@ -363,7 +363,7 @@ async function uninstall(targetPath = '.', options = {}) {
     console.log('  [완료] 시뮬레이션(Dry-run) 검사가 완료되었습니다.');
     console.log('  실제 파일은 변경되지 않았습니다.');
   } else {
-    console.log('  Context Memorial System 제거 및 롤백이 완료되었습니다.');
+    console.log('  Context Memory System 제거 및 롤백이 완료되었습니다.');
   }
   console.log('=======================================================\n');
 

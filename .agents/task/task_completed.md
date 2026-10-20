@@ -1,8 +1,17 @@
-# Context Memorial Task Completed Master (완료 태스크 이력 보관소)
+# Context Memory Task Completed Master (완료 태스크 이력 보관소)
 
 > [!NOTE]
 > 실제 터미널 `git commit` 완료 후 획득한 SHA 해시가 명기된 작업만 보관하는 콜드 아카이브(Cold Archive) 정본입니다.
 > 신규 완료 작업은 최상단 일자 섹션에 누적(Prepend)합니다.
+
+## 2026-10-20
+
+- [x] **TSK-6. 주입 명세(Manifest) 및 내용 대조(Drift Detection) 기반 패키지 삭제(Uninstall) 롤백 엔진 구축** (Commit: 67ff3e7)
+  - 등록일: 2026-10-20 / 완료일: 2026-10-20
+  - 대상 영역: `scripts/cms-manifest.cjs`, `scripts/uninstall-template.cjs`, `scripts/install-template.cjs`, `scripts/sync-agent-rules.cjs`, `bin/context-memorial.js`, `package.json`, `README.md`, `cms_template/`
+  - 수행 내역: CMS 소유 자산 및 주입 시그니처 단일 정본 매니페스트(cms-manifest.cjs) 구축, 에이전트 규칙 마커 내용 변조 감지(Drift Detection) 및 사용자 확인 가드, 5단계 무결 롤백 파이프라인(uninstall-template.cjs) 구현, CLI(uninstall) 및 스크립트 연동, 사용자 기존 파일 100% 무결 보존 검증 완료.
+
+---
 
 ## 2026-10-19
 

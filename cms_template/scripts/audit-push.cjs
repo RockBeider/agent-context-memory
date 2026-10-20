@@ -54,7 +54,7 @@ const FORBIDDEN_PATTERNS = [
 
 function main() {
   console.log('=======================================================');
-  console.log('  Context Memorial 원격 푸시 사전 위생 감사 품질 게이트');
+  console.log('  Context Memory 원격 푸시 사전 위생 감사 품질 게이트');
   console.log('=======================================================\n');
 
   let hasError = false;

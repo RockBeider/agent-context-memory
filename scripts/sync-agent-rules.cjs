@@ -3,7 +3,7 @@
  *
  * 다양한 AI 코딩 에이전트(Claude Code, Gemini, Cursor, Windsurf 등)의
  * 규칙 파일(CLAUDE.md, GEMINI.md, AGENTS.md, .cursorrules 등)을 자동 스캔하고,
- * 부재 시 사용자 입력을 제안받아 Context Memorial 거버넌스 룰을 안전하게 주입/동기화하거나
+ * 부재 시 사용자 입력을 제안받아 Context Memory 거버넌스 룰을 안전하게 주입/동기화하거나
  * 삭제(Uninstall) 시 내용 변조 감지(Drift Detection)를 거쳐 안전하게 절삭하는 모듈
  */
 
@@ -275,7 +275,7 @@ function applyGovernanceRules(targetDir, targetFiles) {
     actions.push(result);
     const relResult = path.relative(targetDir, fullPath);
     if (result.created) {
-      console.log(`  [규칙 생성] ${relResult} (Context Memorial 거버넌스 주입)`);
+      console.log(`  [규칙 생성] ${relResult} (Context Memory 거버넌스 주입)`);
     } else {
       console.log(`  [규칙 동기화] ${relResult} (기존 내용 보존 및 거버넌스 갱신)`);
     }

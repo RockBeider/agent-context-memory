@@ -1,6 +1,6 @@
-# Context Memorial System (3-Tier Memorial Model)
+# Context Memory System (3-Tier Memory Model)
 
-AI 코딩 에이전트 환경(Antigravity IDE, Claude Code, Cursor 등)에서 컨텍스트 윈도우 한계를 극복하고, 장기 지속 프로젝트의 지식 증류와 작업 단위(Task-Centric) 원자적 Git 형상 관리를 자동화하는 **3계층 인지 메모리얼 시스템(Three-Tier Memorial Model)** 보일러플레이트입니다.
+AI 코딩 에이전트 환경(Antigravity IDE, Claude Code, Cursor 등)에서 컨텍스트 윈도우 한계를 극복하고, 장기 지속 프로젝트의 지식 증류와 작업 단위(Task-Centric) 원자적 Git 형상 관리를 자동화하는 **3계층 인지 메모리 시스템(Three-Tier Memory Model)** 보일러플레이트입니다.
 
 ---
 
@@ -11,7 +11,7 @@ AI 코딩 에이전트 환경(Antigravity IDE, Claude Code, Cursor 등)에서 �
 ```mermaid
 flowchart TB
   subgraph L0["L0 거버넌스 규격 (Rules)"]
-    R["rules/MEMORIAL_GOVERNANCE.md (불변 가드레일)"]
+    R["rules/MEMORY_GOVERNANCE.md (불변 가드레일)"]
   end
 
   subgraph L1["L1 작업 기억 (Working Memory)"]
@@ -61,7 +61,7 @@ flowchart TB
 외부 npm 패키지 의존성 없이 **Node.js 내장 모듈**만으로 작동합니다.
 
 ### 1) `scripts/group-status.cjs` (작업 단위 커밋 엔진)
-Git 워킹 트리의 변경된 파일들을 메모리얼 시스템의 정본 문서들과 대조하여 작업 단위(Task-Centric)로 자동 그룹화하고 개별 원자 커밋을 실행합니다.
+Git 워킹 트리의 변경된 파일들을 메모리 시스템의 정본 문서들과 대조하여 작업 단위(Task-Centric)로 자동 그룹화하고 개별 원자 커밋을 실행합니다.
 - **분류 우선순위**:
   1. `task.md` 내의 `[커밋 대기]` 또는 `[진행 중]` 활성 작업의 대상 영역과 파일 경로 매칭
   2. `project_changelog.md` 최근 일자별 블록에 기재된 파일 매칭
@@ -107,11 +107,12 @@ Antigravity IDE의 `hooks.json` PreInvocation 훅과 연동하여, 에이전트 
 context_memorial_system_bundle/
 ├── cms_template/       # [배포 자산] 신규 프로젝트에 순수 복사될 클린 보일러플레이트
 │   ├── .agents/        # 클린 태스크(TSK-1 온보딩 샘플), 색인표, 훅
-│   ├── rules/          # 불변 거버넌스 규격 (MEMORIAL_GOVERNANCE.md)
+│   ├── rules/          # 불변 거버넌스 규격 (MEMORY_GOVERNANCE.md)
 │   └── scripts/        # 6대 실행 엔진 (group-status, smart-pull, audit-push, sync-agent-rules, cms-manifest, uninstall-template)
 ├── .agents/            # [자체 개발] 본 번들 자체의 실시간 작업 기억 (Dogfooding)
-├── bin/                # 통합 CLI 진입점 (context-memorial.js)
+├── bin/                # 통합 CLI 진입점 (context-memory.js / 하위 호환 context-memorial.js)
 ├── scripts/            # 본 번들 도구 및 설치/제거 스크립트 (install-template.cjs, uninstall-template.cjs 등)
+├── rules/              # 표준 거버넌스 규격 (MEMORY_GOVERNANCE.md)
 └── package.json        # 본 번들 매니페스트 ("cms:install", "cms:uninstall", "git:status" 등)
 ```
 
@@ -120,16 +121,16 @@ context_memorial_system_bundle/
 ## 5. 신규 프로젝트 적용 퀵스타트
 
 ### 방법 A. npx CLI 실행 (가장 간편한 방법)
-신규 또는 기존 프로젝트 디렉터리에서 즉시 실행합니다:
+신규 또는 기존 프로젝트 디렉터리에서 즉시 실행합니다 (하위 호환을 위해 `context-memorial` 별칭도 지원):
 ```bash
 # 기본 실행: 기존 에이전트 규칙 파일 자동 스캔 (부재 시 질의)
-npx context-memorial init
+npx context-memory init
 
 # 특정 디렉터리에 설치 및 특정 에이전트 규칙 파일 직접 지정
-npx context-memorial init ./my-project --rule-file=CLAUDE.md
+npx context-memory init ./my-project --rule-file=CLAUDE.md
 
 # 기존 파일 강제 덮어쓰기 모드
-npx context-memorial init --force
+npx context-memory init --force
 ```
 
 ### 방법 B. 로컬 번들 인스톨러 실행
@@ -154,26 +155,25 @@ node scripts/install-template.cjs /path/to/my-project --rule-file=CLAUDE.md,GEMI
      "git:audit-push": "node scripts/audit-push.cjs"
    }
    ```
-3. 사용 중인 AI 에이전트 규칙 파일(`CLAUDE.md`, `GEMINI.md`, `AGENTS.md` 등)에 `rules/MEMORIAL_GOVERNANCE.md` 참조 명세를 주입합니다.
-4. 대상 프로젝트 터미널에서 `npm run git:status`를 실행하여 3계층 메모리얼 시스템을 시작합니다.
+3. 사용 중인 AI 에이전트 규칙 파일(`CLAUDE.md`, `GEMINI.md`, `AGENTS.md` 등)에 `rules/MEMORY_GOVERNANCE.md` 참조 명세를 주입합니다.
+4. 대상 프로젝트 터미널에서 `npm run git:status`를 실행하여 3계층 메모리 시스템을 시작합니다.
 
 ---
 
 ## 6. 패키지 제거 및 안전 롤백 (Uninstall)
 
-Context Memorial System을 프로젝트에서 안전하게 제거하고 설치 이전 상태로 원복합니다:
+Context Memory System을 프로젝트에서 안전하게 제거하고 설치 이전 상태로 원복합니다:
 
 ```bash
 # 시뮬레이션: 실제 파일 변경 없이 삭제 대상 및 영향 범위 미리보기
-npx context-memorial uninstall --dry-run
+npx context-memory uninstall --dry-run
 
 # 대화형 제거: 삭제 항목 안내 및 백업 생성 후 안전 제거
-npx context-memorial uninstall
+npx context-memory uninstall
 
 # 특정 디렉터리 지정 및 확인 프롬프트 생략 강제 실행
-npx context-memorial uninstall ./my-project --force
+npx context-memory uninstall ./my-project --force
 
 # 백업 생성 없이 즉시 제거
-npx context-memorial uninstall --no-backup
+npx context-memory uninstall --no-backup
 ```
-
