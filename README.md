@@ -87,7 +87,13 @@ Antigravity IDE의 `hooks.json` PreInvocation 훅과 연동하여, 에이전트 
   3. `--rule-file=<파일명>` 옵션을 통해 임의의 커스텀 규칙 파일명을 직접 지정하여 비대화형 자동 배포도 지원합니다.
   4. 모든 주입은 마커 태그(`<!-- CMS_GOVERNANCE_START -->`)를 사용하여 기존 사용자 규칙을 100% 보존합니다.
 
-### 4) `scripts/smart-pull.cjs` & `scripts/audit-push.cjs`
+### 4) `scripts/uninstall-template.cjs` & `scripts/cms-manifest.cjs` (단일 매니페스트 기반 안전 롤백 엔진)
+`scripts/cms-manifest.cjs`에 선언된 주입 명세를 바탕으로, 설치된 CMS 자산(.agents, scripts, rules, package.json 커맨드, .gitignore 항목)을 핀포인트로 선별 제거하고 대상 프로젝트를 원본 상태로 안전 복원합니다.
+- **내용 변조 감지(Drift Detection)**: 에이전트 규칙 파일의 마커 내부 텍스트를 원본과 정밀 대조하여, 사용자가 수정한 내용이 감지되면 대화형으로 삭제 여부를 질의하고 임의 훼손을 차단합니다.
+- **사용자 자산 보존**: `scripts/` 내 다른 사용자 스크립트나 `.gitignore` 내 기존 엔트리는 100% 보존합니다.
+- **안전 스냅샷**: 작업 기억/패턴이 소실되지 않도록 `.agents` 디렉터리를 타임스탬프 백업(`.agents_backup_{timestamp}`) 후 제거합니다.
+
+### 5) `scripts/smart-pull.cjs` & `scripts/audit-push.cjs`
 - `smart-pull.cjs`: 원격 브랜치 변경사항을 당겨올 때 로컬 활성 작업(`task.md`)과의 충돌을 선제 차단하는 지능형 풀 및 해결 도구.
 - `audit-push.cjs`: 원격 저장소 푸시 전 임시 파일, 테스트 코드, 미해결 충돌 마커 잔재를 정적 검사.
 
@@ -102,11 +108,11 @@ context_memorial_system_bundle/
 ├── cms_template/       # [배포 자산] 신규 프로젝트에 순수 복사될 클린 보일러플레이트
 │   ├── .agents/        # 클린 태스크(TSK-1 온보딩 샘플), 색인표, 훅
 │   ├── rules/          # 불변 거버넌스 규격 (MEMORIAL_GOVERNANCE.md)
-│   └── scripts/        # 4대 실행 엔진 (group-status, smart-pull, audit-push, sync-agent-rules)
+│   └── scripts/        # 6대 실행 엔진 (group-status, smart-pull, audit-push, sync-agent-rules, cms-manifest, uninstall-template)
 ├── .agents/            # [자체 개발] 본 번들 자체의 실시간 작업 기억 (Dogfooding)
 ├── bin/                # 통합 CLI 진입점 (context-memorial.js)
-├── scripts/            # 본 번들 도구 및 설치 스크립트 (install-template.cjs 등)
-└── package.json        # 본 번들 매니페스트 ("cms:install", "git:status" 등)
+├── scripts/            # 본 번들 도구 및 설치/제거 스크립트 (install-template.cjs, uninstall-template.cjs 등)
+└── package.json        # 본 번들 매니페스트 ("cms:install", "cms:uninstall", "git:status" 등)
 ```
 
 ---
@@ -150,4 +156,24 @@ node scripts/install-template.cjs /path/to/my-project --rule-file=CLAUDE.md,GEMI
    ```
 3. 사용 중인 AI 에이전트 규칙 파일(`CLAUDE.md`, `GEMINI.md`, `AGENTS.md` 등)에 `rules/MEMORIAL_GOVERNANCE.md` 참조 명세를 주입합니다.
 4. 대상 프로젝트 터미널에서 `npm run git:status`를 실행하여 3계층 메모리얼 시스템을 시작합니다.
+
+---
+
+## 6. 패키지 제거 및 안전 롤백 (Uninstall)
+
+Context Memorial System을 프로젝트에서 안전하게 제거하고 설치 이전 상태로 원복합니다:
+
+```bash
+# 시뮬레이션: 실제 파일 변경 없이 삭제 대상 및 영향 범위 미리보기
+npx context-memorial uninstall --dry-run
+
+# 대화형 제거: 삭제 항목 안내 및 백업 생성 후 안전 제거
+npx context-memorial uninstall
+
+# 특정 디렉터리 지정 및 확인 프롬프트 생략 강제 실행
+npx context-memorial uninstall ./my-project --force
+
+# 백업 생성 없이 즉시 제거
+npx context-memorial uninstall --no-backup
+```
 

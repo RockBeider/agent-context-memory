@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { checkGitEnvironment, printGitNotice } = require('./check-git.cjs');
 const { resolveTargetRuleFiles, applyGovernanceRules } = require('./sync-agent-rules.cjs');
+const { CMS_MANIFEST } = require('./cms-manifest.cjs');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const TEMPLATE_DIR = path.join(ROOT_DIR, 'cms_template');
@@ -72,13 +73,7 @@ function copyRecursive(src, dest, force, stats) {
 
 function updateTargetPackageJson(targetDir) {
   const pkgPath = path.join(targetDir, 'package.json');
-  const cmsScripts = {
-    'git:status': 'node scripts/group-status.cjs',
-    'git:commit': 'node scripts/group-status.cjs --all',
-    'git:pull': 'node scripts/smart-pull.cjs',
-    'git:resolve': 'node scripts/smart-pull.cjs --resolve',
-    'git:audit-push': 'node scripts/audit-push.cjs',
-  };
+  const cmsScripts = CMS_MANIFEST.packageJson.scripts;
 
   let pkg = {};
   if (fs.existsSync(pkgPath)) {
@@ -111,28 +106,28 @@ function updateTargetPackageJson(targetDir) {
 
 function updateGitIgnore(targetDir) {
   const gitignorePath = path.join(targetDir, '.gitignore');
-  const targetEntry = '.agent';
+  const { entries, template } = CMS_MANIFEST.gitignore;
+  const primaryEntry = entries[0];
 
   if (!fs.existsSync(gitignorePath)) {
-    const initialContent = `# Context Memorial System Ignored Entries\n${targetEntry}\n`;
-    fs.writeFileSync(gitignorePath, initialContent, 'utf-8');
-    console.log(`  [생성] .gitignore (${targetEntry} 등록 완료)`);
+    fs.writeFileSync(gitignorePath, template, 'utf-8');
+    console.log(`  [생성] .gitignore (${primaryEntry} 등록 완료)`);
     return { created: true, appended: false, exists: false };
   }
 
   const content = fs.readFileSync(gitignorePath, 'utf-8');
   const lines = content.split(/\r?\n/).map((line) => line.trim());
-  const alreadyExists = lines.some((line) => line === targetEntry || line === `${targetEntry}/`);
+  const alreadyExists = lines.some((line) => line === primaryEntry || line === `${primaryEntry}/`);
 
   if (alreadyExists) {
-    console.log(`  [보존] .gitignore (이미 ${targetEntry} 항목 등록됨)`);
+    console.log(`  [보존] .gitignore (이미 ${primaryEntry} 항목 등록됨)`);
     return { created: false, appended: false, exists: true };
   }
 
   const needsNewline = content.length > 0 && !content.endsWith('\n') && !content.endsWith('\r');
-  const appendContent = (needsNewline ? '\n' : '') + `${targetEntry}\n`;
+  const appendContent = (needsNewline ? '\n' : '') + `${primaryEntry}\n`;
   fs.appendFileSync(gitignorePath, appendContent, 'utf-8');
-  console.log(`  [동기화] .gitignore (${targetEntry} 등록 추가)`);
+  console.log(`  [동기화] .gitignore (${primaryEntry} 등록 추가)`);
   return { created: false, appended: true, exists: false };
 }
 

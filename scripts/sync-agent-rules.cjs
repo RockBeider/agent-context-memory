@@ -3,12 +3,14 @@
  *
  * 다양한 AI 코딩 에이전트(Claude Code, Gemini, Cursor, Windsurf 등)의
  * 규칙 파일(CLAUDE.md, GEMINI.md, AGENTS.md, .cursorrules 등)을 자동 스캔하고,
- * 부재 시 사용자 입력을 제안받아 Context Memorial 거버넌스 룰을 안전하게 주입/동기화하는 모듈
+ * 부재 시 사용자 입력을 제안받아 Context Memorial 거버넌스 룰을 안전하게 주입/동기화하거나
+ * 삭제(Uninstall) 시 내용 변조 감지(Drift Detection)를 거쳐 안전하게 절삭하는 모듈
  */
 
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const { CMS_MANIFEST, getFullGovernanceSnippet } = require('./cms-manifest.cjs');
 
 const PRESET_RULE_FILES = [
   'CLAUDE.md',
@@ -18,19 +20,23 @@ const PRESET_RULE_FILES = [
   '.windsurfrules',
 ];
 
-const START_MARKER = '<!-- CMS_GOVERNANCE_START -->';
-const END_MARKER = '<!-- CMS_GOVERNANCE_END -->';
+const START_MARKER = CMS_MANIFEST.governanceRules.startMarker;
+const END_MARKER = CMS_MANIFEST.governanceRules.endMarker;
+const EXPECTED_BODY = CMS_MANIFEST.governanceRules.expectedBody;
+const GOVERNANCE_SNIPPET = getFullGovernanceSnippet();
 
-const GOVERNANCE_SNIPPET = `${START_MARKER}
-# Context Memorial Guardrails
-1. [정본] 작업 착수/완료는 반드시 \`.agents/task/task.md\`에만 기록 (\`TSK-X\` 영구 불변 채번, 5KB 상한).
-2. [커밋] 일괄 스테이징(\`git add .\`) 절대 금지. 커밋은 반드시 \`node scripts/group-status.cjs\` 실행.
-3. [지식] \`patterns/\` 전수 통조회 금지. \`patterns_index.md\` 요약열만 \`grep_search\`로 핀포인트 로딩.
-4. [이관] 실제 Git 커밋 SHA 해시 확보 전 \`task_completed.md\` 조기 이관 절대 금지 (\`Commit: abc1234\` 필수).
-5. [격리] 멀티 에이전트 동시 작업 시 \`task.md\`에 담당자 명기 및 파일 대상 영역 중첩 금지 (충돌 시 직렬화).
-* 상세 규격 필요 시: [rules/MEMORIAL_GOVERNANCE.md](rules/MEMORIAL_GOVERNANCE.md) 참조.
-${END_MARKER}`;
-
+/**
+ * 줄바꿈 및 공백 차이를 배제하고 텍스트를 정규화합니다.
+ */
+function normalizeText(text) {
+  if (!text) return '';
+  return text
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
+    .trim();
+}
 
 /**
  * 대상 디렉터리에서 사전 정의된 에이전트 규칙 파일들을 자동 스캔합니다.
@@ -84,6 +90,115 @@ function injectRuleToFile(filePath) {
 }
 
 /**
+ * 파일 내 거버넌스 마커 내부 텍스트의 변조/수정(Drift) 여부를 전수 검사합니다.
+ * @param {string} filePath
+ * @returns {{ status: 'NOT_EXISTS' | 'NOT_FOUND' | 'EXACT_MATCH' | 'MODIFIED', actualBody?: string, expectedBody: string }}
+ */
+function checkRuleContentDrift(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return { status: 'NOT_EXISTS', expectedBody: EXPECTED_BODY };
+  }
+
+  const content = fs.readFileSync(filePath, 'utf-8');
+  const startIndex = content.indexOf(START_MARKER);
+  const endIndex = content.indexOf(END_MARKER);
+
+  if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
+    return { status: 'NOT_FOUND', expectedBody: EXPECTED_BODY };
+  }
+
+  const actualRaw = content.slice(startIndex + START_MARKER.length, endIndex);
+  const normalizedActual = normalizeText(actualRaw);
+  const normalizedExpected = normalizeText(EXPECTED_BODY);
+
+  if (normalizedActual === normalizedExpected) {
+    return { status: 'EXACT_MATCH', actualBody: actualRaw, expectedBody: EXPECTED_BODY };
+  }
+
+  return { status: 'MODIFIED', actualBody: actualRaw, expectedBody: EXPECTED_BODY };
+}
+
+/**
+ * 대화형으로 사용자에게 삭제 여부를 질의합니다.
+ */
+function promptConfirm(questionText) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    rl.question(questionText, (answer) => {
+      rl.close();
+      const trimmed = answer.trim().toLowerCase();
+      resolve(trimmed === 'y' || trimmed === 'yes');
+    });
+  });
+}
+
+/**
+ * 파일에서 거버넌스 룰 블록을 안전하게 절삭/제거합니다.
+ * @param {string} filePath
+ * @param {object} options { force: boolean, isInteractive: boolean }
+ * @returns {Promise<{ file: string, status: 'SKIPPED' | 'PRESERVED' | 'CLEANED' | 'REMOVED_FILE', detail?: string }>}
+ */
+async function removeRuleFromFile(filePath, options = {}) {
+  const force = Boolean(options.force);
+  const isInteractive = typeof options.isInteractive === 'boolean'
+    ? options.isInteractive
+    : Boolean(process.stdin.isTTY);
+
+  if (!fs.existsSync(filePath)) {
+    return { file: filePath, status: 'SKIPPED', detail: '파일이 존재하지 않음' };
+  }
+
+  const driftResult = checkRuleContentDrift(filePath);
+
+  if (driftResult.status === 'NOT_FOUND') {
+    return { file: filePath, status: 'SKIPPED', detail: 'CMS 거버넌스 마커 미존재' };
+  }
+
+  // 내용이 원본과 다르게 수정되어 있는 경우 안전 확인 분기
+  if (driftResult.status === 'MODIFIED' && !force) {
+    const relName = path.basename(filePath);
+    console.log(`\n  [경고] "${relName}" 내 CMS 거버넌스 블록 내용이 원본과 다르게 수정되어 있습니다.`);
+    if (isInteractive) {
+      const confirmed = await promptConfirm(`  -> 변경된 거버넌스 블록을 그래도 삭제하시겠습니까? (y/N): `);
+      if (!confirmed) {
+        console.log(`  [보존] 사용자 확인에 따라 "${relName}" 내 수정된 거버넌스 블록을 보존합니다.`);
+        return { file: filePath, status: 'PRESERVED', detail: '사용자가 삭제 거부함' };
+      }
+    } else {
+      console.log(`  [보존] 비대화형 세션에서 수정된 거버넌스 블록이 감지되어 안전하게 보존합니다. (강제 삭제: --force)`);
+      return { file: filePath, status: 'PRESERVED', detail: '비대화형 세션 안전 보존' };
+    }
+  }
+
+  // 마커 블록 절삭 실행
+  const content = fs.readFileSync(filePath, 'utf-8');
+  const startIndex = content.indexOf(START_MARKER);
+  const endIndex = content.indexOf(END_MARKER);
+
+  let before = content.slice(0, startIndex);
+  let after = content.slice(endIndex + END_MARKER.length);
+
+  // 주입 시 추가되었던 구분선(---) 및 연속 공백 정리
+  after = after.replace(/^\s*---\s*(\r?\n)?/, '');
+  before = before.replace(/(\r?\n)?\s*---\s*$/, '');
+
+  const remaining = (before.trimEnd() + (after.trim() ? '\n\n' + after.trimStart() : '')).trim();
+
+  // 절삭 후 파일 내용이 완전히 비어있으면 파일 자체 삭제
+  if (!remaining) {
+    fs.unlinkSync(filePath);
+    return { file: filePath, status: 'REMOVED_FILE', detail: '거버넌스 외 내용이 없어 파일 삭제됨' };
+  }
+
+  // 타 내용(사용자 프롬프트)이 남아있으면 마커만 제거 후 보존
+  fs.writeFileSync(filePath, remaining + '\n', 'utf-8');
+  return { file: filePath, status: 'CLEANED', detail: '거버넌스 블록 제거 및 사용자 내용 보존' };
+}
+
+/**
  * 프리셋 미감지 시 사용자에게 규칙 파일명을 대화형으로 질의합니다.
  * @returns {Promise<string[]>}
  */
@@ -113,18 +228,10 @@ function promptCustomRuleFile() {
 
 /**
  * 설치 대상 프로젝트의 타깃 규칙 파일 목록을 결정합니다.
- * 1. CLI 명시 옵션(--rule-file) 확인
- * 2. 프리셋 자동 스캔 (Scan First)
- * 3. 미감지 시 사용자 입력 제안 (Fallback Prompt)
- *
- * @param {string} targetDir
- * @param {object} options
- * @returns {Promise<string[]>} 결정된 타깃 규칙 파일명 목록
  */
 async function resolveTargetRuleFiles(targetDir, options = {}) {
   let targetFiles = [];
 
-  // 1단계: 명시적 CLI 인자 확인
   if (options.ruleFile) {
     if (Array.isArray(options.ruleFile)) {
       targetFiles = options.ruleFile;
@@ -136,7 +243,6 @@ async function resolveTargetRuleFiles(targetDir, options = {}) {
     }
   }
 
-  // 2단계: 미지정 시 프리셋 자동 스캔 우선 실행
   if (targetFiles.length === 0) {
     const scanned = scanPresetRules(targetDir);
     if (scanned.length > 0) {
@@ -145,7 +251,6 @@ async function resolveTargetRuleFiles(targetDir, options = {}) {
     }
   }
 
-  // 3단계: 여전히 없으면 사용자 입력 제안
   if (targetFiles.length === 0) {
     const isInteractive = process.stdin.isTTY && !options.nonInteractive;
     if (isInteractive) {
@@ -161,9 +266,6 @@ async function resolveTargetRuleFiles(targetDir, options = {}) {
 
 /**
  * 결정된 타깃 파일들에 거버넌스 룰을 안전하게 주입하거나 신규 생성합니다.
- * @param {string} targetDir
- * @param {string[]} targetFiles
- * @returns {{ files: string[], actions: Array<{ file: string, created: boolean, updated: boolean }> }}
  */
 function applyGovernanceRules(targetDir, targetFiles) {
   const actions = [];
@@ -182,6 +284,34 @@ function applyGovernanceRules(targetDir, targetFiles) {
 }
 
 /**
+ * 대상 프로젝트의 규칙 파일들에서 거버넌스 룰을 안전하게 절삭합니다.
+ */
+async function removeGovernanceRules(targetDir, targetFiles = [], options = {}) {
+  // targetFiles가 비어있으면 프리셋 규칙 파일 전체를 스캔
+  const candidates = targetFiles.length > 0 ? targetFiles : PRESET_RULE_FILES;
+  const results = [];
+
+  for (const relFile of candidates) {
+    const fullPath = path.resolve(targetDir, relFile);
+    if (!fs.existsSync(fullPath)) continue;
+
+    const res = await removeRuleFromFile(fullPath, options);
+    results.push(res);
+    const relResult = path.relative(targetDir, fullPath);
+
+    if (res.status === 'REMOVED_FILE') {
+      console.log(`  [규칙 파일 삭제] ${relResult} (거버넌스 제거 후 빈 파일 정리)`);
+    } else if (res.status === 'CLEANED') {
+      console.log(`  [규칙 블록 절삭] ${relResult} (거버넌스 제거 및 사용자 프롬프트 보존)`);
+    } else if (res.status === 'PRESERVED') {
+      console.log(`  [규칙 보존] ${relResult} (${res.detail})`);
+    }
+  }
+
+  return results;
+}
+
+/**
  * 통합 동기화 진입점
  */
 async function syncAgentRules(targetDir, options = {}) {
@@ -193,9 +323,14 @@ module.exports = {
   PRESET_RULE_FILES,
   START_MARKER,
   END_MARKER,
+  EXPECTED_BODY,
   GOVERNANCE_SNIPPET,
+  normalizeText,
   scanPresetRules,
   injectRuleToFile,
+  checkRuleContentDrift,
+  removeRuleFromFile,
+  removeGovernanceRules,
   promptCustomRuleFile,
   resolveTargetRuleFiles,
   applyGovernanceRules,
