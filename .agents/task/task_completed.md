@@ -6,6 +6,11 @@
 
 ## 2026-10-20
 
+- [x] **TSK-7. Context Memory System 명칭 리팩토링 및 CLI/템플릿 일관성 정비** (Commit: 7df162c)
+  - 등록일: 2026-10-20 / 완료일: 2026-10-20
+  - 대상 영역: `package.json`, `bin/`, `rules/`, `scripts/`, `cms_template/`, `README.md`, `AGENTS.md`
+  - 수행 내역: 시스템 정식 명칭을 Context Memory System으로 전면 개편. 패키지 메타데이터(context-memory-system), CLI 진입점(bin/context-memory.js 및 하위 호환 래퍼), 거버넌스 규칙 문서(rules/MEMORY_GOVERNANCE.md), 단일 정본 매니페스트(cms-manifest.cjs) 및 자동화 스크립트 로그/경로 전수 갱신, README.md 사용법 및 다이어그램 개편 완료.
+
 - [x] **TSK-6. 주입 명세(Manifest) 및 내용 대조(Drift Detection) 기반 패키지 삭제(Uninstall) 롤백 엔진 구축** (Commit: 67ff3e7)
   - 등록일: 2026-10-20 / 완료일: 2026-10-20
   - 대상 영역: `scripts/cms-manifest.cjs`, `scripts/uninstall-template.cjs`, `scripts/install-template.cjs`, `scripts/sync-agent-rules.cjs`, `bin/context-memorial.js`, `package.json`, `README.md`, `cms_template/`
