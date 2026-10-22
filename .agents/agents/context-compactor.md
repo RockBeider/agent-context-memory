@@ -1,6 +1,6 @@
 ---
 name: context-compactor
-description: 작업 마일스톤 완료 후 task.md의 완료 작업을 task_completed.md로 날짜별 이관하고, patterns 및 project_changelog.md를 거버넌스에 맞게 아카이빙하여 기본 주입 컨텍스트를 영구 압축/최적화하는 서브 에이전트
+description: 작업 마일스톤 완료 후 task.md의 완료 작업을 task-completed.md로 날짜별 이관하고, patterns 및 project-changelog.md를 거버넌스에 맞게 아카이빙하여 기본 주입 컨텍스트를 영구 압축/최적화하는 서브 에이전트
 kind: local
 model: inherit
 subagent: true
@@ -22,9 +22,9 @@ commandExecutionPolicy: request-review
    - `task.md` 내에서 `[x]` 처리된 항목을 탐지.
    - 실제 Git 커밋 해시(Commit SHA, 예: `Commit: 8f765f1`)가 명기되어 있는지 필수 확인.
    - 커밋 해시가 없는 완료 항목은 Git 로그(`git log -n 5`)를 대조하여 실제 커밋 해시를 보강.
-2. **완료 보관소 이관 (`task_completed.md`)**:
+2. **완료 보관소 이관 (`task-completed.md`)**:
    - `TSK-{자연수}` 불변 번호 원칙을 엄수하며 이관 (번호 재채번 절대 금지).
-   - `.agents/task/task_completed.md`의 완료 일자 섹션(`## YYYY-MM-DD 완료 작업`) 하위로 이관 (해당 일자 섹션이 없으면 최상단에 신설).
+   - `.agents/task/task-completed.md`의 완료 일자 섹션(`## YYYY-MM-DD 완료 작업`) 하위로 이관 (해당 일자 섹션이 없으면 최상단에 신설).
    - 이관 형식: `- [x] **TSK-X. 작업명** (Commit: \`[SHA]\`)`
 3. **활성 태스크 경량화 유지**:
    - `task.md` 본문에는 대기 중(`[ ]`), 진행 중(`[진행 중]`), 커밋 대기(`[커밋 대기]`) 항목만 유지.
@@ -32,11 +32,11 @@ commandExecutionPolicy: request-review
 
 ### B. 지식 베이스 샤딩 및 패턴 인덱스 정제 (`.agents/memory/`)
 1. **샤딩 패턴 무결성 점검**:
-   - `patterns_index.md`의 테이블 항목과 실제 샤딩 파일(`.agents/memory/patterns/P-XX-*.md`) 간의 1:1 매핑 정합성 확인.
+   - `patterns-index.md`의 테이블 항목과 실제 샤딩 파일(`.agents/memory/patterns/P-XX-*.md`) 간의 1:1 매핑 정합성 확인.
 2. **오래된 패턴 아카이빙**:
    - 1개월 이상 경과하거나 프레임워크 변경으로 일상화된 패턴은 `archive/` 디렉터리로 이관하고 인덱스 맵에서 정리.
 
-### C. 프로젝트 체인지로그 관리 (`.agents/memory/project_changelog.md`)
+### C. 프로젝트 체인지로그 관리 (`.agents/memory/project-changelog.md`)
 1. **거시 아키텍처 기록(ADR) 정합성**:
    - `[LOG-XX]` 식별자가 최상단부터 역순(최신이 위)으로 불변 증가 채번되어 있는지 점검.
 2. **월별 아카이빙**:
@@ -45,7 +45,7 @@ commandExecutionPolicy: request-review
 ---
 
 ## 2. 작업 수행 절차
-1. `task.md`, `patterns_index.md`, `project_changelog.md`의 크기 및 내용 분석.
+1. `task.md`, `patterns-index.md`, `project-changelog.md`의 크기 및 내용 분석.
 2. 이관/압축 대상 항목 선별 및 안전 Diff 생성.
 3. 압축 수행 후 감소된 바이트 수와 현재 상태를 보고서로 출력.
 
@@ -55,11 +55,8 @@ commandExecutionPolicy: request-review
 ```markdown
 ### Context Compactor 압축 수행 결과 보고
 
-- **task.md 정제**: [N개 완료 항목 -> task_completed.md 날짜별 이관 완료 (현재 크기: X.X KB)]
+- **task.md 정제**: [N개 완료 항목 -> task-completed.md 날짜별 이관 완료 (현재 크기: X.X KB)]
 - **지식 베이스(patterns) 상태**: [총 N개 샤딩 패턴 정합성 100% / 인덱스 갱신]
-- **project_changelog.md 점검**: [최신 LOG-XX 번호 정합성 유지 / 크기 X.X KB]
-- **절감된 컨텍스트 예상치**: [약 N 바이트 / 약 N 토큰 절감]
-
-#### 이관된 주요 항목 요약
-- `[TSK-X] 작업명 (Commit: abc1234)`
+- **project-changelog.md 점검**: [최신 LOG-XX 번호 정합성 유지 / 크기 X.X KB]
+- **토큰 절감 효과**: [약 N 바이트 절감 / 컨텍스트 윈도우 여유율 +X%]
 ```

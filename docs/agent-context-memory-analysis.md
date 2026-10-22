@@ -1,4 +1,4 @@
-# GCD 컨텍스트 메모리 시스템 분석
+# Agent Context Memory (ACM) 시스템 분석
 
 기준일: 2026-10-19 / 분석 대상: `GEMINI.md`, 글로벌 룰, `.agents/` 전체, `scripts/group-status.cjs`, `scripts/sync-guide.cjs`
 
@@ -18,10 +18,10 @@ flowchart TB
   end
   subgraph L2["L2 장기 기억"]
     LP["memory/learned_patterns.md (의미 기억: 교훈/패턴)"]
-    CL["memory/project_changelog.md (일화 기억: 거시 변경)"]
+    CL["memory/project-changelog.md (일화 기억: 거시 변경)"]
   end
   subgraph L3["L3 콜드 아카이브"]
-    TC["task/task_completed.md (70KB)"]
+    TC["task/task-completed.md (70KB)"]
     LPA["archive/learned_patterns_archive.md"]
     CLA["archive/project_changelog_archive.md"]
   end
@@ -46,8 +46,8 @@ flowchart TB
 |---|---|---|---|---|
 | L1 | `task.md` | 상태 전이 | 1,537B / 활성 1건 | 단일 활성 작업 정본 |
 | L2 | `learned_patterns.md` | **하단 append** | 20,436B / 45건 | 트러블슈팅 교훈 |
-| L2 | `project_changelog.md` | **상단 prepend** | 30,285B / 16블록 | 거시 변경 이력 |
-| L3 | `task_completed.md` | 상단 prepend | 70,309B / 717줄 | 완료 태스크 보관 |
+| L2 | `project-changelog.md` | **상단 prepend** | 30,285B / 16블록 | 거시 변경 이력 |
+| L3 | `task-completed.md` | 상단 prepend | 70,309B / 717줄 | 완료 태스크 보관 |
 | L3 | `archive/*` | - | 19.9KB / 23.0KB | 09-10~09-15 이력 (09-17 이후 미갱신) |
 
 ---

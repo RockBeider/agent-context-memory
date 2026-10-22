@@ -1,11 +1,11 @@
 /**
  * scripts/group-status.cjs
  *
- * Context Memory 작업 단위(Task-Centric) 변경사항 자동 분류 및 커밋 실행 도구
+ * Agent Context Memory 작업 단위(Task-Centric) 변경사항 자동 분류 및 커밋 실행 도구
  *
  * [참조 우선순위 정본]
  * 1순위: .agents/task/task.md 중 [커밋 대기] 및 [진행 중] 활성 작업
- * 2순위: .agents/memory/project_changelog.md (최근 날짜별 아키텍처/기능 변경 작업)
+ * 2순위: .agents/memory/project-changelog.md (최근 날짜별 아키텍처/기능 변경 작업)
  * 3순위: .agents/memory/patterns/ (최신 설계 패턴 및 트러블슈팅 샤딩 정본)
  * 4순위: 잔여 파일 성격별(전역 인프라, UI/컴포넌트, 문서/규약, 도구 스크립트) 보조 그룹화
  *
@@ -24,8 +24,12 @@ const readline = require('readline');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const TASK_FILE = path.join(ROOT_DIR, '.agents', 'task', 'task.md');
-const CHANGELOG_FILE = path.join(ROOT_DIR, '.agents', 'memory', 'project_changelog.md');
-const PATTERNS_INDEX_FILE = path.join(ROOT_DIR, '.agents', 'memory', 'patterns_index.md');
+const CHANGELOG_FILE = fs.existsSync(path.join(ROOT_DIR, '.agents', 'memory', 'project-changelog.md'))
+  ? path.join(ROOT_DIR, '.agents', 'memory', 'project-changelog.md')
+  : path.join(ROOT_DIR, '.agents', 'memory', 'project_changelog.md');
+const PATTERNS_INDEX_FILE = fs.existsSync(path.join(ROOT_DIR, '.agents', 'memory', 'patterns-index.md'))
+  ? path.join(ROOT_DIR, '.agents', 'memory', 'patterns-index.md')
+  : path.join(ROOT_DIR, '.agents', 'memory', 'patterns_index.md');
 const PATTERNS_DIR = path.join(ROOT_DIR, '.agents', 'memory', 'patterns');
 
 /**
@@ -527,7 +531,7 @@ function classifyChanges() {
         id: sec.id,
         title: sec.title,
         status: sec.status,
-        source: 'project_changelog.md',
+        source: path.basename(CHANGELOG_FILE),
         purpose: sec.purpose,
         files: matchedFiles,
         message: msg,
@@ -798,7 +802,7 @@ function main() {
 
   // 4) 표준 리포트 출력
   console.log('=======================================================');
-  console.log('  Context Memory 작업 단위(Task-Centric) 커밋 도구');
+  console.log('  Agent Context Memory 작업 단위(Task-Centric) 커밋 도구');
   console.log('  [대원칙] task.md 및 memory 문서를 기반으로 작업별 원자 커밋!');
   console.log('=======================================================\n');
   console.log(`[안내] 총 ${totalFiles}개 파일이 ${groups.length}개 작업 단위로 분류되었습니다:\n`);

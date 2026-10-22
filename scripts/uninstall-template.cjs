@@ -2,8 +2,8 @@
 /**
  * scripts/uninstall-template.cjs
  *
- * Context Memory System(CMS) 자산을 대상 프로젝트에서 안전하고 완전하게 제거(Uninstall) 및 원복하는 스크립트
- * scripts/cms-manifest.cjs 단일 정본 매니페스트를 기반으로 동작합니다.
+ * Agent Context Memory(ACM) 자산을 대상 프로젝트에서 안전하고 완전하게 제거(Uninstall) 및 원복하는 스크립트
+ * scripts/acm-manifest.cjs 단일 정본 매니페스트를 기반으로 동작합니다.
  *
  * 사용법:
  *   node scripts/uninstall-template.cjs [target-directory] [옵션]
@@ -19,7 +19,7 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
-const { CMS_MANIFEST } = require('./cms-manifest.cjs');
+const { ACM_MANIFEST } = require('./acm-manifest.cjs');
 const {
   scanPresetRules,
   checkRuleContentDrift,
@@ -28,7 +28,7 @@ const {
 
 function printUsage() {
   console.log('=======================================================');
-  console.log('  Context Memory System 템플릿 언인스톨러 (Uninstall)');
+  console.log('  Agent Context Memory 템플릿 언인스톨러 (Uninstall)');
   console.log('=======================================================\n');
   console.log('사용법:');
   console.log('  node scripts/uninstall-template.cjs [target-directory] [옵션]\n');
@@ -78,11 +78,11 @@ function copyDirRecursive(src, dest) {
 }
 
 /**
- * 1단계: CMS 전용 디렉터리 백업 및 제거
+ * 1단계: ACM 전용 디렉터리 백업 및 제거
  */
 function rollbackDirectories(targetDir, options, stats) {
-  console.log('\n[1/5] CMS 소유 디렉터리 검사 및 제거 중...');
-  for (const dirMeta of CMS_MANIFEST.directories) {
+  console.log('\n[1/5] ACM 소유 디렉터리 검사 및 제거 중...');
+  for (const dirMeta of ACM_MANIFEST.directories) {
     const fullDirPath = path.resolve(targetDir, dirMeta.path);
     if (!fs.existsSync(fullDirPath)) {
       console.log(`  [미존재 건너뜀] ${dirMeta.path}`);
@@ -119,13 +119,13 @@ function rollbackDirectories(targetDir, options, stats) {
 }
 
 /**
- * 2단계: CMS 배포 개별 파일 선별 삭제 및 빈 부모 디렉터리 정리
+ * 2단계: ACM 배포 개별 파일 선별 삭제 및 빈 부모 디렉터리 정리
  */
 function rollbackOwnedFiles(targetDir, options, stats) {
-  console.log('\n[2/5] CMS 배포 개별 파일 선별 삭제 중...');
+  console.log('\n[2/5] ACM 배포 개별 파일 선별 삭제 중...');
   const cleanedDirs = new Set();
 
-  for (const fileMeta of CMS_MANIFEST.files) {
+  for (const fileMeta of ACM_MANIFEST.files) {
     const fullFilePath = path.resolve(targetDir, fileMeta.path);
     if (!fs.existsSync(fullFilePath)) {
       continue;
@@ -192,13 +192,13 @@ function rollbackPackageJson(targetDir, options, stats) {
     return;
   }
 
-  const cmsScripts = CMS_MANIFEST.packageJson.scripts;
+  const acmScripts = ACM_MANIFEST.packageJson.scripts;
   let removedCount = 0;
 
-  for (const [key, expectedCmd] of Object.entries(cmsScripts)) {
+  for (const [key, expectedCmd] of Object.entries(acmScripts)) {
     if (pkg.scripts[key]) {
       const currentCmd = pkg.scripts[key];
-      // 명령어가 CMS 정의와 일치하는지 확인
+      // 명령어가 ACM 정의와 일치하는지 확인
       if (currentCmd.trim() === expectedCmd.trim()) {
         if (options.dryRun) {
           console.log(`  [미리보기] 스크립트 제거 예정: "${key}"`);
@@ -215,7 +215,7 @@ function rollbackPackageJson(targetDir, options, stats) {
 
   if (!options.dryRun && removedCount > 0) {
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf-8');
-    console.log(`  -> package.json 내 CMS 스크립트 ${removedCount}개 항목 원복 완료.`);
+    console.log(`  -> package.json 내 ACM 스크립트 ${removedCount}개 항목 원복 완료.`);
   }
   stats.removedScriptsCount = removedCount;
 }
@@ -233,7 +233,7 @@ function rollbackGitIgnore(targetDir, options, stats) {
 
   const content = fs.readFileSync(gitignorePath, 'utf-8');
   const lines = content.split(/\r?\n/);
-  const { headerComment, entries } = CMS_MANIFEST.gitignore;
+  const { headerComment, entries } = ACM_MANIFEST.gitignore;
 
   let modified = false;
   const newLines = [];
@@ -256,14 +256,14 @@ function rollbackGitIgnore(targetDir, options, stats) {
   if (modified) {
     if (options.dryRun) {
       if (!remaining) {
-        console.log('  [미리보기] .gitignore (CMS 외 내용 없어 파일 삭제 예정)');
+        console.log('  [미리보기] .gitignore (ACM 외 내용 없어 파일 삭제 예정)');
       } else {
         console.log('  [미리보기] .gitignore 내 .agent 엔트리 제거 예정');
       }
     } else {
       if (!remaining) {
         fs.unlinkSync(gitignorePath);
-        console.log('  [파일 삭제] .gitignore (CMS 엔트리 외 내용이 없어 파일 삭제)');
+        console.log('  [파일 삭제] .gitignore (ACM 엔트리 외 내용이 없어 파일 삭제)');
       } else {
         fs.writeFileSync(gitignorePath, remaining + '\n', 'utf-8');
         console.log('  [엔트리 제거] .gitignore 내 .agent 엔트리 절제 완료');
@@ -271,7 +271,7 @@ function rollbackGitIgnore(targetDir, options, stats) {
     }
     stats.gitignoreUpdated = true;
   } else {
-    console.log('  [보존] .gitignore 내 CMS 관련 엔트리가 발견되지 않음');
+    console.log('  [보존] .gitignore 내 ACM 관련 엔트리가 발견되지 않음');
   }
 }
 
@@ -329,14 +329,14 @@ async function uninstall(targetPath = '.', options = {}) {
     : Boolean(process.stdin.isTTY);
 
   console.log('=======================================================');
-  console.log('  Context Memory System 제거(Uninstall) 및 롤백 시작');
+  console.log('  Agent Context Memory 제거(Uninstall) 및 롤백 시작');
   console.log(`  대상 경로 : ${targetDir}`);
   console.log(`  실행 모드 : ${dryRun ? '시뮬레이션 모드 (--dry-run)' : '실제 삭제 모드'}`);
   console.log(`  백업 정책 : ${options.noBackup ? '백업 생략 (--no-backup)' : '안전 백업 활성화'}`);
   console.log('=======================================================');
 
   if (!dryRun && !force && isInteractive) {
-    const confirm = await promptConfirm('\n정말 대상 프로젝트에서 Context Memory System을 제거하시겠습니까? (y/N): ');
+    const confirm = await promptConfirm('\n정말 대상 프로젝트에서 Agent Context Memory를 제거하시겠습니까? (y/N): ');
     if (!confirm) {
       console.log('\n[취소] 사용자에 의해 제거 작업이 중단되었습니다.\n');
       return { success: false, cancelled: true };
@@ -363,7 +363,7 @@ async function uninstall(targetPath = '.', options = {}) {
     console.log('  [완료] 시뮬레이션(Dry-run) 검사가 완료되었습니다.');
     console.log('  실제 파일은 변경되지 않았습니다.');
   } else {
-    console.log('  Context Memory System 제거 및 롤백이 완료되었습니다.');
+    console.log('  Agent Context Memory 제거 및 롤백이 완료되었습니다.');
   }
   console.log('=======================================================\n');
 

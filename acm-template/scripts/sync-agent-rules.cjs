@@ -3,14 +3,14 @@
  *
  * 다양한 AI 코딩 에이전트(Claude Code, Gemini, Cursor, Windsurf 등)의
  * 규칙 파일(CLAUDE.md, GEMINI.md, AGENTS.md, .cursorrules 등)을 자동 스캔하고,
- * 부재 시 사용자 입력을 제안받아 Context Memory 거버넌스 룰을 안전하게 주입/동기화하거나
+ * 부재 시 사용자 입력을 제안받아 Agent Context Memory 거버넌스 룰을 안전하게 주입/동기화하거나
  * 삭제(Uninstall) 시 내용 변조 감지(Drift Detection)를 거쳐 안전하게 절삭하는 모듈
  */
 
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
-const { CMS_MANIFEST, getFullGovernanceSnippet } = require('./cms-manifest.cjs');
+const { ACM_MANIFEST, getFullGovernanceSnippet } = require('./acm-manifest.cjs');
 
 const PRESET_RULE_FILES = [
   'CLAUDE.md',
@@ -20,9 +20,9 @@ const PRESET_RULE_FILES = [
   '.windsurfrules',
 ];
 
-const START_MARKER = CMS_MANIFEST.governanceRules.startMarker;
-const END_MARKER = CMS_MANIFEST.governanceRules.endMarker;
-const EXPECTED_BODY = CMS_MANIFEST.governanceRules.expectedBody;
+const START_MARKER = ACM_MANIFEST.governanceRules.startMarker;
+const END_MARKER = ACM_MANIFEST.governanceRules.endMarker;
+const EXPECTED_BODY = ACM_MANIFEST.governanceRules.expectedBody;
 const GOVERNANCE_SNIPPET = getFullGovernanceSnippet();
 
 /**
@@ -154,13 +154,13 @@ async function removeRuleFromFile(filePath, options = {}) {
   const driftResult = checkRuleContentDrift(filePath);
 
   if (driftResult.status === 'NOT_FOUND') {
-    return { file: filePath, status: 'SKIPPED', detail: 'CMS 거버넌스 마커 미존재' };
+    return { file: filePath, status: 'SKIPPED', detail: 'ACM 거버넌스 마커 미존재' };
   }
 
   // 내용이 원본과 다르게 수정되어 있는 경우 안전 확인 분기
   if (driftResult.status === 'MODIFIED' && !force) {
     const relName = path.basename(filePath);
-    console.log(`\n  [경고] "${relName}" 내 CMS 거버넌스 블록 내용이 원본과 다르게 수정되어 있습니다.`);
+    console.log(`\n  [경고] "${relName}" 내 ACM 거버넌스 블록 내용이 원본과 다르게 수정되어 있습니다.`);
     if (isInteractive) {
       const confirmed = await promptConfirm(`  -> 변경된 거버넌스 블록을 그래도 삭제하시겠습니까? (y/N): `);
       if (!confirmed) {
@@ -275,7 +275,7 @@ function applyGovernanceRules(targetDir, targetFiles) {
     actions.push(result);
     const relResult = path.relative(targetDir, fullPath);
     if (result.created) {
-      console.log(`  [규칙 생성] ${relResult} (Context Memory 거버넌스 주입)`);
+      console.log(`  [규칙 생성] ${relResult} (Agent Context Memory 거버넌스 주입)`);
     } else {
       console.log(`  [규칙 동기화] ${relResult} (기존 내용 보존 및 거버넌스 갱신)`);
     }

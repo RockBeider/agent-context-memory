@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * bin/context-memory.js
+ * bin/agent-context-memory.js
  *
- * Context Memory System의 통합 CLI 진입점 (npx context-memory)
+ * Agent Context Memory 통합 CLI 진입점 (npx agent-context-memory / npx acm)
  */
 
 const path = require('path');
@@ -22,16 +22,17 @@ try {
 
 function printHelp() {
   console.log(`
-Context Memory System CLI (v${pkgVersion})
+Agent Context Memory CLI (v${pkgVersion})
 Three-Tier Context Memory Governance & Task-Centric Engine
 
 사용법:
-  npx context-memory <명령어> [옵션]
-  또는 로컬 실행: node bin/context-memory.js <명령어> [옵션]
+  npx agent-context-memory <명령어> [옵션]
+  npx acm <명령어> [옵션]
+  또는 로컬 실행: node bin/agent-context-memory.js <명령어> [옵션]
 
 명령어:
-  init [경로] [옵션]       지정된 경로(기본값: '.')에 Context Memory System 템플릿 설치
-  uninstall [경로] [옵션]  지정된 경로(기본값: '.')에서 CMS 자산 및 주입 내용 안전 롤백/제거 (별칭: remove)
+  init [경로] [옵션]       지정된 경로(기본값: '.')에 Agent Context Memory 템플릿 설치
+  uninstall [경로] [옵션]  지정된 경로(기본값: '.')에서 ACM 자산 및 주입 내용 안전 롤백/제거 (별칭: remove)
   check-git               현재 환경의 Git 설치 유무 및 연동 상태 진단
   status                  현재 프로젝트의 작업 단위 Git 상태 점검 (group-status)
 
@@ -45,12 +46,12 @@ Three-Tier Context Memory Governance & Task-Centric Engine
   -r <파일명>             --rule-file 의 축약형
 
 예시:
-  npx context-memory init
-  npx context-memory init ./my-project --rule-file=CLAUDE.md
-  npx context-memory uninstall
-  npx context-memory uninstall ./my-project --dry-run
-  npx context-memory uninstall ./my-project --force
-  npx context-memory check-git
+  npx acm init
+  npx acm init ./my-project --rule-file=CLAUDE.md
+  npx acm uninstall
+  npx acm uninstall ./my-project --dry-run
+  npx acm uninstall ./my-project --force
+  npx acm check-git
 `);
 }
 
@@ -63,7 +64,7 @@ async function main() {
   }
 
   if (args.includes('-v') || args.includes('--version')) {
-    console.log(`context-memory v${pkgVersion}`);
+    console.log(`agent-context-memory v${pkgVersion}`);
     process.exit(0);
   }
 
@@ -137,7 +138,7 @@ async function main() {
         require(groupStatusScript);
       } else {
         console.error('[오류] 현재 디렉터리에서 scripts/group-status.cjs를 찾을 수 없습니다.');
-        console.error('먼저 `npx context-memory init`을 실행하여 시스템을 초기화하십시오.');
+        console.error('먼저 `npx acm init`을 실행하여 시스템을 초기화하십시오.');
         process.exit(1);
       }
       break;

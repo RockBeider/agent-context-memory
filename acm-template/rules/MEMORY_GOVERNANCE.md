@@ -1,4 +1,4 @@
-# Context Memory Governance Rules (표준 거버넌스 규격)
+# Agent Context Memory Governance Rules (표준 거버넌스 규격)
 
 > 본 문서는 3계층 인지 메모리 시스템(Three-Tier Memory Model)의 런타임 표준 가드레일 규격입니다.
 
@@ -9,19 +9,19 @@
    - 단일 활성 작업 정본 (Single Source of Truth), 상시 **5KB 이하** 유지.
    - 식별자: `TSK-{자연수}` (패딩 없음, 예: `TSK-1`, `TSK-24`). 신규 발급 시 전체(완료 포함) `최대 번호 + 1`.
    - 서식 지원: 블록형(`### TSK-X. 작업명` 하위 `- **상태**: [상태]`) 또는 불릿형(`- [상태] **TSK-X. 작업명**`).
-2. **장기 지식 (L2)**: `.agents/memory/patterns_index.md` / `patterns/`
+2. **장기 지식 (L2)**: `.agents/memory/patterns-index.md` / `patterns/`
    - 패턴 식별자: `P-{순차증가번호}` (예: `P-01`, `P-45`).
-   - `patterns/` 하위에 개별 샤딩 파일로 보관하며, `patterns_index.md`에는 1행 요약 메타데이터만 등록.
-3. **거시 ADR 로그 (L2)**: `.agents/memory/project_changelog.md`
+   - `patterns/` 하위에 개별 샤딩 파일로 보관하며, `patterns-index.md`에는 1행 요약 메타데이터만 등록.
+3. **거시 ADR 로그 (L2)**: `.agents/memory/project-changelog.md`
    - 아키텍처 식별자: `LOG-{순차증가번호}` (최상단 누적 Prepend).
-4. **콜드 아카이브 (L3)**: `.agents/task/task_completed.md`
+4. **콜드 아카이브 (L3)**: `.agents/task/task-completed.md`
    - 실제 Git 커밋 SHA 해시를 확보한 완료 태스크 영구 보관소.
 
 ---
 
 ## 2. 작업 수명주기 및 Git 원자 커밋 거버넌스
 1. **상태 라이프사이클**: `[ ]` (대기) -> `[진행 중]` -> `[커밋 대기]` (검증 완료) -> `[x]` (커밋 완료).
-2. **조기 이관 절대 금지**: 실제 Git 커밋 SHA 획득 전 `task.md`에서 `task_completed.md`로 조기 이관 엄격 금지 (이관 시 커밋 해시 필수 명기: `(Commit: abc1234)`).
+2. **조기 이관 절대 금지**: 실제 Git 커밋 SHA 획득 전 `task.md`에서 `task-completed.md`로 조기 이관 엄격 금지 (이관 시 커밋 해시 필수 명기: `(Commit: abc1234)`).
 3. **일괄 커밋 금지 및 스크립트 강제**:
    - `git add .` 일괄 스테이징 절대 금지.
    - 반드시 `node scripts/group-status.cjs`를 구동하여 정본 범위별로 분할 원자 커밋 수행.
@@ -30,14 +30,14 @@
 
 ## 3. 0토큰 온디맨드 검색 원칙 (Just-In-Time Grep)
 1. **전수 통조회 100% 금지**: 세션 시작 시 `patterns/` 하위 파일이나 전체 히스토리 문서를 통째로 읽는 행위 엄격 금지.
-2. **색인표 정밀 Grep**: 작업 키워드로 `patterns_index.md` 요약열만 `grep_search`하고, 매칭된 특정 샤딩 파일(`patterns/P-XX-*.md`)만 핀포인트 로딩 (미매칭 시 즉시 종료).
+2. **색인표 정밀 Grep**: 작업 키워드로 `patterns-index.md` 요약열만 `grep_search`하고, 매칭된 특정 샤딩 파일(`patterns/P-XX-*.md`)만 핀포인트 로딩 (미매칭 시 즉시 종료).
 3. **바이패스 프리픽스**: 사용자 프롬프트에 `/스킵`, `/태스크` 프리픽스가 있거나 단순 질의 시 지식 검색 생략.
-4. **사후 증류**: 검증 완료된 범용 재사용 솔루션에 한해 `P-XX` 샤딩 파일 신설 및 `patterns_index.md` 1행 등록.
+4. **사후 증류**: 검증 완료된 범용 재사용 솔루션에 한해 `P-XX` 샤딩 파일 신설 및 `patterns-index.md` 1행 등록.
 
 ---
 
 ## 4. 거시 아키텍처 ADR 조건부 열람 원칙
-1. **평소 조회 금지**: 통상 작업 시 `project_changelog.md`를 조회하지 않음 (0토큰 유지).
+1. **평소 조회 금지**: 통상 작업 시 `project-changelog.md`를 조회하지 않음 (0토큰 유지).
 2. **3대 조건부 이벤트에 한해 제한적 슬라이스 조회**:
    - 1) 전역 인프라/설정 수정
    - 2) 회귀 결함 역추적
