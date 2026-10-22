@@ -11,17 +11,6 @@
 
 ## 활성 태스크 목록
 
-### TSK-9. 프로젝트 명칭, 약어 및 하이픈 전환 리팩토링 (agent-context-memory, acm)
-- **상태**: [커밋 대기]
-- **등록일**: 2026-10-22
-- **담당자**: Antigravity Pair Programmer
-- **대상 영역**: `package.json`, `bin/`, `scripts/`, `cms_template/` -> `acm-template/`, `rules/`, `AGENTS.md`, `README.md`, `.gitignore`, `docs/`, `.agents/`
-- **세부 작업**:
-  - [x] 계획서 승인 획득 (`implementation_plan.md`)
-  - [x] Git 추적 기반 디렉터리 및 파일 이동 (`git mv`)
-  - [x] 패키지 메타데이터(`package.json`) 및 CLI 진입점(`bin/`) 갱신
-  - [x] 단일 정본 매니페스트(`acm-manifest.cjs`) 및 4대 실행 엔진 갱신
-  - [x] 거버넌스 규칙(`MEMORY_GOVERNANCE.md`), `AGENTS.md`, `README.md` 갱신
-  - [x] 런타임 테스트 및 무결성 검증
+(현재 활성화된 작업이 없습니다. 모든 작업이 정상 완료되어 task-completed.md로 이관되었습니다. 신규 작업 발급 시 TSK-10으로 채번됩니다.)
 
 
