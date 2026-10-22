@@ -4,6 +4,15 @@
 > 실제 터미널 `git commit` 완료 후 획득한 SHA 해시가 명기된 작업만 보관하는 콜드 아카이브(Cold Archive) 정본입니다.
 > 신규 완료 작업은 최상단 일자 섹션에 누적(Prepend)합니다.
 
+## 2026-10-22
+
+- [x] **TSK-9. 프로젝트 명칭, 약어 및 하이픈 전환 리팩토링** (Commit: f14856a)
+  - 등록일: 2026-10-22 / 완료일: 2026-10-22
+  - 대상 영역: `package.json`, `bin/`, `scripts/`, `acm-template/`, `rules/`, `AGENTS.md`, `README.md`, `.gitignore`, `docs/`, `.agents/`
+  - 수행 내역: 프로젝트 명칭을 agent-context-memory, 약어를 acm으로 전면 개편. 배포 템플릿 폴더(acm-template) 및 3대 정본 파일(patterns-index.md, project-changelog.md, task-completed.md), 분석 문서의 하이픈 전환 완료. 단일 정본 매니페스트(acm-manifest.cjs) 및 4대 실행 엔진 동기화, 거버넌스 규칙/마커/README 최신화 및 무결성 검증 완료.
+
+---
+
 ## 2026-10-20
 
 - [x] **TSK-8. 레거시 memorial 파일 영구 삭제 및 코드/템플릿 전수 클린업** (Commit: fb1e7e5)
