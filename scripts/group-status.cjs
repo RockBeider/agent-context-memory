@@ -22,7 +22,7 @@ const path = require('path');
 const { execSync, spawnSync } = require('child_process');
 const readline = require('readline');
 
-const ROOT_DIR = path.resolve(__dirname, '..');
+const ROOT_DIR = process.env.ACM_ROOT_DIR ? path.resolve(process.env.ACM_ROOT_DIR) : path.resolve(__dirname, '..');
 const TASK_FILE = path.join(ROOT_DIR, '.agents', 'task', 'task.md');
 const CHANGELOG_FILE = fs.existsSync(path.join(ROOT_DIR, '.agents', 'memory', 'project-changelog.md'))
   ? path.join(ROOT_DIR, '.agents', 'memory', 'project-changelog.md')
@@ -41,6 +41,7 @@ function getGitStatus() {
       cwd: ROOT_DIR,
       encoding: 'utf-8',
       env: { ...process.env, GIT_PAGER: 'cat', PAGER: 'cat' },
+      stdio: ['ignore', 'pipe', 'ignore'],
     });
     if (!raw.trim()) return [];
 
@@ -73,8 +74,8 @@ function getGitStatus() {
     }
     return list;
   } catch (err) {
-    console.error('[오류] git status 실행 실패:', err.message);
-    process.exit(1);
+    // Git 미설치 또는 비-Git 저장소인 경우 에러 대신 null 반환 (Graceful Fallback)
+    return null;
   }
 }
 
@@ -455,7 +456,10 @@ function buildCommitMessage(task, files) {
  */
 function classifyChanges() {
   const gitFiles = getGitStatus();
-  if (gitFiles.length === 0) return { groups: [], totalFiles: 0 };
+  if (gitFiles === null) {
+    return { groups: [], totalFiles: 0, isNonGit: true };
+  }
+  if (gitFiles.length === 0) return { groups: [], totalFiles: 0, isNonGit: false };
 
   const taskList = parseTaskMd();
   const changelogList = parseChangelog();
@@ -649,7 +653,7 @@ function classifyChanges() {
     }
   }
 
-  return { groups, totalFiles: gitFiles.length };
+  return { groups, totalFiles: gitFiles.length, isNonGit: false };
 }
 
 /**
@@ -718,7 +722,72 @@ function executeCommitGroup(group) {
 }
 
 /**
- * 9. CLI 실행 엔트리포인트
+ * 9. 비-Git 환경 메모리 상태 리포트 (Graceful Fallback 뷰어)
+ */
+function reportNonGitMemoryStatus(isCompact) {
+  const tasks = parseTaskMd();
+  const changelog = parseChangelog();
+  const patterns = parseLearnedPatterns();
+
+  const activeTasks = tasks.filter((t) => t.status !== '완료');
+
+  if (isCompact) {
+    console.log(`[비-Git 환경] Git 변경 감지 비활성화 | 활성 태스크: ${activeTasks.length}건 | 누적 패턴: ${patterns.length}건`);
+    activeTasks.forEach((t) => {
+      console.log(`- [${t.status}] ${t.title}`);
+    });
+    return;
+  }
+
+  console.log('=======================================================');
+  console.log('  Agent Context Memory 메모리 상태 점검 (비-Git 모드)');
+  console.log('  [안내] Git 저장소가 아니거나 Git이 비활성화된 환경입니다.');
+  console.log('         (파일 변경 감지 및 자동 커밋 비활성화, 메모리 뷰어 가동)');
+  console.log('=======================================================\n');
+
+  console.log(`[1] 작업 기억 정본 (.agents/task/task.md) - 활성 작업 ${activeTasks.length}건:`);
+  if (activeTasks.length === 0) {
+    console.log('    (현재 진행 중인 활성 태스크가 없습니다.)\n');
+  } else {
+    activeTasks.forEach((t, idx) => {
+      console.log(`    ${idx + 1}. [${t.status}] ${t.title}`);
+      if (t.purpose) console.log(`       목적: ${t.purpose}`);
+      if (t.targetPatterns && t.targetPatterns.length > 0) {
+        console.log(`       대상 영역: ${t.targetPatterns.join(', ')}`);
+      }
+    });
+    console.log('');
+  }
+
+  console.log(`[2] 변경 이력 메모리 (project-changelog.md) - 최근 ${Math.min(changelog.length, 3)}건:`);
+  if (changelog.length === 0) {
+    console.log('    (기록된 최근 체인지로그가 없습니다.)\n');
+  } else {
+    changelog.slice(0, 3).forEach((c) => {
+      console.log(`    - [${c.date}] ${c.title}`);
+    });
+    console.log('');
+  }
+
+  console.log(`[3] 축적된 설계 패턴 및 해결책 (patterns/) - 총 ${patterns.length}건:`);
+  if (patterns.length === 0) {
+    console.log('    (기록된 해결 패턴이 없습니다.)\n');
+  } else {
+    patterns.slice(0, 5).forEach((p) => {
+      console.log(`    - ${p.title}: ${p.purpose}`);
+    });
+    console.log('');
+  }
+
+  console.log('=======================================================');
+  console.log('  [비-Git 환경 작업 완료 안내]');
+  console.log('  - 태스크 완료 시 사용자에게 검증 결과 보고 후 이관 여부를 확인받고,');
+  console.log('    task-completed.md 로 이관하십시오.');
+  console.log('=======================================================\n');
+}
+
+/**
+ * 10. CLI 실행 엔트리포인트
  */
 function main() {
   const args = process.argv.slice(2);
@@ -727,7 +796,17 @@ function main() {
   const isAll = args.includes('--all');
   const commitArg = args.find((a) => a.startsWith('--commit='));
 
-  const { groups, totalFiles } = classifyChanges();
+  const { groups, totalFiles, isNonGit } = classifyChanges();
+
+  if (isNonGit) {
+    if (commitArg || isAll) {
+      console.log('[안내] Git 환경이 아니므로 Git 커밋을 실행할 수 없습니다.');
+      console.log('       작업 완료 후 사용자 확인을 득하여 task-completed.md로 이관하십시오.');
+      process.exit(0);
+    }
+    reportNonGitMemoryStatus(isCompact);
+    process.exit(0);
+  }
 
   if (totalFiles === 0) {
     if (isCompact) {

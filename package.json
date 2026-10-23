@@ -10,6 +10,14 @@
     "task-centric-commit",
     "three-tier-memory"
   ],
+  "homepage": "https://github.com/rockbeider/agent-context-memory#readme",
+  "bugs": {
+    "url": "https://github.com/rockbeider/agent-context-memory/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rockbeider/agent-context-memory.git"
+  },
   "license": "MIT",
   "author": "Rock Beider",
   "type": "commonjs",
@@ -19,17 +27,24 @@
     "acm": "bin/agent-context-memory.js",
     "context-memory": "bin/agent-context-memory.js"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "bin",
     "acm-template",
     "scripts",
     "rules",
     "AGENTS.md",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "directories": {
     "doc": "docs"
-  },  "scripts": {
+  },
+  "scripts": {
+    "test": "node tests/e2e-install.test.cjs && node tests/non-git-compatibility.test.cjs",
+    "prepublishOnly": "npm test",
     "init": "node bin/agent-context-memory.js init",
     "check-git": "node scripts/check-git.cjs",
     "acm:install": "node scripts/install-template.cjs",

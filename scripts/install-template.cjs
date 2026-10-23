@@ -146,7 +146,7 @@ async function install(targetPath = '.', options = {}) {
   console.log('=======================================================\n');
 
   // 1단계: Git 환경 비-차단 사전 진단
-  const gitStatus = checkGitEnvironment();
+  const gitStatus = checkGitEnvironment(targetDir);
   const hasGit = printGitNotice(gitStatus);
 
   if (!fs.existsSync(TEMPLATE_DIR)) {

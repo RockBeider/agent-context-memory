@@ -15,7 +15,7 @@ const path = require('path');
 const { execSync, spawnSync } = require('child_process');
 const readline = require('readline');
 
-const ROOT_DIR = path.resolve(__dirname, '..');
+const ROOT_DIR = process.env.ACM_ROOT_DIR ? path.resolve(process.env.ACM_ROOT_DIR) : path.resolve(__dirname, '..');
 
 /**
  * Git 및 쉘 명령어 동기 실행 래퍼 (Windows Pager 블록 방어)
