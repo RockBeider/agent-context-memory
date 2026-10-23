@@ -4,6 +4,15 @@
 > 실제 터미널 `git commit` 완료 후 획득한 SHA 해시가 명기된 작업만 보관하는 콜드 아카이브(Cold Archive) 정본입니다.
 > 신규 완료 작업은 최상단 일자 섹션에 누적(Prepend)합니다.
 
+## 2026-10-23
+
+- [x] **TSK-10. npm 패키지 배포 명세 정비, 비-Git 환경 무장애 지원 및 법적 라이선스 정본화** (Commit: 4f16bb9)
+  - 등록일: 2026-10-23 / 완료일: 2026-10-23
+  - 대상 영역: `LICENSE`, `package.json`, `README.md`, `bin/`, `scripts/`, `acm-template/`, `rules/`, `tests/`, `.agents/task/task.md`
+  - 수행 내역: MIT 라이선스 정본(LICENSE) 신설, package.json 배포 메타데이터 및 스크립트 표준화, bin/agent-context-memory.js 실행 비트(100755) 및 서브커맨드 프록시 확장, OS Git 및 저장소 분리 진단 엔진(check-git.cjs) 고도화, 비-Git 환경 메모리 뷰어 모드(group-status.cjs) 및 CLI 안전 방어 연동, 비-Git 완료 이관 원칙 및 사용자 승인 게이트 규격 표준화, Addy Osmani 벤치마킹 기반 README.md 전면 개편(Mermaid 다이어그램 포함), Git 및 비-Git 전체 라이프사이클 E2E 테스트 스위트 구축 및 npm test/npm pack 무결성 통과 완료.
+
+---
+
 ## 2026-10-22
 
 - [x] **TSK-9. 프로젝트 명칭, 약어 및 하이픈 전환 리팩토링** (Commit: f14856a)
