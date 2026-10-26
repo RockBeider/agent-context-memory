@@ -11,4 +11,10 @@
 
 ## 활성 태스크 목록
 
-(현재 진행 중인 활성 태스크가 없습니다. 신규 태스크 생성 시 TSK-13 채번)
+### TSK-13. ACM 거버넌스 규칙 및 템플릿 수정 방지 가드레일 추가
+- **상태**: [커밋 대기]
+- **담당**: Agent
+- **대상 영역**: `rules/MEMORY_GOVERNANCE.md`, `AGENTS.md`
+- **작업 내용**:
+  - `rules/MEMORY_GOVERNANCE.md`에 ACM 전용 규칙 한정 및 `acm-template/` 수정 금지 가드 문구 추가
+  - `AGENTS.md` Context Memory Guardrails에 규칙 분리 및 템플릿 보호 조항 추가
