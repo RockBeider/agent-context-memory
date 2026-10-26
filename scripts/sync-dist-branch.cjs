@@ -19,6 +19,13 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 const TEMP_INDEX_REL = '.git/temp-dist-index';
 const TEMP_INDEX_PATH = path.join(REPO_ROOT, TEMP_INDEX_REL);
 
+/**
+ * dist 배포 산출물 및 npm 패키지에서 제외할 소스/릴리스 전용 파일 목록
+ */
+const EXCLUDED_DIST_FILES = [
+  'scripts/sync-dist-branch.cjs',
+];
+
 function runGit(cmd, options = {}) {
   const env = {
     ...process.env,
@@ -31,6 +38,55 @@ function runGit(cmd, options = {}) {
     env,
     stdio: options.stdio || ['ignore', 'pipe', 'pipe'],
   }).trim();
+}
+
+/**
+ * 배포 산출물(dist)용으로 불필요/오류 유발 스크립트가 제거된 package.json 문자열을 생성합니다.
+ */
+function generateDistributionPackageJson(pkgPath) {
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+
+  if (pkg.scripts) {
+    const cleaned = { ...pkg.scripts };
+
+    // 1) 릴리스 파이프라인 전용 스크립트 제거
+    delete cleaned['dist:sync'];
+    delete cleaned['dist:push'];
+
+    // 2) 런타임에 tests/ 폴더가 제외되어 오류를 유발하는 스크립트 제거
+    delete cleaned['test'];
+    delete cleaned['prepublishOnly'];
+
+    // 3) CLI(npx acm)로 대체되는 로컬 전용 별칭 스크립트 정제
+    delete cleaned['acm:install'];
+    delete cleaned['acm:uninstall'];
+    delete cleaned['check-git'];
+
+    pkg.scripts = cleaned;
+  }
+
+  return JSON.stringify(pkg, null, 2) + '\n';
+}
+
+/**
+ * Git Plumbing(hash-object, update-index)을 활용해
+ * 워킹 트리의 원본 파일 변경 없이 임시 인덱스에만 정제된 package.json을 주입합니다.
+ */
+function injectSanitizedPackageJson(gitEnv) {
+  const pkgPath = path.join(REPO_ROOT, 'package.json');
+  if (!fs.existsSync(pkgPath)) return;
+
+  const sanitizedContent = generateDistributionPackageJson(pkgPath);
+
+  const blobHash = execSync('git hash-object -w --stdin', {
+    cwd: REPO_ROOT,
+    input: sanitizedContent,
+    encoding: 'utf-8',
+    env: { ...process.env, ...gitEnv },
+  }).trim();
+
+  runGit(`git update-index --cacheinfo 100644 ${blobHash} package.json`, { env: gitEnv });
+  console.log(`[dist-sync] 배포용 package.json 정제 주입 완료 (blob: ${blobHash.substring(0, 7)})`);
 }
 
 function getPackageDistributionFiles() {
@@ -110,7 +166,22 @@ function syncDistBranch(options = {}) {
     console.log('[dist-sync] 배포 항목 임시 인덱스 스테이징 중...');
     const targetArgs = validTargets.map((t) => `"${t}"`).join(' ');
     runGit(`git add -A -- ${targetArgs}`, { env: gitEnv });
-    console.log('[dist-sync] 임시 인덱스 스테이징 완료.');
+
+    // 4-1. 배포 제외 대상 파일 인덱스에서 제거
+    for (const file of EXCLUDED_DIST_FILES) {
+      try {
+        runGit(`git rm --cached -f -- "${file}"`, {
+          env: gitEnv,
+          stdio: ['ignore', 'ignore', 'ignore'],
+        });
+        console.log(`[dist-sync] 배포 제외 파일 인덱스 제거: ${file}`);
+      } catch (_) {}
+    }
+
+    // 4-2. 배포용 package.json 정제 주입 (워킹 트리 원본 보존)
+    injectSanitizedPackageJson(gitEnv);
+
+    console.log('[dist-sync] 임시 인덱스 스테이징 및 배포 위생 정제 완료.');
 
     // 5. 트리 생성 (git write-tree)
     const treeHash = runGit('git write-tree', { env: gitEnv });
