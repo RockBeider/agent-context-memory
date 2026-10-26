@@ -55,7 +55,9 @@
     "git:commit": "node scripts/group-status.cjs --all",
     "git:pull": "node scripts/smart-pull.cjs",
     "git:resolve": "node scripts/smart-pull.cjs --resolve",
-    "git:audit-push": "node scripts/audit-push.cjs"
+    "git:audit-push": "node scripts/audit-push.cjs",
+    "dist:sync": "node scripts/sync-dist-branch.cjs",
+    "dist:push": "node scripts/sync-dist-branch.cjs --push"
   },
   "engines": {
     "node": ">=18.0.0"
