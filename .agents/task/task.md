@@ -11,4 +11,12 @@
 
 ## 활성 태스크 목록
 
-(현재 진행 중인 활성 태스크가 없습니다. 신규 태스크 생성 시 TSK-12 채번)
+### [커밋 대기] TSK-12: dist 배포 파이프라인 정제 및 불필요 스크립트 제외
+- **목표**: dist 브랜치 및 배포 산출물에서 sync-dist-branch.cjs 및 불필요한 scripts(dist:*, test 등)를 제외하고 무중단 배포 정제 엔진 구축
+- **담당자**: Assistant
+- **범위**: `scripts/sync-dist-branch.cjs`, `.npmignore`
+- **세부 작업**:
+  - [x] scripts/sync-dist-branch.cjs 내 배포 제외 파일(sync-dist-branch.cjs) 필터링 및 Git Plumbing 기반 package.json 정제 로직 구현
+  - [x] .npmignore 작성으로 npm 패키지 레벨 배포 제외 처리
+  - [x] npm test 및 dist 브랜치 동기화 검증 (dist 트리에서 sync-dist-branch.cjs 제외 및 scripts 정제 확인 완료)
+
