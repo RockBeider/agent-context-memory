@@ -4,6 +4,20 @@
 > 실제 터미널 `git commit` 완료 후 획득한 SHA 해시가 명기된 작업만 보관하는 콜드 아카이브(Cold Archive) 정본입니다.
 > 신규 완료 작업은 최상단 일자 섹션에 누적(Prepend)합니다.
 
+## 2026-10-26
+
+- [x] **TSK-12. dist 배포 파이프라인 정제 및 불필요 스크립트 제외** (Commit: 4b15c34)
+  - 등록일: 2026-10-26 / 완료일: 2026-10-26
+  - 대상 영역: `scripts/sync-dist-branch.cjs`, `.npmignore`, `package.json`
+  - 수행 내역: 배포 산출물(dist)에서 소스 릴리스 도구(sync-dist-branch.cjs) 원천 제외(git rm --cached), Git Plumbing(hash-object, update-index) 기반 배포용 package.json 무중단 정제(dist:*, test, prepublishOnly, 개발용 별칭 제거) 엔진 구현, .npmignore 신설을 통한 npm 배포 위생 강화, npm test 전체 E2E 스위트 통과, dist 브랜치 파일 33개 경량화 및 정제 메타데이터 검증 완료.
+
+- [x] **TSK-11. dist 배포 브랜치 신설 및 npm 패키지 격리 파이프라인 구축** (Commit: f0db820)
+  - 등록일: 2026-10-26 / 완료일: 2026-10-26
+  - 대상 영역: `scripts/sync-dist-branch.cjs`, `package.json`, `.github/workflows/release-dist.yml`, `rules/MEMORY_GOVERNANCE.md`, `acm-template/rules/MEMORY_GOVERNANCE.md`, `.agents/task/task.md`
+  - 수행 내역: Git Plumbing(GIT_INDEX_FILE, write-tree, commit-tree, update-ref) 기반 배포 브랜치(dist) 동기화 엔진(scripts/sync-dist-branch.cjs) 신설, package.json에 dist:sync/dist:push 스크립트 등록, GitHub Actions 자동 배포 파이프라인(.github/workflows/release-dist.yml) 작성, 로컬 dist 브랜치 생성 및 34개 배포 대상 파일(8개 항목) 격리 무결성 검증, npm test 전체 E2E 스위트 통과, 제6조 브랜치 전략 및 배포 아티팩트 격리 거버넌스 규격 반영 완료.
+
+---
+
 ## 2026-10-23
 
 - [x] **TSK-10. npm 패키지 배포 명세 정비, 비-Git 환경 무장애 지원 및 법적 라이선스 정본화** (Commit: 4f16bb9)
