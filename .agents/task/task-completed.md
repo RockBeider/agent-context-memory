@@ -6,6 +6,11 @@
 
 ## 2026-10-26
 
+- [x] **TSK-12. dist 배포 파이프라인 정제 및 불필요 스크립트 제외** (Commit: 4b15c34)
+  - 등록일: 2026-10-26 / 완료일: 2026-10-26
+  - 대상 영역: `scripts/sync-dist-branch.cjs`, `.npmignore`, `package.json`
+  - 수행 내역: 배포 산출물(dist)에서 소스 릴리스 도구(sync-dist-branch.cjs) 원천 제외(git rm --cached), Git Plumbing(hash-object, update-index) 기반 배포용 package.json 무중단 정제(dist:*, test, prepublishOnly, 개발용 별칭 제거) 엔진 구현, .npmignore 신설을 통한 npm 배포 위생 강화, npm test 전체 E2E 스위트 통과, dist 브랜치 파일 33개 경량화 및 정제 메타데이터 검증 완료.
+
 - [x] **TSK-11. dist 배포 브랜치 신설 및 npm 패키지 격리 파이프라인 구축** (Commit: f0db820)
   - 등록일: 2026-10-26 / 완료일: 2026-10-26
   - 대상 영역: `scripts/sync-dist-branch.cjs`, `package.json`, `.github/workflows/release-dist.yml`, `rules/MEMORY_GOVERNANCE.md`, `acm-template/rules/MEMORY_GOVERNANCE.md`, `.agents/task/task.md`
