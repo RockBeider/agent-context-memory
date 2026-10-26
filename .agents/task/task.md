@@ -11,11 +11,4 @@
 
 ## 활성 태스크 목록
 
-- [커밋 대기] **TSK-11. dist 배포 브랜치 신설 및 npm 패키지 격리 파이프라인 구축**
-  - 담당: Antigravity
-  - 등록일: 2026-10-26
-  - 대상 영역: `scripts/sync-dist-branch.cjs`, `package.json`, `.github/workflows/release-dist.yml`, `rules/MEMORY_GOVERNANCE.md`, `acm-template/rules/MEMORY_GOVERNANCE.md`, `.agents/task/task.md`
-  - 수행 계획: package.json의 files 필드 기반 배포 파일 자동 동기화 엔진 구현, GitHub Actions release-dist 워크플로우 구축, dist 브랜치 생성 및 무결성 검증, 거버넌스 규칙 문서 갱신.
-
-
-
+(현재 진행 중인 활성 태스크가 없습니다. 신규 태스크 생성 시 TSK-12 채번)
