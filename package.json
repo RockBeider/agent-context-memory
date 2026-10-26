@@ -1,0 +1,65 @@
+{
+  "name": "agent-context-memory",
+  "version": "0.1.0",
+  "description": "Agentic Three-Tier Agent Context Memory & Task-Centric Git Engine",
+  "keywords": [
+    "ai-agent",
+    "context-management",
+    "working-memory",
+    "long-term-memory",
+    "task-centric-commit",
+    "three-tier-memory"
+  ],
+  "homepage": "https://github.com/rockbeider/agent-context-memory#readme",
+  "bugs": {
+    "url": "https://github.com/rockbeider/agent-context-memory/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rockbeider/agent-context-memory.git"
+  },
+  "license": "MIT",
+  "author": "Rock Beider",
+  "type": "commonjs",
+  "main": "bin/agent-context-memory.js",
+  "bin": {
+    "agent-context-memory": "bin/agent-context-memory.js",
+    "acm": "bin/agent-context-memory.js",
+    "context-memory": "bin/agent-context-memory.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "bin",
+    "acm-template",
+    "scripts",
+    "rules",
+    "AGENTS.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "node tests/e2e-install.test.cjs && node tests/non-git-compatibility.test.cjs",
+    "prepublishOnly": "npm test",
+    "init": "node bin/agent-context-memory.js init",
+    "check-git": "node scripts/check-git.cjs",
+    "acm:install": "node scripts/install-template.cjs",
+    "acm:uninstall": "node scripts/uninstall-template.cjs",
+    "cms:install": "node scripts/install-template.cjs",
+    "cms:uninstall": "node scripts/uninstall-template.cjs",
+    "git:status": "node scripts/group-status.cjs",
+    "git:commit": "node scripts/group-status.cjs --all",
+    "git:pull": "node scripts/smart-pull.cjs",
+    "git:resolve": "node scripts/smart-pull.cjs --resolve",
+    "git:audit-push": "node scripts/audit-push.cjs",
+    "dist:sync": "node scripts/sync-dist-branch.cjs",
+    "dist:push": "node scripts/sync-dist-branch.cjs --push"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
