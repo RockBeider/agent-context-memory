@@ -6,6 +6,11 @@
 
 ## 2026-10-26
 
+- [x] **TSK-13. ACM 거버넌스 규칙 및 템플릿 수정 방지 가드레일 추가** (Commit: c2ef225)
+  - 등록일: 2026-10-26 / 완료일: 2026-10-26
+  - 대상 영역: `rules/MEMORY_GOVERNANCE.md`, `AGENTS.md`
+  - 수행 내역: `rules/MEMORY_GOVERNANCE.md`에 문서 역할 격리(ACM 전용) 및 `acm-template/` 수정 엄격 금지 가드레일 명기, `AGENTS.md` Context Memory Guardrails에 규칙 분리(6조) 및 템플릿 보호(7조) 조항 추가, `# Project Execution Rules` 분리 안내문 반영 완료.
+
 - [x] **TSK-12. dist 배포 파이프라인 정제 및 불필요 스크립트 제외** (Commit: 4b15c34)
   - 등록일: 2026-10-26 / 완료일: 2026-10-26
   - 대상 영역: `scripts/sync-dist-branch.cjs`, `.npmignore`, `package.json`
