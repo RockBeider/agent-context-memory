@@ -49,8 +49,6 @@
     "check-git": "node scripts/check-git.cjs",
     "acm:install": "node scripts/install-template.cjs",
     "acm:uninstall": "node scripts/uninstall-template.cjs",
-    "cms:install": "node scripts/install-template.cjs",
-    "cms:uninstall": "node scripts/uninstall-template.cjs",
     "git:status": "node scripts/group-status.cjs",
     "git:commit": "node scripts/group-status.cjs --all",
     "git:pull": "node scripts/smart-pull.cjs",
