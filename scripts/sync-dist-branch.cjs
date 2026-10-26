@@ -118,10 +118,30 @@ function syncDistBranch(options = {}) {
 
     // 6. 이전 dist 브랜치 HEAD 확인 (부모 커밋 연결)
     let parentCommit = null;
+
+    // 원격 dist 브랜치 정보 갱신 시도 (CI 환경 대비)
     try {
-      parentCommit = runGit('git rev-parse --verify refs/heads/dist');
-      console.log(`[dist-sync] 기존 dist 브랜치 HEAD 감지: ${parentCommit}`);
-    } catch (_) {
+      runGit('git fetch origin dist', { stdio: ['ignore', 'ignore', 'ignore'] });
+    } catch (_) {}
+
+    const candidateRefs = [
+      'refs/heads/dist',
+      'refs/remotes/origin/dist',
+      'origin/dist',
+    ];
+
+    for (const ref of candidateRefs) {
+      try {
+        const hash = runGit(`git rev-parse --verify ${ref}`);
+        if (hash) {
+          parentCommit = hash;
+          console.log(`[dist-sync] 기존 dist 브랜치 HEAD 감지 (${ref}): ${parentCommit}`);
+          break;
+        }
+      } catch (_) {}
+    }
+
+    if (!parentCommit) {
       console.log('[dist-sync] 기존 dist 브랜치가 없어 첫 루트(고아) 커밋으로 생성합니다.');
     }
 
@@ -140,7 +160,12 @@ function syncDistBranch(options = {}) {
     // 9. 원격 푸시 (옵션)
     if (shouldPush) {
       console.log('[dist-sync] 원격 저장소로 dist 브랜치를 푸시합니다: git push origin dist');
-      runGit('git push origin dist');
+      try {
+        runGit('git push origin dist');
+      } catch (pushErr) {
+        console.warn('[dist-sync] 일반 푸시 거부 감지, 배포 브랜치 강제 푸시(--force)를 수행합니다.');
+        runGit('git push origin dist --force');
+      }
       console.log('[dist-sync] 원격 푸시가 성공적으로 완료되었습니다.');
     }
 

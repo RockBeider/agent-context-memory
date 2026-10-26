@@ -1,6 +1,6 @@
 {
   "name": "agent-context-memory",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Agentic Three-Tier Agent Context Memory & Task-Centric Git Engine",
   "keywords": [
     "ai-agent",
