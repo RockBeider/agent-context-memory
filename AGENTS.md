@@ -11,7 +11,3 @@
 ---
 
 # Project Execution Rules
-
-## 1. 단계별 승인 게이트 (Phase/Task Gate Protocol)
-- 계획서(`implementation_plan.md`)가 단계(Phases) 형태로 분할되어 진행되는 경우, 특정 단계가 완료된 후 임의로 다음 단계를 연속하여 진행하지 않는다.
-- 각 단계 종료 시마다 검증 결과를 사용자에게 보고하고, 다음 단계 진행 여부(승인)를 확인받은 후에만 후속 작업에 착수한다.
