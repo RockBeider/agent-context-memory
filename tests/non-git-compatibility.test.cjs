@@ -35,7 +35,7 @@ try {
 
   assert.strictEqual(initRes.status, 0, `init 실패 (status: ${initRes.status}): ${initRes.stderr || initRes.stdout}`);
   assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'task', 'task.md')), '.agents/task/task.md 미생성');
-  assert.ok(fs.existsSync(path.join(tempDir, 'rules', 'MEMORY_GOVERNANCE.md')), 'rules/MEMORY_GOVERNANCE.md 미생성');
+  assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'MEMORY_GOVERNANCE.md')), '.agents/MEMORY_GOVERNANCE.md 미생성');
   assert.ok(fs.existsSync(path.join(tempDir, 'AGENTS.md')), 'AGENTS.md 미생성');
   console.log('[통과] init 실행 및 템플릿 파일 생성 확인.');
 
@@ -111,7 +111,6 @@ try {
 
   assert.strictEqual(uninstallRes.status, 0, `uninstall 실패: ${uninstallRes.stderr || uninstallRes.stdout}`);
   assert.ok(!fs.existsSync(path.join(tempDir, '.agents')), '.agents 디렉터리 미삭제');
-  assert.ok(!fs.existsSync(path.join(tempDir, 'rules', 'MEMORY_GOVERNANCE.md')), 'rules/MEMORY_GOVERNANCE.md 미삭제');
   console.log('[통과] uninstall 롤백 및 제거 정상 확인.');
 
   console.log('=== 비-Git 환경 호환성 E2E 검증 통과 (모든 테스트 성공) ===\n');

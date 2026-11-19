@@ -3,7 +3,7 @@
  * @file token-monitor.cjs
  * @description Antigravity PreInvocation 훅 스크립트.
  *              세션 트랜스크립트(transcript.jsonl) 파일 크기를 0 토큰(순수 OS 프로세스)으로 측정하여
- *              컨텍스트 팽창 시 선제 알림을 주입합니다.
+ *              컨텍스트 팽창 시 선제 알림을 주입합니다. (MD5 상태 캐싱으로 중복 알림 노이즈 방지)
  */
 
 const fs = require('fs');
@@ -84,7 +84,7 @@ function main() {
           JSON.stringify({
             injectSteps: [
               {
-                ephemeralMessage: `[컨텍스트 포화 경고] 세션 누적 로그가 약 ${sizeKB}KB (약 ${estTokens.toLocaleString()} 토큰)에 도달했습니다. 현재 작업 일단락 후 task.md 정리 및 새 세션 분리를 강력히 권장합니다.`,
+                ephemeralMessage: `[컨텍스트 포화 경고] 세션 누적 로그가 약 ${sizeKB}KB (약 ${estTokens.toLocaleString()} 토큰)에 도달했습니다. 현재 작업 일단락 후 /태스크(task.md) 정리 및 새 세션 분리를 강력히 권장합니다.`,
               },
             ],
           })

@@ -8,5 +8,5 @@
 
 | ID | 카테고리 | 핵심 요약 | 파일 링크 |
 | :--- | :--- | :--- | :--- |
-| **P-01** | Git/도구 | 대화형 Pager로 인한 Git CLI 프로세스 프리징 방지 (`PAGER=cat` 강제) | [P-01-git-pager-freeze-fix.md](file:///./patterns/P-01-git-pager-freeze-fix.md) |
-| **P-02** | 형상관리 | 작업 단위(Task-Centric) 원자적 커밋 거버넌스 및 자동 분류 | [P-02-atomic-commit-governance.md](file:///./patterns/P-02-atomic-commit-governance.md) |
+| P-01 | Git/도구 | 대화형 Pager로 인한 Git CLI 프로세스 프리징 방지 (`PAGER=cat` 강제) | [P-01-git-pager-freeze-fix.md](file:///./patterns/P-01-git-pager-freeze-fix.md) |
+| P-02 | 형상관리 | 작업 단위(Task-Centric) 원자적 커밋 거버넌스 및 자동 분류 | [P-02-atomic-commit-governance.md](file:///./patterns/P-02-atomic-commit-governance.md) |
