@@ -77,12 +77,13 @@ Agent Context Memory CLI (v${pkgVersion})
 Three-Tier Context Memory Governance & Task-Centric Engine
 
 사용법:
-  npx agent-context-memory <명령어> [옵션]
-  npx acm <명령어> [옵션]
-  또는 로컬 실행: node bin/agent-context-memory.js <명령어> [옵션]
+  npx agent-context-memory [명령어] [옵션]
+  npx acm [명령어] [옵션]
+  또는 로컬 실행: node bin/agent-context-memory.js [명령어] [옵션]
 
 명령어:
-  init [경로] [옵션]       지정된 경로(기본값: '.')에 Agent Context Memory 템플릿 설치
+  init [경로] [옵션]       (기본값) 지정된 경로(기본값: '.')에 Agent Context Memory 템플릿 설치
+                           * 명령어 생략 시('npx agent-context-memory') 자동으로 init이 실행됩니다.
   uninstall [경로] [옵션]  지정된 경로(기본값: '.')에서 ACM 자산 및 주입 내용 안전 롤백/제거 (별칭: remove)
   check-git               현재 환경의 Git 설치 유무 및 연동 상태 진단
   status [옵션]           작업 단위 Git 상태 점검 (group-status)
@@ -95,12 +96,15 @@ Three-Tier Context Memory Governance & Task-Centric Engine
   -v, --version           현재 CLI 버전 출력
   -h, --help              도움말 출력
   -f, --force             확인 프롬프트 생략 및 강제 실행
+  --non-interactive       대화형 프롬프트 생략 (미감지 시 AGENTS.md 자동 폴백)
   --dry-run               실제 조작 없이 결과 미리보기
   --no-backup             (uninstall 전용) .agents 백업 디렉터리 생성 생략
   --rule-file=<파일명>    규칙 파일 직접 지정 (쉼표 구분 다중 지정 가능)
   -r <파일명>             --rule-file 의 축약형
 
 예시:
+  npx agent-context-memory
+  npx agent-context-memory --force
   npx agent-context-memory init
   npx agent-context-memory status
   npx agent-context-memory commit
@@ -109,6 +113,45 @@ Three-Tier Context Memory Governance & Task-Centric Engine
   npx agent-context-memory audit
   npx agent-context-memory uninstall --dry-run
 `);
+}
+
+const KNOWN_COMMANDS = new Set([
+  'init',
+  'uninstall',
+  'remove',
+  'check-git',
+  'status',
+  'commit',
+  'pull',
+  'resolve',
+  'audit',
+  'audit-push',
+  'help',
+  'version',
+]);
+
+function isImplicitInitInvocation(firstArg) {
+  if (!firstArg) return true;
+  if (
+    firstArg === '-f' ||
+    firstArg === '--force' ||
+    firstArg === '-r' ||
+    firstArg === '--rule-file' ||
+    firstArg === '--non-interactive' ||
+    firstArg.startsWith('--rule-file=')
+  ) {
+    return true;
+  }
+  if (
+    firstArg === '.' ||
+    firstArg === '..' ||
+    firstArg.includes('/') ||
+    firstArg.includes('\\') ||
+    fs.existsSync(path.resolve(process.cwd(), firstArg))
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function ensureGit(actionName) {
@@ -127,22 +170,25 @@ function ensureGit(actionName) {
 async function main() {
   const args = process.argv.slice(2);
 
-  if (args.length === 0 || args.includes('-h') || args.includes('--help')) {
+  if (args.includes('-h') || args.includes('--help') || args[0] === 'help') {
     printHelp();
     process.exit(0);
   }
 
-  if (args.includes('-v') || args.includes('--version')) {
+  if (args.includes('-v') || args.includes('--version') || args[0] === 'version') {
     console.log(`agent-context-memory v${pkgVersion}`);
     process.exit(0);
   }
 
-  const command = args[0];
+  const isImplicitInit = !KNOWN_COMMANDS.has(args[0]) && isImplicitInitInvocation(args[0]);
+  const command = isImplicitInit ? 'init' : args[0];
+  const commandArgs = isImplicitInit ? args : args.slice(1);
 
   switch (command) {
     case 'init': {
-      const remaining = args.slice(1);
+      const remaining = commandArgs;
       const force = remaining.includes('--force') || remaining.includes('-f');
+      const nonInteractive = remaining.includes('--non-interactive');
 
       let ruleFile = null;
       const rfArg = remaining.find((a) => a.startsWith('--rule-file='));
@@ -158,7 +204,10 @@ async function main() {
       const targetDir = remaining.find((a) => !a.startsWith('-') && a !== ruleFile) || '.';
 
       try {
-        await install(targetDir, { force, ruleFile });
+        const result = await install(targetDir, { force, ruleFile, nonInteractive });
+        if (result && result.cancelled) {
+          process.exit(0);
+        }
       } catch (err) {
         console.error('[오류] 설치 중 예외가 발생했습니다:', err.message);
         process.exit(1);
