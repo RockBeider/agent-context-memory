@@ -35,12 +35,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Install Dependencies
+        run: npm ci
+
       - name: Run E2E & Compatibility Tests
         run: npm test
 
       - name: Sync and Push dist Branch
         run: node scripts/sync-dist-branch.cjs --push
 
-      - name: Publish to npm
+      - name: Publish to npm from dist Branch
         if: ${{ env.NPM_TOKEN != '' }}
-        run: npm publish --access public
+        run: |
+          git checkout dist
+          npm publish --access public

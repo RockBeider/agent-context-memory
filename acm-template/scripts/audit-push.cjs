@@ -7,11 +7,15 @@
  * 를 전수 검사하여 안전한 배포를 보장하는 품질 게이트 CLI 도구
  */
 
+const path = require('path');
 const { execSync } = require('child_process');
+
+const ROOT_DIR = process.env.ACM_ROOT_DIR ? path.resolve(process.env.ACM_ROOT_DIR) : process.cwd();
 
 function run(cmd, ignoreError = false) {
   try {
     return execSync(cmd, {
+      cwd: ROOT_DIR,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, GIT_PAGER: 'cat', PAGER: 'cat' },
@@ -82,7 +86,7 @@ function main() {
   const statusOut = run('git status --porcelain');
   if (statusOut) {
     console.log('  [주의] 현재 워킹 트리에 커밋되지 않은 수정/추가 파일이 있습니다:');
-    statusOut.split('\n').forEach((l) => console.log(`    ${l}`));
+    statusOut.split(/\r?\n/).forEach((l) => console.log(`    ${l}`));
     console.log('  -> push 전 "npm run git:status"로 정리하거나 커밋하세요.\n');
   } else {
     console.log('  -> 통과: 워킹 트리가 깨끗합니다.\n');
@@ -102,18 +106,20 @@ function main() {
   if (!diffNameStatus) {
     console.log('  -> 원격 대비 새로 푸시할 커밋이 없습니다 (이미 최신 동기화 상태).\n');
   } else {
-    const lines = diffNameStatus.split('\n').filter(Boolean);
+    const lines = diffNameStatus.split(/\r?\n/).filter(Boolean);
     console.log(`  [안내] 총 ${lines.length}개 파일이 푸시 대상에 포함되어 있습니다.`);
 
     const forbiddenDetected = [];
 
     lines.forEach((line) => {
-      const parts = line.split(/\s+/);
-      const status = parts[0];
-      const filePath = parts[1];
+      const parts = line.split('\t');
+      const status = (parts[0] || '').trim();
+      const filePath = (status.startsWith('R') || status.startsWith('C'))
+        ? (parts[2] || '').trim()
+        : (parts[1] || '').trim();
 
       // 삭제된 파일은 금지 패턴이어도 통과
-      if (status === 'D') return;
+      if (!filePath || status === 'D') return;
 
       for (const rule of FORBIDDEN_PATTERNS) {
         if (rule.pattern.test(filePath)) {

@@ -1,5 +1,9 @@
 # Agent Context Memory Ignored Entries
-.agent
+/.agents/task/
+/.agents/.acm-meta.json
+/.agent/
+*.local.md
+.geminiignore
 
 # Dependencies
 node_modules/

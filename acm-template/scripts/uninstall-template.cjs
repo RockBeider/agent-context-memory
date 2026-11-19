@@ -223,7 +223,7 @@ function rollbackPackageJson(targetDir, options, stats) {
 /**
  * 4단계: .gitignore 엔트리 정밀 절삭
  */
-function rollbackGitIgnore(targetDir, options, stats) {
+function rollbackGitIgnore(targetDir, options, stats, createdGitignore = null) {
   console.log('\n[4/5] .gitignore 무시 규칙 원복 중...');
   const gitignorePath = path.join(targetDir, '.gitignore');
   if (!fs.existsSync(gitignorePath)) {
@@ -234,6 +234,7 @@ function rollbackGitIgnore(targetDir, options, stats) {
   const content = fs.readFileSync(gitignorePath, 'utf-8');
   const lines = content.split(/\r?\n/);
   const { headerComment, entries } = ACM_MANIFEST.gitignore;
+  const normIgnore = (s) => s.trim().replace(/^\//, '').replace(/\/$/, '');
 
   let modified = false;
   const newLines = [];
@@ -244,26 +245,35 @@ function rollbackGitIgnore(targetDir, options, stats) {
       modified = true;
       continue;
     }
-    if (entries.some((e) => trimmed === e || trimmed === `${e}/`)) {
+    if (entries.some((e) => normIgnore(trimmed) === normIgnore(e))) {
       modified = true;
       continue;
     }
     newLines.push(lines[i]);
   }
 
-  const remaining = newLines.join('\n').trim();
+  const remaining = newLines.join('\n').replace(/^\n+|\n+$/g, '');
 
   if (modified) {
     if (options.dryRun) {
-      if (!remaining) {
-        console.log('  [미리보기] .gitignore (ACM 외 내용 없어 파일 삭제 예정)');
+      if (!remaining.trim()) {
+        if (createdGitignore === false) {
+          console.log('  [미리보기] .gitignore (기존 사용자 파일 유지, ACM 엔트리만 제거 예정)');
+        } else {
+          console.log('  [미리보기] .gitignore (ACM 외 내용 없어 파일 삭제 예정)');
+        }
       } else {
         console.log('  [미리보기] .gitignore 내 .agent 엔트리 제거 예정');
       }
     } else {
-      if (!remaining) {
-        fs.unlinkSync(gitignorePath);
-        console.log('  [파일 삭제] .gitignore (ACM 엔트리 외 내용이 없어 파일 삭제)');
+      if (!remaining.trim()) {
+        if (createdGitignore === false) {
+          fs.writeFileSync(gitignorePath, '', 'utf-8');
+          console.log('  [보존] .gitignore (기존 사용자 파일 유지, ACM 엔트리만 제거)');
+        } else {
+          fs.unlinkSync(gitignorePath);
+          console.log('  [파일 삭제] .gitignore (ACM 엔트리 외 내용이 없어 파일 삭제)');
+        }
       } else {
         fs.writeFileSync(gitignorePath, remaining + '\n', 'utf-8');
         console.log('  [엔트리 제거] .gitignore 내 .agent 엔트리 절제 완료');
@@ -278,7 +288,7 @@ function rollbackGitIgnore(targetDir, options, stats) {
 /**
  * 5단계: AI 에이전트 규칙 파일 마커 절삭 및 내용 변조 감지
  */
-async function rollbackAgentRules(targetDir, options, stats) {
+async function rollbackAgentRules(targetDir, options, stats, metaRuleFiles = []) {
   console.log('\n[5/5] AI 에이전트 규칙 파일 거버넌스 룰 절삭 중...');
   let targetFiles = [];
 
@@ -287,7 +297,7 @@ async function rollbackAgentRules(targetDir, options, stats) {
       ? options.ruleFile
       : options.ruleFile.split(',').map((f) => f.trim()).filter(Boolean);
   } else {
-    targetFiles = scanPresetRules(targetDir);
+    targetFiles = Array.from(new Set([...scanPresetRules(targetDir), ...metaRuleFiles]));
   }
 
   for (const relFile of targetFiles) {
@@ -352,11 +362,26 @@ async function uninstall(targetPath = '.', options = {}) {
     backups: [],
   };
 
+  let metaRuleFiles = [];
+  let createdGitignore = null;
+  const metaPath = path.join(targetDir, '.agents', '.acm-meta.json');
+  if (fs.existsSync(metaPath)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+      if (Array.isArray(parsed.ruleFiles)) {
+        metaRuleFiles = parsed.ruleFiles;
+      }
+      if (typeof parsed.createdGitignore === 'boolean') {
+        createdGitignore = parsed.createdGitignore;
+      }
+    } catch (_) {}
+  }
+
   rollbackDirectories(targetDir, options, stats);
   rollbackOwnedFiles(targetDir, options, stats);
   rollbackPackageJson(targetDir, options, stats);
-  rollbackGitIgnore(targetDir, options, stats);
-  await rollbackAgentRules(targetDir, options, stats);
+  rollbackGitIgnore(targetDir, options, stats, createdGitignore);
+  await rollbackAgentRules(targetDir, options, stats, metaRuleFiles);
 
   console.log('\n=======================================================');
   if (dryRun) {

@@ -13,7 +13,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const TEMP_INDEX_REL = '.git/temp-dist-index';
@@ -89,6 +89,25 @@ function injectSanitizedPackageJson(gitEnv) {
   console.log(`[dist-sync] 배포용 package.json 정제 주입 완료 (blob: ${blobHash.substring(0, 7)})`);
 }
 
+/**
+ * 배포 브랜치(dist) 루트 AGENTS.md에 저장소 전용 규칙이 빠진 클린 템플릿(acm-template/AGENTS.md)을 주입합니다.
+ */
+function injectSanitizedAgentsMd(gitEnv) {
+  const templateAgentsPath = path.join(REPO_ROOT, 'acm-template', 'AGENTS.md');
+  if (!fs.existsSync(templateAgentsPath)) return;
+
+  const cleanAgentsContent = fs.readFileSync(templateAgentsPath, 'utf-8');
+  const blobHash = execSync('git hash-object -w --stdin', {
+    cwd: REPO_ROOT,
+    input: cleanAgentsContent,
+    encoding: 'utf-8',
+    env: { ...process.env, ...gitEnv },
+  }).trim();
+
+  runGit(`git update-index --cacheinfo 100644 ${blobHash} AGENTS.md`, { env: gitEnv });
+  console.log(`[dist-sync] 배포용 클린 AGENTS.md 정제 주입 완료 (blob: ${blobHash.substring(0, 7)})`);
+}
+
 function getPackageDistributionFiles() {
   const pkgPath = path.join(REPO_ROOT, 'package.json');
   if (!fs.existsSync(pkgPath)) {
@@ -102,8 +121,9 @@ function getPackageDistributionFiles() {
   const requiredDefaults = ['package.json', 'README.md', 'LICENSE', 'AGENTS.md'];
   const targetPatterns = Array.from(new Set([...requiredDefaults, ...declaredFiles]));
 
-  // 실제 존재하는 항목만 필터링
+  // 실제 존재하는 항목만 필터링 (부정 패턴 제외)
   const validTargets = targetPatterns.filter((item) => {
+    if (item.startsWith('!')) return false;
     const fullPath = path.join(REPO_ROOT, item);
     return fs.existsSync(fullPath);
   });
@@ -178,8 +198,9 @@ function syncDistBranch(options = {}) {
       } catch (_) {}
     }
 
-    // 4-2. 배포용 package.json 정제 주입 (워킹 트리 원본 보존)
+    // 4-2. 배포용 package.json 및 클린 AGENTS.md 정제 주입 (워킹 트리 원본 보존)
     injectSanitizedPackageJson(gitEnv);
+    injectSanitizedAgentsMd(gitEnv);
 
     console.log('[dist-sync] 임시 인덱스 스테이징 및 배포 위생 정제 완료.');
 
@@ -218,10 +239,17 @@ function syncDistBranch(options = {}) {
 
     // 7. 커밋 생성 (git commit-tree)
     const commitMsg = options.message || `release(dist): v${version} (${currentBranch}@${currentCommit})`;
-    const parentArg = parentCommit ? `-p ${parentCommit}` : '';
-    const newCommitHash = runGit(`git commit-tree ${treeHash} ${parentArg} -m "${commitMsg}"`, {
-      env: gitEnv,
+    const commitTreeArgs = ['commit-tree', treeHash, ...(parentCommit ? ['-p', parentCommit] : []), '-F', '-'];
+    const commitTreeRes = spawnSync('git', commitTreeArgs, {
+      cwd: REPO_ROOT,
+      input: commitMsg,
+      encoding: 'utf-8',
+      env: { ...process.env, PAGER: 'cat', ...gitEnv },
     });
+    if (commitTreeRes.status !== 0) {
+      throw new Error(`git commit-tree 실패: ${commitTreeRes.stderr || commitTreeRes.stdout}`);
+    }
+    const newCommitHash = commitTreeRes.stdout.trim();
     console.log(`[dist-sync] 신규 dist 커밋 생성 완료: ${newCommitHash}`);
 
     // 8. dist 브랜치 레퍼런스 업데이트 (git update-ref)

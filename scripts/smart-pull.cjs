@@ -60,7 +60,7 @@ function isWorkingTreeClean() {
 /**
  * 3. 인메모리 가상 병합 사전 진단 (check-merge 호환)
  */
-function checkVirtualMerge(remote = 'origin', branch = 'develop') {
+function checkVirtualMerge(remote = 'origin', branch = getCurrentBranch()) {
   console.log(`[사전 진단] 인메모리 가상 병합(git merge-tree) 시뮬레이션 중 (${remote}/${branch})...`);
   const output = run(`git merge-tree --write-tree HEAD ${remote}/${branch}`, { ignoreError: true });
 
@@ -128,7 +128,7 @@ function getUnmergedFiles() {
       if (fs.existsSync(absPath) && fs.statSync(absPath).isFile()) {
         try {
           const content = fs.readFileSync(absPath, 'utf-8');
-          if (content.includes('<<<<<<< HEAD') && content.includes('=======')) {
+          if (/^<<<<<<< [^\r\n]*\r?\n[\s\S]*?\r?\n=======\r?\n[\s\S]*?\r?\n>>>>>>> [^\r\n]*/m.test(content)) {
             files.push(filePath);
           }
         } catch {
@@ -213,40 +213,80 @@ function tryResolveJsonKeyValues(ours, theirs, filePath) {
   return null;
 }
 
-// C. 단순 독립 함수 / 클래스 메서드 블록 결합 검사
-function tryResolveFunctionBlocks(ours, theirs) {
-  const isFunctionDecl = (text) => /^(async\s+)?function\s+[a-zA-Z0-9_$]+\s*\(/.test(text.trim());
-  const isMethodDecl = (text) => /^(async\s+)?[a-zA-Z0-9_$#]+\s*\(/.test(text.trim());
+const RESERVED_CONTROL_WORDS = new Set([
+  'if', 'for', 'while', 'switch', 'catch', 'return', 'throw',
+  'await', 'typeof', 'delete', 'new', 'do', 'else', 'try', 'finally', 'constructor',
+]);
 
-  if ((isFunctionDecl(ours) && isFunctionDecl(theirs)) || (isMethodDecl(ours) && isMethodDecl(theirs))) {
+function extractFunctionBlockName(text) {
+  const trimmed = text.trim();
+  const fnMatch = trimmed.match(/^(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/);
+  if (fnMatch) return fnMatch[1];
+  const methodMatch = trimmed.match(/^(?:(?:public|private|protected|static|readonly)\s+)*(?:async\s+)?([a-zA-Z_$#][a-zA-Z0-9_$#]*)\s*\([^)]*\)\s*\{/);
+  if (methodMatch && !RESERVED_CONTROL_WORDS.has(methodMatch[1])) {
+    return methodMatch[1];
+  }
+  return null;
+}
+
+// C. 단순 독립 함수 / 클래스 메서드 블록 결합 검사 (예약어 배제 및 식별자 중복 금지)
+function tryResolveFunctionBlocks(ours, theirs) {
+  const oursName = extractFunctionBlockName(ours);
+  const theirsName = extractFunctionBlockName(theirs);
+
+  if (oursName && theirsName && oursName !== theirsName) {
     return `${theirs.trim()}\n\n${ours.trim()}`;
   }
 
   return null;
 }
 
-// D. JSX / Props 공존 결합 (컴포넌트 속성 병합)
+function parseJsxAttributes(attrStr) {
+  const trimmed = attrStr.trim();
+  if (!trimmed) return [];
+  const attrs = [];
+  const tokenRegex = /([A-Za-z_:][A-Za-z0-9_.:-]*)(?:\s*=\s*(?:"[^"]*"|'[^']*'|\{[^{}]*\}))?/g;
+  let cursor = 0;
+  let match;
+  while ((match = tokenRegex.exec(trimmed)) !== null) {
+    const gap = trimmed.slice(cursor, match.index);
+    if (gap.trim().length > 0) return null;
+    attrs.push({ key: match[1], raw: match[0] });
+    cursor = tokenRegex.lastIndex;
+  }
+  if (trimmed.slice(cursor).trim().length > 0) return null;
+  return attrs;
+}
+
+// D. JSX / Props 공존 결합 (단일 태그 속성 토크나이저 기반, 동일 키 충돌 시 자동 병합 거부)
 function tryResolveJsxProps(ours, theirs) {
-  const hasLocalIdentifier = ours.includes('data-component') || ours.includes('useScrollDetection') || ours.includes('data-testid');
-  const hasRemoteDs = theirs.includes('ds={') || theirs.includes('dsKey=');
+  const singleTagRegex = /^\s*<([A-Za-z0-9_.]+)\s+([^>]+?)(\/?>)\s*$/;
+  const tagMatchOurs = ours.match(singleTagRegex);
+  const tagMatchTheirs = theirs.match(singleTagRegex);
 
-  if (hasLocalIdentifier && hasRemoteDs) {
-    const tagMatchOurs = ours.match(/<([A-Za-z0-9_]+)([\s\S]*?)(\/?>)/);
-    const tagMatchTheirs = theirs.match(/<([A-Za-z0-9_]+)([\s\S]*?)(\/?>)/);
-
-    if (tagMatchOurs && tagMatchTheirs && tagMatchOurs[1] === tagMatchTheirs[1]) {
-      const tagName = tagMatchOurs[1];
-      const ending = tagMatchOurs[3];
-
-      const attrsOurs = tagMatchOurs[2].trim().split(/\s+/).filter(Boolean);
-      const attrsTheirs = tagMatchTheirs[2].trim().split(/\s+/).filter(Boolean);
-
-      const mergedAttrs = [...new Set([...attrsTheirs, ...attrsOurs])];
-      return `<${tagName} ${mergedAttrs.join(' ')}${ending}`;
-    }
+  if (!tagMatchOurs || !tagMatchTheirs || tagMatchOurs[1] !== tagMatchTheirs[1]) {
+    return null;
   }
 
-  return null;
+  const attrsOurs = parseJsxAttributes(tagMatchOurs[2]);
+  const attrsTheirs = parseJsxAttributes(tagMatchTheirs[2]);
+  if (!attrsOurs || !attrsTheirs) return null;
+
+  const mergedMap = new Map();
+  for (const attr of attrsTheirs) {
+    if (mergedMap.has(attr.key) && mergedMap.get(attr.key) !== attr.raw) return null;
+    mergedMap.set(attr.key, attr.raw);
+  }
+  for (const attr of attrsOurs) {
+    if (mergedMap.has(attr.key) && mergedMap.get(attr.key) !== attr.raw) {
+      return null;
+    }
+    mergedMap.set(attr.key, attr.raw);
+  }
+
+  const tagName = tagMatchOurs[1];
+  const ending = tagMatchOurs[3];
+  return `<${tagName} ${Array.from(mergedMap.values()).join(' ')}${ending}`;
 }
 
 /**
@@ -274,7 +314,7 @@ function resolveConflictChunk(ours, theirs, filePath, chunkIdx) {
   // 4. JSX 태그 Props 하이브리드 결합
   const jsxRes = tryResolveJsxProps(ours, theirs);
   if (jsxRes !== null) {
-    return { resolved: jsxRes, rule: 'UI 식별자 및 DataStore 바인딩 Props 공존 결합' };
+    return { resolved: jsxRes, rule: 'JSX/HTML 태그 속성 공존 결합' };
   }
 
   // 5. 판정 불가
@@ -345,6 +385,16 @@ function resolveFileConflicts(filePath, dryRun = false) {
   };
 }
 
+function readTargetPackageJson() {
+  const pkgPath = path.join(ROOT_DIR, 'package.json');
+  if (!fs.existsSync(pkgPath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 6. 3대 품질 게이트 검증 파이프라인
  */
@@ -353,7 +403,7 @@ function runQualityGates() {
   console.log('  Agent Context Memory 병합 후 3대 품질 게이트 검증');
   console.log('=======================================================\n');
 
-  // Gate 1: 충돌 마커 잔여 전수 검사
+  // Gate 1: 충돌 마커 잔여 전수 검사 (상시 필수)
   console.log('[게이트 1/3] 잔여 충돌 마커(<<<<<<<) 전수 검사...');
   const diffCheck = run('git --no-pager diff --check', { ignoreError: true });
   if (diffCheck && diffCheck.includes('leftover conflict marker')) {
@@ -362,24 +412,39 @@ function runQualityGates() {
   }
   console.log('  -> 통과: 잔여 충돌 마커 0건.\n');
 
-  // Gate 2: 디자인 토큰 무결성 감사
-  console.log('[게이트 2/3] 디자인 토큰 무결성 감사 (npm run audit:tokens)...');
-  try {
-    run('node scripts/audit-tokens.cjs');
-    console.log('  -> 통과: 미정의 고아 토큰 0건.\n');
-  } catch (err) {
-    console.error('  [실패] 토큰 감사 실패:\n', err.message);
-    return false;
+  const pkg = readTargetPackageJson();
+  const pkgScripts = (pkg && pkg.scripts) || {};
+
+  // Gate 2: 정적 분석 검증 (lint / typecheck 스크립트 존재 시 조건부 실행)
+  console.log('[게이트 2/3] 정적 분석 검증 (lint / typecheck)...');
+  const staticChecks = ['lint', 'typecheck'].filter((name) => Boolean(pkgScripts[name]));
+  if (staticChecks.length === 0) {
+    console.log('  -> [건너뜀] package.json에 lint/typecheck 스크립트가 정의되어 있지 않습니다.\n');
+  } else {
+    for (const scriptName of staticChecks) {
+      try {
+        console.log(`  -> 실행 중: npm run ${scriptName}`);
+        run(`npm run ${scriptName}`, { stdio: 'inherit' });
+      } catch (err) {
+        console.error(`  [실패] 정적 분석(npm run ${scriptName}) 실패:\n`, err.message);
+        return false;
+      }
+    }
+    console.log('  -> 통과: 정적 분석 검증 완료.\n');
   }
 
-  // Gate 3: Next.js Pages Router 정적 빌드 검증
-  console.log('[게이트 3/3] Next.js 전체 페이지 정적 빌드 무결성 검증 (npm run build)...');
-  try {
-    run('npm run build', { stdio: 'inherit' });
-    console.log('\n  -> 통과: Next.js 전체 빌드 100% 무결성 확인 완료.\n');
-  } catch (err) {
-    console.error('\n  [실패] Next.js 빌드 실패. 소스 구문 또는 임포트를 확인하십시오.');
-    return false;
+  // Gate 3: 프로젝트 빌드 무결성 검증 (build 스크립트 존재 시 조건부 실행)
+  console.log('[게이트 3/3] 프로젝트 빌드 무결성 검증 (npm run build)...');
+  if (!pkgScripts.build) {
+    console.log('  -> [건너뜀] package.json에 build 스크립트가 정의되어 있지 않습니다.\n');
+  } else {
+    try {
+      run('npm run build', { stdio: 'inherit' });
+      console.log('\n  -> 통과: 프로젝트 빌드 무결성 확인 완료.\n');
+    } catch (err) {
+      console.error('\n  [실패] 프로젝트 빌드 실패. 소스 구문 또는 임포트를 확인하십시오.');
+      return false;
+    }
   }
 
   return true;
@@ -394,7 +459,7 @@ function promptUserResolution(ours, theirs, filePath, chunkIdx) {
     console.log(`[수동 선택 필요] 파일: ${filePath} (청크 #${chunkIdx})`);
     console.log(`-------------------------------------------------------`);
     console.log(`<<< [로컬 HEAD (Ours)]:\n${ours}\n===`);
-    console.log(`>>> [원격 origin/develop (Theirs)]:\n${theirs}`);
+    console.log(`>>> [원격 변경사항 (Theirs)]:\n${theirs}`);
     console.log(`-------------------------------------------------------`);
     console.log('선택하십시오:');
     console.log('  1: 로컬 유지 (Keep Ours)');
@@ -722,7 +787,17 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error('\n[치명적 오류]:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('\n[치명적 오류]:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  parseJsxAttributes,
+  tryResolveJsxProps,
+  extractFunctionBlockName,
+  tryResolveFunctionBlocks,
+  resolveConflictChunk,
+};
