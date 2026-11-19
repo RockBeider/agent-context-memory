@@ -20,6 +20,27 @@ const PRESET_RULE_FILES = [
   '.windsurfrules',
 ];
 
+const RULE_FILE_OPTIONS = [
+  { value: 'AGENTS.md', label: 'AGENTS.md', hint: '표준 가드레일 정본 (권장)' },
+  { value: 'CLAUDE.md', label: 'CLAUDE.md', hint: 'Claude Code 전용' },
+  { value: 'GEMINI.md', label: 'GEMINI.md', hint: 'Gemini CLI 전용' },
+  { value: '.cursorrules', label: '.cursorrules', hint: 'Cursor IDE 전용' },
+  { value: '.windsurfrules', label: '.windsurfrules', hint: 'Windsurf 전용' },
+  { value: '__custom__', label: '직접 입력 (기타 규칙 파일명)', hint: '예: .github/copilot-instructions.md' },
+];
+
+/**
+ * Pure ESM 패키지인 @clack/prompts를 CJS 환경에서 안전하게 동적 임포트합니다.
+ * 로드 실패 시 null을 반환하여 내장 readline 폴백이 작동하도록 보장합니다.
+ */
+async function loadClack() {
+  try {
+    return await import('@clack/prompts');
+  } catch (_) {
+    return null;
+  }
+}
+
 const START_MARKER = ACM_MANIFEST.governanceRules.startMarker;
 const END_MARKER = ACM_MANIFEST.governanceRules.endMarker;
 const EXPECTED_BODY = ACM_MANIFEST.governanceRules.expectedBody;
@@ -199,10 +220,10 @@ async function removeRuleFromFile(filePath, options = {}) {
 }
 
 /**
- * 프리셋 미감지 시 사용자에게 규칙 파일명을 대화형으로 질의합니다.
+ * @clack/prompts 로드 불가 환경을 위한 기본 readline 대화형 규칙 파일 질의 폴백입니다.
  * @returns {Promise<string[]>}
  */
-function promptCustomRuleFile() {
+function promptCustomRuleFileFallback() {
   return new Promise((resolve) => {
     const rl = readline.createInterface({
       input: process.stdin,
@@ -227,10 +248,74 @@ function promptCustomRuleFile() {
 }
 
 /**
+ * 프리셋 미감지 시 방향키/스페이스바 기반 다중 선택 UI(@clack/prompts)로 규칙 파일명을 질의합니다.
+ * 사용자가 취소(Ctrl+C 등)한 경우 null을 반환합니다.
+ * @param {object} options
+ * @returns {Promise<string[] | null>}
+ */
+async function promptCustomRuleFile(options = {}) {
+  const clack = options.useClack === false ? null : await loadClack();
+  if (!clack) {
+    return promptCustomRuleFileFallback();
+  }
+
+  const ioOpts = {};
+  if (options.input) ioOpts.input = options.input;
+  if (options.output) ioOpts.output = options.output;
+
+  if (!options.silent) {
+    clack.log.info('대상 프로젝트에서 기존 AI 에이전트 규칙 파일이 감지되지 않았습니다.', ioOpts);
+  }
+
+  const selected = await clack.multiselect({
+    message: '사용할 AI 에이전트 규칙 파일을 선택하세요 (↑/↓ 이동, Space 선택, Enter 확인):',
+    options: RULE_FILE_OPTIONS,
+    initialValues: ['AGENTS.md'],
+    required: true,
+    ...ioOpts,
+  });
+
+  if (clack.isCancel(selected)) {
+    return null;
+  }
+
+  const resolvedFiles = selected.filter((item) => item !== '__custom__');
+
+  if (selected.includes('__custom__')) {
+    const customInput = await clack.text({
+      message: '직접 추가할 규칙 파일명을 입력하세요 (쉼표 구분 다중 지정 가능):',
+      placeholder: '.github/copilot-instructions.md',
+      validate: (value) => {
+        if (!value || !value.trim()) {
+          return '최소 1개 이상의 파일명을 입력해야 합니다.';
+        }
+        return undefined;
+      },
+      ...ioOpts,
+    });
+
+    if (clack.isCancel(customInput)) {
+      return null;
+    }
+
+    const customList = String(customInput)
+      .split(',')
+      .map((f) => f.trim())
+      .filter(Boolean);
+    resolvedFiles.push(...customList);
+  }
+
+  const uniqueFiles = Array.from(new Set(resolvedFiles));
+  return uniqueFiles.length > 0 ? uniqueFiles : ['AGENTS.md'];
+}
+
+/**
  * 설치 대상 프로젝트의 타깃 규칙 파일 목록을 결정합니다.
+ * 사용자가 선택을 취소하면 null을 반환합니다.
  */
 async function resolveTargetRuleFiles(targetDir, options = {}) {
   let targetFiles = [];
+  const silent = Boolean(options.silent);
 
   if (options.ruleFile) {
     if (Array.isArray(options.ruleFile)) {
@@ -246,17 +331,27 @@ async function resolveTargetRuleFiles(targetDir, options = {}) {
   if (targetFiles.length === 0) {
     const scanned = scanPresetRules(targetDir);
     if (scanned.length > 0) {
-      console.log(`  [자동 스캔] 기존 AI 에이전트 규칙 파일 ${scanned.length}건 감지: ${scanned.join(', ')}`);
+      if (!silent) {
+        console.log(`  [자동 스캔] 기존 AI 에이전트 규칙 파일 ${scanned.length}건 감지: ${scanned.join(', ')}`);
+      }
       targetFiles = scanned;
     }
   }
 
   if (targetFiles.length === 0) {
-    const isInteractive = process.stdin.isTTY && !options.nonInteractive;
+    const isInteractive =
+      Boolean(options.forceInteractive || (process.stdin.isTTY && process.stdout.isTTY)) &&
+      !options.nonInteractive;
     if (isInteractive) {
-      targetFiles = await promptCustomRuleFile();
+      const selected = await promptCustomRuleFile(options);
+      if (selected === null) {
+        return null;
+      }
+      targetFiles = selected;
     } else {
-      console.log('  [자동 폴백] 감지된 규칙 파일이 없어 표준 정본 AGENTS.md로 자동 설정합니다.');
+      if (!silent) {
+        console.log('  [자동 폴백] 감지된 규칙 파일이 없어 표준 정본 AGENTS.md로 자동 설정합니다.');
+      }
       targetFiles = ['AGENTS.md'];
     }
   }
@@ -267,17 +362,20 @@ async function resolveTargetRuleFiles(targetDir, options = {}) {
 /**
  * 결정된 타깃 파일들에 거버넌스 룰을 안전하게 주입하거나 신규 생성합니다.
  */
-function applyGovernanceRules(targetDir, targetFiles) {
+function applyGovernanceRules(targetDir, targetFiles, options = {}) {
+  const silent = Boolean(options.silent);
   const actions = [];
   for (const relFile of targetFiles) {
     const fullPath = path.resolve(targetDir, relFile);
     const result = injectRuleToFile(fullPath);
-    actions.push(result);
     const relResult = path.relative(targetDir, fullPath);
-    if (result.created) {
-      console.log(`  [규칙 생성] ${relResult} (Agent Context Memory 거버넌스 주입)`);
-    } else {
-      console.log(`  [규칙 동기화] ${relResult} (기존 내용 보존 및 거버넌스 갱신)`);
+    actions.push({ ...result, relFile: relResult });
+    if (!silent) {
+      if (result.created) {
+        console.log(`  [규칙 생성] ${relResult} (Agent Context Memory 거버넌스 주입)`);
+      } else {
+        console.log(`  [규칙 동기화] ${relResult} (기존 내용 보존 및 거버넌스 갱신)`);
+      }
     }
   }
   return { files: targetFiles, actions };
@@ -316,15 +414,20 @@ async function removeGovernanceRules(targetDir, targetFiles = [], options = {}) 
  */
 async function syncAgentRules(targetDir, options = {}) {
   const targetFiles = await resolveTargetRuleFiles(targetDir, options);
-  return applyGovernanceRules(targetDir, targetFiles);
+  if (targetFiles === null) {
+    return { cancelled: true, files: [], actions: [] };
+  }
+  return applyGovernanceRules(targetDir, targetFiles, options);
 }
 
 module.exports = {
   PRESET_RULE_FILES,
+  RULE_FILE_OPTIONS,
   START_MARKER,
   END_MARKER,
   EXPECTED_BODY,
   GOVERNANCE_SNIPPET,
+  loadClack,
   normalizeText,
   scanPresetRules,
   injectRuleToFile,
@@ -332,6 +435,7 @@ module.exports = {
   removeRuleFromFile,
   removeGovernanceRules,
   promptCustomRuleFile,
+  promptCustomRuleFileFallback,
   resolveTargetRuleFiles,
   applyGovernanceRules,
   syncAgentRules,
