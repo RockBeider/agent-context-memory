@@ -7,38 +7,45 @@
  */
 
 const path = require('path');
-const { execSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const { parseLangFlag, resolveLanguage, createTranslator } = require('./i18n.cjs');
 
 const ROOT_DIR = process.env.ACM_ROOT_DIR ? path.resolve(process.env.ACM_ROOT_DIR) : process.cwd();
 
-function run(cmd, ignoreError = false) {
-  try {
-    return execSync(cmd, {
-      cwd: ROOT_DIR,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, GIT_PAGER: 'cat', PAGER: 'cat' },
-    }).trim();
-  } catch (err) {
+/**
+ * Synchronous Git command wrapper using argument arrays (shell: false) with pager deadlock protection.
+ */
+function runGit(args, ignoreError = false, cwd = ROOT_DIR) {
+  const res = spawnSync('git', args, {
+    cwd,
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+    shell: false,
+    env: { ...process.env, GIT_PAGER: 'cat', PAGER: 'cat' },
+  });
+  const stdout = res.stdout ? res.stdout.toString() : '';
+  const stderr = res.stderr ? res.stderr.toString() : '';
+
+  if (res.error || res.status !== 0) {
     if (ignoreError) {
-      return (err.stdout ? err.stdout.toString() : '') + (err.stderr ? err.stderr.toString() : '');
+      return (stdout + stderr).trim();
     }
-    throw err;
+    throw new Error(res.error ? res.error.message : stderr.trim() || stdout.trim() || `git ${args[0] || ''} failed (${res.status})`);
   }
+  return stdout.trim();
 }
 
 // Dynamically locate target upstream tracking branch
-function getTargetRemoteBranch() {
+function getTargetRemoteBranch(cwd = ROOT_DIR) {
   try {
-    const upstream = run('git rev-parse --abbrev-ref --symbolic-full-name @{u}', true);
+    const upstream = runGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], true, cwd);
     if (upstream && !upstream.includes('fatal')) return upstream;
   } catch (_) {}
 
   const candidates = ['origin/main', 'origin/master', 'origin/develop'];
   for (const b of candidates) {
     try {
-      const res = run(`git rev-parse --verify ${b}`, true);
+      const res = runGit(['rev-parse', '--verify', b], true, cwd);
       if (res && !res.includes('fatal')) return b;
     } catch (_) {}
   }
@@ -54,6 +61,8 @@ const FORBIDDEN_PATTERNS = [
   { pattern: /\.tmp$/i, reasonKey: 'auditPush.reasonTmpFile' },
   { pattern: /\.bak$/i, reasonKey: 'auditPush.reasonBakFile' },
   { pattern: /\.log$/i, reasonKey: 'auditPush.reasonLogFile' },
+  { pattern: /(?:^|\/)\.agents\/local\/.*\.db(?:-wal|-shm)?$/i, reasonKey: 'auditPush.reasonLocalDbFile' },
+  { pattern: /\.(?:sqlite|sqlite3|db-wal|db-shm)$/i, reasonKey: 'auditPush.reasonLocalDbFile' },
 ];
 
 function main() {
@@ -71,7 +80,7 @@ function main() {
   console.log(tr('auditPush.gate1Start'));
   try {
     const diffTarget = targetRemote ? `${targetRemote}..HEAD` : 'HEAD';
-    const checkOut = run(`git --no-pager diff --check ${diffTarget}`, true);
+    const checkOut = runGit(['--no-pager', 'diff', '--check', diffTarget], true);
     if (checkOut && checkOut.includes('leftover conflict marker')) {
       console.error(tr('auditPush.gate1DetectErr'));
       console.error(checkOut);
@@ -86,7 +95,7 @@ function main() {
 
   // 2. Working tree cleanliness check
   console.log(tr('auditPush.gate2Start'));
-  const statusOut = run('git status --porcelain');
+  const statusOut = runGit(['-c', 'core.quotepath=false', 'status', '--porcelain']);
   if (statusOut) {
     console.log(tr('auditPush.gate2Dirty'));
     statusOut.split(/\r?\n/).forEach((l) => console.log(`    ${l}`));
@@ -95,26 +104,31 @@ function main() {
     console.log(tr('auditPush.gate2Pass'));
   }
 
-  // 3. Pending push payload audit
+  // 3. Pending push payload & staged local DB leak audit
   console.log(tr('auditPush.gate3Start', { target: targetRemote || tr('auditPush.localHeadLabel') }));
   let diffNameStatus = '';
   if (targetRemote) {
     try {
-      diffNameStatus = run(`git diff --name-status ${targetRemote}..HEAD`);
+      diffNameStatus = runGit(['-c', 'core.quotepath=false', 'diff', '--name-status', `${targetRemote}..HEAD`]);
     } catch (_) {
       console.log(tr('auditPush.gate3Fallback', { target: targetRemote }));
     }
   }
+  const stagedNameStatus = runGit(['-c', 'core.quotepath=false', 'diff', '--cached', '--name-status'], true);
+  const combinedLines = [
+    ...(diffNameStatus ? diffNameStatus.split(/\r?\n/) : []),
+    ...(stagedNameStatus && !stagedNameStatus.includes('fatal') ? stagedNameStatus.split(/\r?\n/) : []),
+  ].filter(Boolean);
 
-  if (!diffNameStatus) {
+  if (combinedLines.length === 0) {
     console.log(tr('auditPush.gate3NoDiff'));
   } else {
-    const lines = diffNameStatus.split(/\r?\n/).filter(Boolean);
-    console.log(tr('auditPush.gate3Count', { count: lines.length }));
+    console.log(tr('auditPush.gate3Count', { count: combinedLines.length }));
 
     const forbiddenDetected = [];
+    const seenForbidden = new Set();
 
-    lines.forEach((line) => {
+    combinedLines.forEach((line) => {
       const parts = line.split('\t');
       const status = (parts[0] || '').trim();
       const filePath = (status.startsWith('R') || status.startsWith('C'))
@@ -126,7 +140,10 @@ function main() {
 
       for (const rule of FORBIDDEN_PATTERNS) {
         if (rule.pattern.test(filePath)) {
-          forbiddenDetected.push({ filePath, reason: tr(rule.reasonKey) });
+          if (!seenForbidden.has(filePath)) {
+            seenForbidden.add(filePath);
+            forbiddenDetected.push({ filePath, reason: tr(rule.reasonKey) });
+          }
           break;
         }
       }
@@ -160,4 +177,13 @@ function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  runGit,
+  getTargetRemoteBranch,
+  FORBIDDEN_PATTERNS,
+  main,
+};

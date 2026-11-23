@@ -12,7 +12,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const readline = require('readline');
 const { parseLangFlag, resolveLanguage, createTranslator } = require('./i18n.cjs');
 
@@ -20,24 +20,100 @@ const ROOT_DIR = process.env.ACM_ROOT_DIR ? path.resolve(process.env.ACM_ROOT_DI
 const ACTIVE_LANG = resolveLanguage(ROOT_DIR, parseLangFlag(process.argv.slice(2)).lang);
 const tr = createTranslator(ACTIVE_LANG);
 
+const ALLOWED_NPM_GATE_SCRIPTS = new Set(['lint', 'typecheck', 'build']);
+
 /**
- * Synchronous shell command wrapper with Windows Git pager deadlock protection.
+ * Synchronous Git command wrapper using argument arrays (shell: false) with Windows pager deadlock protection.
  */
-function run(cmd, options = {}) {
-  const { ignoreError = false, cwd = ROOT_DIR, stdio = ['pipe', 'pipe', 'pipe'] } = options;
-  try {
-    const res = execSync(cmd, {
-      cwd,
-      encoding: 'utf-8',
-      stdio,
-      env: { ...process.env, GIT_PAGER: 'cat', PAGER: 'cat' },
-    });
-    return res ? res.toString().trim() : '';
-  } catch (err) {
+function runGit(args, options = {}) {
+  const { ignoreError = false, cwd = ROOT_DIR, stdio = ['pipe', 'pipe', 'pipe'], input } = options;
+  const spawnOpts = {
+    cwd,
+    encoding: 'utf-8',
+    stdio,
+    shell: false,
+    env: { ...process.env, GIT_PAGER: 'cat', PAGER: 'cat' },
+  };
+  if (input !== undefined) {
+    spawnOpts.input = input;
+  }
+
+  const res = spawnSync('git', args, spawnOpts);
+  const stdout = res.stdout ? res.stdout.toString() : '';
+  const stderr = res.stderr ? res.stderr.toString() : '';
+
+  if (res.error || res.status !== 0) {
     if (ignoreError) {
-      return ((err.stdout ? err.stdout.toString() : '') + (err.stderr ? err.stderr.toString() : '')).trim();
+      return (stdout + stderr).trim();
     }
+    const errMsg = res.error ? res.error.message : stderr.trim() || stdout.trim() || `git ${args[0] || ''} failed (${res.status})`;
+    const err = new Error(errMsg);
+    err.status = res.status;
+    err.stdout = stdout;
+    err.stderr = stderr;
     throw err;
+  }
+
+  return stdout ? stdout.trim() : '';
+}
+
+/**
+ * Validates branch name against leading-dash flag injection and Git ref format rules.
+ */
+function isValidBranchName(branch, cwd = ROOT_DIR) {
+  if (typeof branch !== 'string') return false;
+  const trimmed = branch.trim();
+  if (!trimmed || trimmed.startsWith('-') || /[\s;&|`$><\\]/.test(trimmed)) {
+    return false;
+  }
+  const res = spawnSync('git', ['check-ref-format', '--branch', trimmed], {
+    cwd,
+    encoding: 'utf-8',
+    shell: false,
+    stdio: ['ignore', 'ignore', 'ignore'],
+  });
+  return res.status === 0;
+}
+
+/**
+ * Safely runs allowlisted npm scripts without passing arbitrary shell strings (avoids Windows .cmd EINVAL).
+ */
+function runNpmScript(scriptName, cwd = ROOT_DIR) {
+  if (!ALLOWED_NPM_GATE_SCRIPTS.has(scriptName)) {
+    throw new Error(`Disallowed npm gate script: ${scriptName}`);
+  }
+
+  const npmExecPath = process.env.npm_execpath;
+  let res;
+  if (npmExecPath && fs.existsSync(npmExecPath)) {
+    res = spawnSync(process.execPath, [npmExecPath, 'run', scriptName], {
+      cwd,
+      stdio: 'inherit',
+      shell: false,
+      env: process.env,
+    });
+  } else if (process.platform === 'win32') {
+    const comspec = process.env.ComSpec || 'cmd.exe';
+    res = spawnSync(comspec, ['/d', '/s', '/c', 'npm', 'run', scriptName], {
+      cwd,
+      stdio: 'inherit',
+      shell: false,
+      env: process.env,
+    });
+  } else {
+    res = spawnSync('npm', ['run', scriptName], {
+      cwd,
+      stdio: 'inherit',
+      shell: false,
+      env: process.env,
+    });
+  }
+
+  if (res.error) {
+    throw res.error;
+  }
+  if (res.status !== 0) {
+    throw new Error(`npm run ${scriptName} exited with code ${res.status}`);
   }
 }
 
@@ -46,7 +122,7 @@ function run(cmd, options = {}) {
  */
 function getCurrentBranch() {
   try {
-    return run('git rev-parse --abbrev-ref HEAD');
+    return runGit(['rev-parse', '--abbrev-ref', 'HEAD']);
   } catch (_) {
     return 'main';
   }
@@ -56,7 +132,7 @@ function getCurrentBranch() {
  * 2. Checks whether the working tree is clean.
  */
 function isWorkingTreeClean() {
-  const status = run('git status --porcelain=v1');
+  const status = runGit(['status', '--porcelain=v1']);
   return status.length === 0;
 }
 
@@ -65,7 +141,7 @@ function isWorkingTreeClean() {
  */
 function checkVirtualMerge(remote = 'origin', branch = getCurrentBranch()) {
   console.log(tr('smartPull.virtualMergeLog', { remote, branch }));
-  const output = run(`git merge-tree --write-tree HEAD ${remote}/${branch}`, { ignoreError: true });
+  const output = runGit(['merge-tree', '--write-tree', 'HEAD', `${remote}/${branch}`], { ignoreError: true });
 
   const lines = output.split('\n');
   const conflicts = [];
@@ -87,7 +163,7 @@ function checkVirtualMerge(remote = 'origin', branch = getCurrentBranch()) {
   let ahead = 0;
   let behind = 0;
   try {
-    const revCount = run(`git rev-list --left-right --count HEAD...${remote}/${branch}`);
+    const revCount = runGit(['rev-list', '--left-right', '--count', `HEAD...${remote}/${branch}`]);
     const parts = revCount.split(/\s+/);
     ahead = parseInt(parts[0], 10) || 0;
     behind = parseInt(parts[1], 10) || 0;
@@ -107,7 +183,7 @@ function checkVirtualMerge(remote = 'origin', branch = getCurrentBranch()) {
  * 4. Lists currently conflicted (unmerged) files in the working tree.
  */
 function getUnmergedFiles() {
-  const statusRaw = run('git status --porcelain=v1', { ignoreError: true });
+  const statusRaw = runGit(['-c', 'core.quotepath=false', 'status', '--porcelain=v1'], { ignoreError: true });
   if (!statusRaw) return [];
 
   const files = [];
@@ -115,17 +191,21 @@ function getUnmergedFiles() {
 
   for (const line of lines) {
     const code = line.slice(0, 2);
-    const filePath = line.slice(3).trim();
+    const rawPath = line.slice(3).trim();
+    const unquoted = rawPath.includes(' -> ') ? rawPath.split(' -> ').pop().trim() : rawPath;
+    const filePath = unquoted.replace(/^"|"$/g, '').replace(/\\/g, '/');
 
     if (code === 'UU' || code === 'AA' || code === 'UD' || code === 'DU' || code === 'AU' || code === 'UA') {
-      files.push(filePath.replace(/\\/g, '/'));
+      files.push(filePath);
     }
   }
 
   // Fallback scan for conflict markers in files marked as regular 'M'
   if (files.length === 0) {
     for (const line of lines) {
-      const filePath = line.slice(3).trim().replace(/\\/g, '/');
+      const rawPath = line.slice(3).trim();
+      const unquoted = rawPath.includes(' -> ') ? rawPath.split(' -> ').pop().trim() : rawPath;
+      const filePath = unquoted.replace(/^"|"$/g, '').replace(/\\/g, '/');
       const absPath = path.join(ROOT_DIR, filePath);
       if (fs.existsSync(absPath) && fs.statSync(absPath).isFile()) {
         try {
@@ -403,7 +483,7 @@ function runQualityGates() {
 
   // Gate 1: Conflict markers check (always required)
   console.log(tr('smartPull.gate1Start'));
-  const diffCheck = run('git --no-pager diff --check', { ignoreError: true });
+  const diffCheck = runGit(['--no-pager', 'diff', '--check'], { ignoreError: true });
   if (diffCheck && diffCheck.includes('leftover conflict marker')) {
     console.error(tr('smartPull.gate1Fail'), diffCheck);
     return false;
@@ -422,7 +502,7 @@ function runQualityGates() {
     for (const scriptName of staticChecks) {
       try {
         console.log(tr('smartPull.gate2Run', { scriptName }));
-        run(`npm run ${scriptName}`, { stdio: 'inherit' });
+        runNpmScript(scriptName, ROOT_DIR);
       } catch (err) {
         console.error(tr('smartPull.gate2Fail', { scriptName }), err.message);
         return false;
@@ -437,7 +517,7 @@ function runQualityGates() {
     console.log(tr('smartPull.gate3Skip'));
   } else {
     try {
-      run('npm run build', { stdio: 'inherit' });
+      runNpmScript('build', ROOT_DIR);
       console.log(tr('smartPull.gate3Pass'));
     } catch (_) {
       console.error(tr('smartPull.gate3Fail'));
@@ -500,13 +580,17 @@ async function main() {
   const currentBranch = getCurrentBranch();
   const branchArg = args.find((a) => a.startsWith('--branch='));
   const targetRemote = 'origin';
-  const targetBranch = branchArg ? branchArg.split('=')[1].trim() : currentBranch;
+  const targetBranch = branchArg ? branchArg.slice('--branch='.length).trim() : currentBranch;
+  if (!isValidBranchName(targetBranch)) {
+    console.error(`[Error] Invalid branch name: "${targetBranch}"`);
+    process.exit(1);
+  }
 
   // Mode 1: Virtual merge check (--check)
   if (isCheckMode) {
     console.log(tr('smartPull.checkFetchStart', { remote: targetRemote, branch: targetBranch }));
     try {
-      run(`git fetch ${targetRemote} ${targetBranch}`);
+      runGit(['fetch', '--', targetRemote, targetBranch]);
       console.log(tr('smartPull.checkFetchDone'));
     } catch (_) {
       console.log(tr('smartPull.checkFetchWarn'));
@@ -579,7 +663,7 @@ async function main() {
         console.log(tr('smartPull.resolvedAllChunks', { count: res.count }));
         res.details.forEach((d) => console.log(tr('smartPull.chunkApplied', { index: d.index, rule: d.rule })));
         if (!isDryRun) {
-          run(`git add "${file}"`);
+          runGit(['add', '--', file]);
         }
       } else {
         console.log(tr('smartPull.partialResolve', { resolved: res.resolvedCount, total: res.count }));
@@ -592,7 +676,7 @@ async function main() {
               const escOurs = d.ours.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
               const escTheirs = d.theirs.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
               const re = new RegExp(`<<<<<<< HEAD\\r?\\n${escOurs}\\r?\\n=======\\r?\\n${escTheirs}\\r?\\n>>>>>>> [^\\r\\n]*`);
-              fs.writeFileSync(absPath, currentTxt.replace(re, chosen), 'utf-8');
+              fs.writeFileSync(absPath, currentTxt.replace(re, () => chosen), 'utf-8');
               console.log(tr('smartPull.manualChoiceApplied', { index: d.index }));
             } else {
               fullyResolved = false;
@@ -604,7 +688,7 @@ async function main() {
         if (!fullyResolved) {
           console.log(tr('smartPull.markersRemainWarn', { file }));
         } else if (!isDryRun) {
-          run(`git add "${file}"`);
+          runGit(['add', '--', file]);
         }
       }
     }
@@ -630,8 +714,8 @@ async function main() {
     console.log(tr('smartPull.creatingMergeCommit'));
     const commitMsg = tr('smartPull.mergeCommitMsg', { remote: targetRemote, branch: targetBranch });
     try {
-      run(`git commit -m "${commitMsg}"`);
-      const newSha = run('git rev-parse --short HEAD');
+      runGit(['commit', '-F', '-'], { input: commitMsg });
+      const newSha = runGit(['rev-parse', '--short', 'HEAD']);
       console.log(tr('smartPull.resolveSuccess', { sha: newSha }));
       process.exit(0);
     } catch (err) {
@@ -651,7 +735,7 @@ async function main() {
 
   console.log(tr('smartPull.pullStep2', { remote: targetRemote, branch: targetBranch }));
   try {
-    run(`git fetch ${targetRemote} ${targetBranch}`);
+    runGit(['fetch', '--', targetRemote, targetBranch]);
     console.log(tr('smartPull.pullFetchOk'));
   } catch (err) {
     console.error(tr('smartPull.pullFetchErr'), err.message);
@@ -669,7 +753,7 @@ async function main() {
 
   if (diag.ahead === 0) {
     console.log(tr('smartPull.pullFastForward'));
-    run(`git merge --ff-only ${targetRemote}/${targetBranch}`);
+    runGit(['merge', '--ff-only', `${targetRemote}/${targetBranch}`]);
     console.log(tr('smartPull.pullFastForwardOk'));
     process.exit(0);
   }
@@ -677,7 +761,7 @@ async function main() {
   console.log(tr('smartPull.pullStep4', { remote: targetRemote, branch: targetBranch }));
   let mergeFailed = false;
   try {
-    run(`git merge ${targetRemote}/${targetBranch}`);
+    runGit(['merge', `${targetRemote}/${targetBranch}`]);
     console.log(tr('smartPull.pullCleanMergeOk'));
   } catch (_) {
     mergeFailed = true;
@@ -692,7 +776,7 @@ async function main() {
         process.exit(1);
       }
     }
-    const newSha = run('git rev-parse --short HEAD');
+    const newSha = runGit(['rev-parse', '--short', 'HEAD']);
     console.log(tr('smartPull.pullMergeOk', { sha: newSha }));
     process.exit(0);
   }
@@ -711,7 +795,7 @@ async function main() {
       console.log(tr('smartPull.resolvedAllChunksPull', { count: res.count }));
       res.details.forEach((d) => console.log(tr('smartPull.chunkAppliedPull', { index: d.index, rule: d.rule })));
       if (!isDryRun) {
-        run(`git add "${file}"`);
+        runGit(['add', '--', file]);
       }
     } else {
       console.log(tr('smartPull.partialResolvePull', { resolved: res.resolvedCount, total: res.count }));
@@ -724,7 +808,7 @@ async function main() {
             const escOurs = d.ours.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const escTheirs = d.theirs.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const re = new RegExp(`<<<<<<< HEAD\\r?\\n${escOurs}\\r?\\n=======\\r?\\n${escTheirs}\\r?\\n>>>>>>> [^\\r\\n]*`);
-            fs.writeFileSync(absPath, currentTxt.replace(re, chosen), 'utf-8');
+            fs.writeFileSync(absPath, currentTxt.replace(re, () => chosen), 'utf-8');
             console.log(tr('smartPull.manualChoiceAppliedPull', { index: d.index }));
           } else {
             fullyResolved = false;
@@ -736,7 +820,7 @@ async function main() {
       if (!fullyResolved) {
         console.log(tr('smartPull.markersRemainWarnPull', { file }));
       } else if (!isDryRun) {
-        run(`git add "${file}"`);
+        runGit(['add', '--', file]);
       }
     }
   }
@@ -758,8 +842,8 @@ async function main() {
   console.log(tr('smartPull.pullCommitStart'));
   const commitMsg = tr('smartPull.mergeCommitMsg', { remote: targetRemote, branch: targetBranch });
   try {
-    run(`git commit -m "${commitMsg}"`);
-    const newSha = run('git rev-parse --short HEAD');
+    runGit(['commit', '-F', '-'], { input: commitMsg });
+    const newSha = runGit(['rev-parse', '--short', 'HEAD']);
     console.log('\n=======================================================');
     console.log(tr('smartPull.pullSuccessBannerTitle'));
     console.log(tr('smartPull.pullSuccessSha', { sha: newSha }));
@@ -779,6 +863,9 @@ if (require.main === module) {
 }
 
 module.exports = {
+  runGit,
+  isValidBranchName,
+  runNpmScript,
   parseJsxAttributes,
   tryResolveJsxProps,
   extractFunctionBlockName,

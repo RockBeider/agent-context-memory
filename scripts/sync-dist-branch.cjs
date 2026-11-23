@@ -13,7 +13,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const TEMP_INDEX_REL = '.git/temp-dist-index';
@@ -26,18 +26,35 @@ const EXCLUDED_DIST_FILES = [
   'scripts/sync-dist-branch.cjs',
 ];
 
-function runGit(cmd, options = {}) {
+/**
+ * Runs a Git command via argument array (shell: false) with pager deadlock protection.
+ */
+function runGit(args, options = {}) {
   const env = {
     ...process.env,
+    GIT_PAGER: 'cat',
     PAGER: 'cat',
     ...(options.env || {}),
   };
-  return execSync(cmd, {
+  const spawnOpts = {
     cwd: REPO_ROOT,
     encoding: 'utf-8',
     env,
+    shell: false,
     stdio: options.stdio || ['ignore', 'pipe', 'pipe'],
-  }).trim();
+  };
+  if (options.input !== undefined) {
+    spawnOpts.input = options.input;
+  }
+
+  const res = spawnSync('git', args, spawnOpts);
+  const stdout = res.stdout ? res.stdout.toString() : '';
+  const stderr = res.stderr ? res.stderr.toString() : '';
+
+  if (res.error || res.status !== 0) {
+    throw new Error(res.error ? res.error.message : stderr.trim() || stdout.trim() || `git ${args[0] || ''} failed (${res.status})`);
+  }
+  return stdout.trim();
 }
 
 /**
@@ -78,14 +95,13 @@ function injectSanitizedPackageJson(gitEnv) {
 
   const sanitizedContent = generateDistributionPackageJson(pkgPath);
 
-  const blobHash = execSync('git hash-object -w --stdin', {
-    cwd: REPO_ROOT,
+  const blobHash = runGit(['hash-object', '-w', '--stdin'], {
+    env: gitEnv,
     input: sanitizedContent,
-    encoding: 'utf-8',
-    env: { ...process.env, ...gitEnv },
-  }).trim();
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
 
-  runGit(`git update-index --cacheinfo 100644 ${blobHash} package.json`, { env: gitEnv });
+  runGit(['update-index', '--cacheinfo', '100644', blobHash, 'package.json'], { env: gitEnv });
   console.log(`[dist-sync] Injected sanitized package.json (blob: ${blobHash.substring(0, 7)})`);
 }
 
@@ -97,14 +113,13 @@ function injectSanitizedAgentsMd(gitEnv) {
   if (!fs.existsSync(templateAgentsPath)) return;
 
   const cleanAgentsContent = fs.readFileSync(templateAgentsPath, 'utf-8');
-  const blobHash = execSync('git hash-object -w --stdin', {
-    cwd: REPO_ROOT,
+  const blobHash = runGit(['hash-object', '-w', '--stdin'], {
+    env: gitEnv,
     input: cleanAgentsContent,
-    encoding: 'utf-8',
-    env: { ...process.env, ...gitEnv },
-  }).trim();
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
 
-  runGit(`git update-index --cacheinfo 100644 ${blobHash} AGENTS.md`, { env: gitEnv });
+  runGit(['update-index', '--cacheinfo', '100644', blobHash, 'AGENTS.md'], { env: gitEnv });
   console.log(`[dist-sync] Injected clean template AGENTS.md (blob: ${blobHash.substring(0, 7)})`);
 }
 
@@ -135,11 +150,12 @@ function getPackageDistributionFiles() {
 function syncDistBranch(options = {}) {
   const dryRun = options.dryRun || false;
   const shouldPush = options.push || false;
+  const forcePush = options.forcePush || false;
 
   console.log('[dist-sync] Starting distribution branch (dist) sync.');
 
   try {
-    const isInside = runGit('git rev-parse --is-inside-work-tree');
+    const isInside = runGit(['rev-parse', '--is-inside-work-tree']);
     if (isInside !== 'true') {
       throw new Error('Not inside a Git work tree.');
     }
@@ -151,8 +167,8 @@ function syncDistBranch(options = {}) {
   let currentBranch = 'unknown';
   let currentCommit = 'unknown';
   try {
-    currentBranch = runGit('git rev-parse --abbrev-ref HEAD');
-    currentCommit = runGit('git rev-parse --short HEAD');
+    currentBranch = runGit(['rev-parse', '--abbrev-ref', 'HEAD']);
+    currentCommit = runGit(['rev-parse', '--short', 'HEAD']);
   } catch (_) {}
 
   const { version, validTargets } = getPackageDistributionFiles();
@@ -175,12 +191,11 @@ function syncDistBranch(options = {}) {
 
   try {
     console.log('[dist-sync] Staging distribution items into temporary index...');
-    const targetArgs = validTargets.map((t) => `"${t}"`).join(' ');
-    runGit(`git add -A -- ${targetArgs}`, { env: gitEnv });
+    runGit(['add', '-A', '--', ...validTargets], { env: gitEnv });
 
     for (const file of EXCLUDED_DIST_FILES) {
       try {
-        runGit(`git rm --cached -f -- "${file}"`, {
+        runGit(['rm', '--cached', '-f', '--', file], {
           env: gitEnv,
           stdio: ['ignore', 'ignore', 'ignore'],
         });
@@ -193,13 +208,13 @@ function syncDistBranch(options = {}) {
 
     console.log('[dist-sync] Temporary index staging and sanitization complete.');
 
-    const treeHash = runGit('git write-tree', { env: gitEnv });
+    const treeHash = runGit(['write-tree'], { env: gitEnv });
     console.log(`[dist-sync] Distribution tree hash: ${treeHash}`);
 
     let parentCommit = null;
 
     try {
-      runGit('git fetch origin dist', { stdio: ['ignore', 'ignore', 'ignore'] });
+      runGit(['fetch', 'origin', 'dist'], { stdio: ['ignore', 'ignore', 'ignore'] });
     } catch (_) {}
 
     const candidateRefs = [
@@ -210,7 +225,7 @@ function syncDistBranch(options = {}) {
 
     for (const ref of candidateRefs) {
       try {
-        const hash = runGit(`git rev-parse --verify ${ref}`);
+        const hash = runGit(['rev-parse', '--verify', ref]);
         if (hash) {
           parentCommit = hash;
           console.log(`[dist-sync] Found previous dist HEAD (${ref}): ${parentCommit}`);
@@ -225,28 +240,27 @@ function syncDistBranch(options = {}) {
 
     const commitMsg = options.message || `release(dist): v${version} (${currentBranch}@${currentCommit})`;
     const commitTreeArgs = ['commit-tree', treeHash, ...(parentCommit ? ['-p', parentCommit] : []), '-F', '-'];
-    const commitTreeRes = spawnSync('git', commitTreeArgs, {
-      cwd: REPO_ROOT,
+    const newCommitHash = runGit(commitTreeArgs, {
+      env: gitEnv,
       input: commitMsg,
-      encoding: 'utf-8',
-      env: { ...process.env, PAGER: 'cat', ...gitEnv },
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
-    if (commitTreeRes.status !== 0) {
-      throw new Error(`git commit-tree failed: ${commitTreeRes.stderr || commitTreeRes.stdout}`);
-    }
-    const newCommitHash = commitTreeRes.stdout.trim();
     console.log(`[dist-sync] Created dist commit: ${newCommitHash}`);
 
-    runGit(`git update-ref refs/heads/dist ${newCommitHash}`);
+    runGit(['update-ref', 'refs/heads/dist', newCommitHash]);
     console.log(`[dist-sync] Updated refs/heads/dist -> ${newCommitHash}.`);
 
     if (shouldPush) {
       console.log('[dist-sync] Pushing dist branch to origin: git push origin dist');
       try {
-        runGit('git push origin dist');
-      } catch (_) {
-        console.warn('[dist-sync] Standard push rejected; force-pushing dist branch (--force).');
-        runGit('git push origin dist --force');
+        runGit(['push', 'origin', 'dist']);
+      } catch (pushErr) {
+        if (!forcePush) {
+          console.error('[dist-sync] Push rejected due to remote divergence. Re-run with --force-push to use --force-with-lease.');
+          throw pushErr;
+        }
+        console.warn('[dist-sync] Standard push rejected; pushing with --force-with-lease (--force-push enabled).');
+        runGit(['push', '--force-with-lease', 'origin', 'dist']);
       }
       console.log('[dist-sync] Remote push succeeded.');
     }
@@ -265,10 +279,11 @@ if (require.main === module) {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const push = args.includes('--push');
+  const forcePush = args.includes('--force-push');
   const msgIdx = args.indexOf('--message');
   const message = msgIdx !== -1 && args[msgIdx + 1] ? args[msgIdx + 1] : null;
 
-  syncDistBranch({ dryRun, push, message });
+  syncDistBranch({ dryRun, push, forcePush, message });
 }
 
 module.exports = {

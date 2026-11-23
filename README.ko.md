@@ -90,16 +90,19 @@ Git 환경과의 완벽한 유기적 결합(작업 단위 원자적 분할 커�
 
 경량 대화형 CLI(`@clack/prompts`)와 **Node.js 순수 내장 모듈**(`>=22.13.0`, 내장 `node:sqlite` 지원) 기반의 실행 엔진으로 작동합니다. 별도의 2단계 과정 없이 **단 1회 명령어**로 모든 AI 코딩 에이전트 환경에 즉시 설치 및 초기화할 수 있습니다.
 
-대화형 설치 시 **영어(English, 기본값)** 또는 **한국어(Korean)** 를 선택할 수 있으며, 비대화형/스크립트 환경에서는 `--lang=ko` / `-l ko` 옵션 또는 `ACM_LANG=ko` 환경변수로 언어를 지정할 수 있습니다. (규칙 파일 미감지 시 방향키 `↑`/`↓` 및 `Space` 키로 대상 에이전트 규칙 파일을 직관적으로 다중 선택할 수 있으며, 비대화형 환경에서는 자동으로 `en` 및 `AGENTS.md`가 선택됩니다.)
+대화형 설치 시 **영어(English, 기본값)** 또는 **한국어(Korean)** 언어(`--lang=ko` / `-l ko` / `ACM_LANG=ko`)와 **저장소 백엔드**(**로컬 SQLite DB (권장)** — Node.js `>= 22.13.0`, `--storage=sqlite` / **레거시 Markdown 파일** `--storage=markdown`)를 선택할 수 있습니다. 기존 `.agents/` Markdown 기록이 있는 프로젝트에서는 설치 시 `.agents/local/memory.db`로 자동 적재됩니다. (규칙 파일 미감지 시 방향키 `↑`/`↓` 및 `Space` 키로 대상 에이전트 규칙 파일을 다중 선택할 수 있으며, 비대화형 환경에서는 자동으로 `en`, `sqlite`, `AGENTS.md`가 선택됩니다.)
 
 ### 방법 A. npx 1단계 즉시 실행 (가장 권장하는 표준 방법)
 
 ```bash
-# 대화형 실행: 언어 선택 (영어 기본값 / 한국어) 및 규칙 파일 자동 스캔·주입
+# 대화형 실행: 언어(영어 기본/한국어), 저장소 백엔드(SQLite 권장) 및 규칙 파일 자동 스캔·주입
 npx -y agent-context-memory
 
-# 한국어로 즉시 설치 (대화형 선택 건너뛰기)
-npx -y agent-context-memory --lang=ko --non-interactive
+# 한국어 + SQLite 모드로 즉시 설치 (대화형 선택 건너뛰기)
+npx -y agent-context-memory --lang=ko --storage=sqlite --non-interactive
+
+# 레거시 Markdown 전용 모드로 설치
+npx -y agent-context-memory init --storage=markdown
 
 # 특정 프로젝트 디렉터리에 즉시 설치
 npx -y agent-context-memory ./my-project
@@ -181,30 +184,32 @@ node scripts/install-template.cjs /path/to/my-project --lang=ko --rule-file=CLAU
 
 ---
 
-## 5. 3계층 데이터 모델 상세 규격
+## 5. 3계층 데이터 모델 및 로컬 우선 SQLite 저장소
 
-| 계층 | 대상 경로 | 최대 용량 | 역할 및 거버넌스 규격 |
+ACM은 코드 브랜치를 오염시키지 않는 `.agents/local/memory.db` 기반의 **로컬 우선 SQLite (`node:sqlite` + FTS5 BM25)** 엔진(`.agents/config.json` 설정, `.gitignore` 보호)을 기본으로 동작하며, `.agents/task/` Markdown 자동 투영 및 추후 온라인·클라우드 연동을 위한 `registerProvider()` 확장 구조를 갖추고 있습니다:
+
+| 계층 | Markdown 뷰 / 정본 경로 | SQLite 및 검색 저장소 | 역할 및 거버넌스 규격 |
 | :--- | :--- | :--- | :--- |
-| **L0 (규칙 계층)** | `AGENTS.md` (상시 가드레일)<br>`.agents/rules/60-task-memory-adr.md`<br>`.agents/MEMORY_GOVERNANCE.md` | 상시 ~140토큰 | 완결형 6대 가드레일 상시 주입 및 `P-XX`/`LOG-XX`/비-Git 이관 시 조건부 세부 규격 참조 |
-| **L1 (작업 기억)** | `.agents/task/task.md` | **5KB 이하** | 현재 활성화된 작업의 단일 정본. `TSK-{자연수}` 영구 불변 식별자 및 `[커밋 대기]`/`[Ready]` 3요소 기록. |
-| **L2 (장기 지식)** | `.agents/memory/patterns-index.md`<br>`.agents/memory/patterns/P-XX-*.md`<br>`.agents/memory/project-changelog.md` | 샤드당 5줄 요약<br>(분산 저장) | **0토큰 Grep 원칙**: 색인표 키워드 매칭 파일만 핀포인트 조회.<br>**ADR Index Map**: 최상단 요약 테이블(1~35행) 우선 조회 후 해당 `[LOG-XX]` 섹션만 열람. |
-| **L3 (콜드 아카이브)** | `.agents/task/task-completed.md`<br>`.agents/memory/archive/` | 무제한 | `npm run git:commit` 성공 시 획득한 커밋 SHA 해시와 함께 자동 이관 보관. |
+| **L0 (규칙 계층)** | `AGENTS.md` (상시 가드레일)<br>`.agents/rules/60-task-memory-adr.md`<br>`.agents/MEMORY_GOVERNANCE.md` | `.agents/config.json` | 완결형 6대 가드레일 상시 주입 및 조건부 세부 규격·저장소 모드 참조 |
+| **L1 (작업 기억)** | `.agents/task/task.md` (**5KB 이하**) | `tasks` 테이블 + `memory_fts` | 현재 활성화된 작업의 단일 정본. `TSK-{자연수}`, 에이전트 Lease 잠금 및 `[커밋 대기]` 3요소 검증. |
+| **L2 (장기 지식)** | `.agents/memory/patterns-index.md`<br>`.agents/memory/patterns/P-XX-*.md`<br>`.agents/memory/project-changelog.md` | `patterns` + `adrs` 테이블 + FTS5 BM25 | **0토큰 탐색**: FTS5 BM25/토큰 예산 검색(`acm search` / MCP) + `supersedes` 버전 체인 + 색인표 Grep 폴백. |
+| **L3 (콜드 아카이브)** | `.agents/task/task-completed.md`<br>`.agents/memory/archive/` | `tasks (status='done')` + `sync_log` | `npm run git:commit` 성공 시 획득한 커밋 SHA 및 orphan 브랜치 동기화 이력 보관. |
 
 ---
 
-## 6. 핵심 실행 엔진 및 명령어 가이드
+## 6. 핵심 실행 엔진, Git Orphan 동기화 및 MCP 가이드
 
-### 1) CLI 명령어
+### 1) 기본 및 작업 단위 Git CLI 명령어
 
 ```bash
-# 템플릿 설치 및 프로젝트 초기화 (기본값: 영어, --lang=ko 로 한국어 설치)
+# 템플릿 설치 및 프로젝트 초기화 (EN/KO 언어, SQLite/Markdown 백엔드 선택)
 npx agent-context-memory init [경로] [옵션]
 
 # 작업 단위 상태 점검 (Git 환경: 파일 변경 감지 / 비-Git 환경: 3계층 메모리 뷰어)
 npx agent-context-memory status
 npx agent-context-memory status --compact
 
-# '[Ready]' / '[커밋 대기]' 작업 순차 원자 커밋 및 task-completed.md 자동 이관
+# '[Ready]' / '[커밋 대기]' 작업 순차 원자 커밋 및 SQLite + task-completed.md 자동 이관
 npx agent-context-memory commit
 npx agent-context-memory commit --commit=TSK-1
 
@@ -212,7 +217,7 @@ npx agent-context-memory commit --commit=TSK-1
 npx agent-context-memory pull
 npx agent-context-memory resolve
 
-# 원격 브랜치 푸시 전 위생 및 정적 감사
+# 원격 푸시 전 위생 및 로컬 DB 파일(*.db / *.db-wal / *.db-shm) 유출 차단 감사
 npx agent-context-memory audit
 
 # 현재 환경의 Git 설치 유무 및 대상 디렉터리 저장소 여부 정밀 진단
@@ -222,7 +227,60 @@ npx agent-context-memory check-git
 npx agent-context-memory uninstall [경로] [옵션]
 ```
 
-### 2) 작업 단위 Git 자동화 스크립트 (`package.json`)
+### 2) 로컬 DB CLI 및 팀 Git Orphan 동기화 (`acm`)
+
+모든 DB 명령어는 `--json` 출력 및 `--stdin` JSON 입력을 지원하여 셸 따옴표 문제 없이 안정적으로 자동화할 수 있습니다:
+
+```bash
+# 태스크, 지식 패턴, ADR 관리 및 토큰 예산 기반 FTS5 BM25 검색
+npx agent-context-memory task list
+npx agent-context-memory task add "OAuth 인증 구현" --status=in_progress --owner=agent-1
+npx agent-context-memory search "원자 커밋" --kind=all --budget=1500
+npx agent-context-memory pattern add "Git Pager 프리징 해결" --supersedes=P-01
+npx agent-context-memory adr add "로컬 SQLite 도입" --task=TSK-18 --area="scripts/storage/"
+
+# 저장소 전환 및 스냅샷 이식
+npx agent-context-memory migrate --to=sqlite
+npx agent-context-memory export --format=json --out=.agents/backup.json
+npx agent-context-memory import .agents/backup.json --strategy=merge
+
+# Git orphan 브랜치('acm-memory')를 통한 공유 메모리(패턴, ADR, 완료 태스크) 협업 동기화
+# 순수 Git Plumbing(GIT_INDEX_FILE), LWW/코드 충돌 자동 재채번 병합 및 아웃바운드 Secret Scrubber 내장
+npx agent-context-memory sync --status
+npx agent-context-memory sync --pull
+npx agent-context-memory sync --push --dry-run
+npx agent-context-memory sync
+```
+
+### 3) 무의존성 Stdio MCP 서버 (`acm mcp`)
+
+외부 npm 패키지 추가 없이 순수 Node.js stdio(줄바꿈 구분 JSON-RPC 2.0)를 통해 9개 구조화 도구(`acm_status`, `acm_search`, `acm_task_list`, `acm_task_upsert`, `acm_task_complete`, `acm_pattern_save`, `acm_pattern_get`, `acm_adr_add`, `acm_sync`)를 노출합니다:
+
+```bash
+# Antigravity, Claude Code, Cursor 등에 바로 붙여넣을 수 있는 MCP 설정 JSON 출력
+npx agent-context-memory mcp --print-config
+
+# stdio MCP 서버 직접 실행
+npx agent-context-memory mcp
+```
+
+설정 스니펫 예시 (`acm mcp --print-config` 출력):
+
+```json
+{
+  "mcpServers": {
+    "agent-context-memory": {
+      "command": "npx",
+      "args": ["-y", "agent-context-memory", "mcp"],
+      "env": {
+        "ACM_ROOT_DIR": "/path/to/your/project"
+      }
+    }
+  }
+}
+```
+
+### 4) 작업 단위 Git 자동화 스크립트 (`package.json`)
 
 ```bash
 npm run git:status      # 작업별 파일 분류 및 자동 생성 커밋 메시지 미리보기 (--dry-run)
@@ -230,7 +288,7 @@ npm run git:summary     # 에이전트 초경량 토큰용 1줄 요약 조회 (-
 npm run git:commit      # 완료 대기 작업을 순차 원자 커밋 및 task-completed.md로 자동 이관 (--all)
 npm run git:pull        # 원격 브랜치 변경사항 지능형 풀 (3-Way 병합)
 npm run git:resolve     # 3-Way 충돌 해결 마커 점검 및 하이브리드 해소
-npm run git:audit-push  # 원격 푸시 전 임시 파일, 디버그 코드, 미해결 충돌 마커 정적 감사
+npm run git:audit-push  # 원격 푸시 전 임시 파일, DB 파일, 미해결 충돌 마커 정적 감사
 ```
 
 ---
@@ -239,17 +297,21 @@ npm run git:audit-push  # 원격 푸시 전 임시 파일, 디버그 코드, 미
 
 ```text
 agent-context-memory/
-├── acm-template/       # [배포 자산] 신규 프로젝트에 주입될 클린 보일러플레이트 (영어 기본 정본)
-│   ├── .agents/        # 비오염 샘플(TSK-SAMPLE, P-00, LOG-00), 거버넌스, 룰, 에이전트, 스킬, 훅
-│   ├── locales/ko/     # --lang=ko 또는 대화형 한국어 선택 시 적용되는 한국어 템플릿 오버레이
-│   └── scripts/        # 실행 엔진, i18n 카탈로그, SQLite/Markdown 스토리지 프로바이더
-├── .agents/            # [자체 개발] 본 패키지 자체의 실시간 작업 기억 및 거버넌스 (Dogfooding)
-├── bin/                # 통합 CLI 진입점 (agent-context-memory.js)
-├── scripts/            # 인스톨러, 언인스톨러, 매니페스트, i18n, 실행 엔진, 스토리지 계층
-├── tests/              # Git, 비-Git, i18n, SQLite E2E 자동화 검증 스위트
-├── README.md           # 영문 README (기본)
-├── README.ko.md        # 국문 README
-└── LICENSE             # MIT License
+├── acm-template/           # [배포 자산] 신규 프로젝트에 주입될 클린 보일러플레이트 (영어 기본 정본)
+│   ├── .agents/            # 비오염 샘플(TSK-SAMPLE, P-00, LOG-00), 거버넌스, 룰, 에이전트, 스킬, 훅
+│   └── locales/ko/         # --lang=ko 또는 대화형 한국어 선택 시 적용되는 한국어 템플릿 오버레이
+├── .agents/                # [자체 개발] 본 패키지 자체의 실시간 작업 기억 및 거버넌스 (Dogfooding)
+├── bin/                    # 통합 CLI 진입점 (agent-context-memory.js)
+├── scripts/                # 단일 정본 런타임 엔진, 인스톨러, 매니페스트, i18n, DB CLI, MCP, 스토리지 계층
+│   ├── i18n.cjs            # 무의존성 EN/KO 다국어 리졸버
+│   ├── locales/            # en.cjs (기본값) 및 ko.cjs 메시지 카탈로그
+│   ├── acm-db-cli.cjs      # MemoryStore CLI (task, pattern, adr, search, migrate, export, import, sync)
+│   ├── mcp-server.cjs      # 무의존성 stdio JSON-RPC 2.0 MCP 서버
+│   └── storage/            # MemoryStore, node:sqlite FTS5, Markdown 브리지, Git orphan 동기화, Secret Scrubber
+├── tests/                  # Git, 비-Git, SQLite, DB CLI, Git orphan 동기화 및 MCP 서버 E2E 검증 스위트
+├── README.md               # 영문 README (기본)
+├── README.ko.md            # 국문 README
+└── LICENSE                 # MIT License
 ```
 
 ---

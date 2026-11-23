@@ -21,6 +21,15 @@ const {
 } = require('./sync-agent-rules.cjs');
 const { ACM_MANIFEST } = require('./acm-manifest.cjs');
 const {
+  isNodeSqliteAvailable,
+  normalizeStorageProvider,
+  getConfigPath,
+  loadConfig,
+  saveConfig,
+} = require('./storage/config.cjs');
+const { createMemoryStore } = require('./storage/memory-store.cjs');
+const { importMarkdownToStore } = require('./storage/markdown-bridge.cjs');
+const {
   DEFAULT_LANGUAGE,
   normalizeLanguage,
   parseLangFlag,
@@ -99,6 +108,73 @@ async function promptLanguage(options = {}) {
   return normalizeLanguage(selected) || DEFAULT_LANGUAGE;
 }
 
+function getStorageOptions(lang = DEFAULT_LANGUAGE) {
+  return [
+    {
+      value: 'sqlite',
+      label: t('install.storageOptionSqliteLabel', {}, lang),
+      hint: t('install.storageOptionSqliteHint', {}, lang),
+    },
+    {
+      value: 'markdown',
+      label: t('install.storageOptionMarkdownLabel', {}, lang),
+      hint: t('install.storageOptionMarkdownHint', {}, lang),
+    },
+  ];
+}
+
+function promptStorageFallback(options = {}) {
+  const lang = options.lang || DEFAULT_LANGUAGE;
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: options.input || process.stdin,
+      output: options.output || process.stdout,
+    });
+    rl.question(t('install.storagePromptFallback', {}, lang), (answer) => {
+      rl.close();
+      const trimmed = String(answer || '').trim();
+      if (!trimmed || trimmed === '1') {
+        return resolve('sqlite');
+      }
+      if (trimmed === '2') {
+        return resolve('markdown');
+      }
+      resolve(normalizeStorageProvider(trimmed) || 'sqlite');
+    });
+  });
+}
+
+/**
+ * Prompts the user to select local SQLite (recommended) or legacy Markdown storage.
+ * Returns null if cancelled via Ctrl+C.
+ *
+ * @param {object} [options={}]
+ * @returns {Promise<'sqlite'|'markdown'|null>}
+ */
+async function promptStorageProvider(options = {}) {
+  const lang = options.lang || DEFAULT_LANGUAGE;
+  const clack = options.useClack === false ? null : await loadClack();
+  if (!clack) {
+    return promptStorageFallback(options);
+  }
+
+  const ioOpts = {};
+  if (options.input) ioOpts.input = options.input;
+  if (options.output) ioOpts.output = options.output;
+
+  const selected = await clack.select({
+    message: t('install.storagePromptMessage', {}, lang),
+    options: getStorageOptions(lang),
+    initialValue: 'sqlite',
+    ...ioOpts,
+  });
+
+  if (clack.isCancel(selected)) {
+    return null;
+  }
+  return normalizeStorageProvider(selected) || 'sqlite';
+}
+
 /**
  * Copies template files to dest in a single pass, resolving locale overrides when lang !== 'en'.
  * Never copies root AGENTS.md (injected via syncAgentRules) or acm-template/locales/ to host.
@@ -155,6 +231,45 @@ function copyTemplateForLocale(src, dest, lang, force, stats, silent = false) {
           if (!silent) {
             console.log(tr('install.copyCreate', { file: relDest }));
           }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Copies ACM-owned runtime scripts listed in ACM_MANIFEST.files from the package's root scripts/ directory.
+ */
+function copyRuntimeScriptsFromManifest(targetDir, lang, force, stats, silent = false) {
+  const tr = createTranslator(lang);
+
+  for (const fileMeta of ACM_MANIFEST.files) {
+    const srcPath = path.resolve(ROOT_DIR, fileMeta.path);
+    const destPath = path.resolve(targetDir, fileMeta.path);
+    if (!fs.existsSync(srcPath)) {
+      throw new Error(`Missing ACM runtime script in package bundle: ${fileMeta.path}`);
+    }
+
+    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+
+    const relDest = path.relative(stats.targetRoot, destPath);
+    const exists = fs.existsSync(destPath);
+    if (exists && !force) {
+      stats.skipped++;
+      if (!silent) {
+        console.log(tr('install.copyKeep', { file: relDest }));
+      }
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+      if (exists) {
+        stats.overwritten++;
+        if (!silent) {
+          console.log(tr('install.copyOverwrite', { file: relDest }));
+        }
+      } else {
+        stats.created++;
+        if (!silent) {
+          console.log(tr('install.copyCreate', { file: relDest }));
         }
       }
     }
@@ -245,6 +360,7 @@ function executeInstallSteps(targetDir, targetRuleFiles, hasGit, force, silent, 
 
   if (!silent) console.log(tr('install.step2Copy'));
   copyTemplateForLocale(TEMPLATE_DIR, targetDir, lang, force, stats, silent);
+  copyRuntimeScriptsFromManifest(targetDir, lang, force, stats, silent);
   if (!silent) {
     console.log(
       tr('install.step2Stats', {
@@ -277,6 +393,52 @@ function executeInstallSteps(targetDir, targetRuleFiles, hasGit, force, silent, 
   }
 
   const agentsDir = path.join(targetDir, '.agents');
+  const desiredStorage = options.storageProvider || (isNodeSqliteAvailable() ? 'sqlite' : 'markdown');
+  const configPath = getConfigPath(targetDir);
+  const hasExistingConfig = fs.existsSync(configPath);
+  let effectiveConfig;
+
+  if (hasExistingConfig && !force && !options.explicitStorage) {
+    effectiveConfig = loadConfig(targetDir);
+  } else {
+    const baseExisting = hasExistingConfig ? loadConfig(targetDir) : {};
+    effectiveConfig = saveConfig(targetDir, {
+      ...baseExisting,
+      language: lang,
+      storage: {
+        ...(baseExisting.storage || {}),
+        provider: desiredStorage,
+        dbPath: (baseExisting.storage && baseExisting.storage.dbPath) || '.agents/local/memory.db',
+        markdownProjection:
+          baseExisting.storage && typeof baseExisting.storage.markdownProjection === 'boolean'
+            ? baseExisting.storage.markdownProjection
+            : true,
+      },
+    });
+  }
+
+  const effectiveStorage = (effectiveConfig.storage && effectiveConfig.storage.provider) || desiredStorage;
+  let migratedCounts = { tasks: 0, completedTasks: 0, patterns: 0, adrs: 0 };
+  if (effectiveStorage === 'sqlite' && isNodeSqliteAvailable()) {
+    const store = createMemoryStore(targetDir, { config: effectiveConfig, lang, skipProjection: true });
+    try {
+      const dbStats = store.getStats();
+      if (dbStats.tasks.total === 0 && dbStats.patterns.total === 0 && dbStats.adrs.total === 0) {
+        migratedCounts = importMarkdownToStore(targetDir, store);
+        const migratedTotal =
+          migratedCounts.tasks +
+          migratedCounts.completedTasks +
+          migratedCounts.patterns +
+          migratedCounts.adrs;
+        if (migratedTotal > 0 && !silent) {
+          console.log(tr('install.storageMigrated', migratedCounts));
+        }
+      }
+    } finally {
+      store.close();
+    }
+  }
+
   if (fs.existsSync(agentsDir)) {
     const metaPath = path.join(agentsDir, '.acm-meta.json');
     let existingRuleFiles = [];
@@ -297,21 +459,46 @@ function executeInstallSteps(targetDir, targetRuleFiles, hasGit, force, silent, 
       existingCreatedGitignore !== null ? existingCreatedGitignore : Boolean(gitignoreResult.created);
     fs.writeFileSync(
       metaPath,
-      JSON.stringify({ language: lang, ruleFiles: mergedRuleFiles, createdGitignore }, null, 2) + '\n',
+      JSON.stringify(
+        {
+          language: lang,
+          storageProvider: effectiveStorage,
+          ruleFiles: mergedRuleFiles,
+          createdGitignore,
+        },
+        null,
+        2
+      ) + '\n',
       'utf-8'
     );
   }
 
-  return { stats, ruleResult, pkgResult, gitignoreResult };
+  return {
+    stats,
+    ruleResult,
+    pkgResult,
+    gitignoreResult,
+    storageProvider: effectiveStorage,
+    migratedCounts,
+  };
 }
 
-function buildNextStepsLines(targetDir, targetRuleFiles, hasGit, lang = DEFAULT_LANGUAGE) {
+function buildNextStepsLines(
+  targetDir,
+  targetRuleFiles,
+  hasGit,
+  lang = DEFAULT_LANGUAGE,
+  storageProvider = 'sqlite'
+) {
   const tr = createTranslator(lang);
   const lines = [];
   if (targetDir !== process.cwd()) {
     lines.push(tr('install.nextCd', { dir: targetDir }));
   }
   lines.push(tr('install.nextTask'));
+  if (storageProvider === 'sqlite') {
+    lines.push(tr('install.nextDbTip'));
+  }
   lines.push(tr('install.nextRules', { files: targetRuleFiles.join(', ') }));
   if (hasGit) {
     lines.push(tr('install.nextGitStatus'));
@@ -329,6 +516,29 @@ async function install(targetPath = '.', options = {}) {
     const normExplicit = normalizeLanguage(options.lang);
     if (!normExplicit) {
       throw new Error(t('cli.unsupportedLang', { lang: options.lang }, resolveLanguage(targetDir)));
+    }
+  }
+
+  let explicitStorage = null;
+  if (options.storage !== undefined && options.storage !== null && options.storage !== '') {
+    explicitStorage = normalizeStorageProvider(options.storage);
+    if (!explicitStorage) {
+      throw new Error(
+        t(
+          'cli.unsupportedStorage',
+          { storage: options.storage },
+          normalizeLanguage(options.lang) || resolveLanguage(targetDir)
+        )
+      );
+    }
+    if (explicitStorage === 'sqlite' && !isNodeSqliteAvailable()) {
+      throw new Error(
+        t(
+          'storage.sqliteRequired',
+          { version: process.version },
+          normalizeLanguage(options.lang) || resolveLanguage(targetDir)
+        )
+      );
     }
   }
 
@@ -350,6 +560,14 @@ async function install(targetPath = '.', options = {}) {
     lang = normalizeLanguage(process.env.ACM_LANG) || DEFAULT_LANGUAGE;
   }
 
+  let storageProvider = explicitStorage;
+  if (!storageProvider && process.env.ACM_STORAGE) {
+    const envStorage = normalizeStorageProvider(process.env.ACM_STORAGE);
+    if (envStorage) {
+      storageProvider = envStorage === 'sqlite' && !isNodeSqliteAvailable() ? 'markdown' : envStorage;
+    }
+  }
+
   if (clack) {
     const ioOpts = {};
     if (options.input) ioOpts.input = options.input;
@@ -366,6 +584,20 @@ async function install(targetPath = '.', options = {}) {
     }
 
     const tr = createTranslator(lang);
+
+    if (!storageProvider) {
+      if (isNodeSqliteAvailable()) {
+        storageProvider = await promptStorageProvider({ ...options, ...ioOpts, lang, useClack: true });
+        if (storageProvider === null) {
+          clack.cancel(tr('install.cancelled'), ioOpts);
+          return { success: false, cancelled: true };
+        }
+      } else {
+        clack.log.warn(tr('install.storageFallbackMarkdownWarn', { version: process.version }), ioOpts);
+        storageProvider = 'markdown';
+      }
+    }
+
     clack.log.info(
       tr('install.targetAndMode', {
         targetDir,
@@ -405,11 +637,27 @@ async function install(targetPath = '.', options = {}) {
 
     const spin = clack.spinner(ioOpts);
     spin.start(tr('install.spinnerStart'));
-    const { stats, pkgResult } = executeInstallSteps(targetDir, targetRuleFiles, hasGit, force, true, {
+    const {
+      stats,
+      pkgResult,
+      storageProvider: finalStorage,
+      migratedCounts,
+    } = executeInstallSteps(targetDir, targetRuleFiles, hasGit, force, true, {
       ...options,
       lang,
+      storageProvider,
+      explicitStorage: Boolean(explicitStorage),
     });
     spin.stop(tr('install.spinnerStop'));
+
+    const migratedTotal =
+      migratedCounts.tasks +
+      migratedCounts.completedTasks +
+      migratedCounts.patterns +
+      migratedCounts.adrs;
+    if (migratedTotal > 0) {
+      clack.log.info(tr('install.storageMigrated', migratedCounts).trim(), ioOpts);
+    }
 
     clack.log.step(
       tr('install.summary', {
@@ -418,18 +666,25 @@ async function install(targetPath = '.', options = {}) {
         skipped: stats.skipped,
         files: targetRuleFiles.join(', '),
         addedCount: pkgResult.addedCount,
-      }),
+      }) + `\n${tr('install.summaryStorage', { storage: finalStorage })}`,
       ioOpts
     );
 
     clack.note(
-      buildNextStepsLines(targetDir, targetRuleFiles, hasGit, lang).join('\n'),
+      buildNextStepsLines(targetDir, targetRuleFiles, hasGit, lang, finalStorage).join('\n'),
       tr('install.nextStepsTitle'),
       ioOpts
     );
     clack.outro(tr('install.outro'), ioOpts);
 
-    return { success: true, lang, stats, gitAvailable: hasGit, ruleFiles: targetRuleFiles };
+    return {
+      success: true,
+      lang,
+      storageProvider: finalStorage,
+      stats,
+      gitAvailable: hasGit,
+      ruleFiles: targetRuleFiles,
+    };
   }
 
   if (!lang) {
@@ -444,11 +699,24 @@ async function install(targetPath = '.', options = {}) {
   }
 
   const tr = createTranslator(lang);
+
+  if (!storageProvider) {
+    if (isInteractive && isNodeSqliteAvailable()) {
+      storageProvider = await promptStorageProvider({ ...options, lang, useClack: false });
+      if (storageProvider === null) {
+        return { success: false, cancelled: true };
+      }
+    } else {
+      storageProvider = isNodeSqliteAvailable() ? 'sqlite' : 'markdown';
+    }
+  }
+
   console.log('=======================================================');
   console.log(tr('install.bannerStart'));
   console.log(tr('install.bannerSource', { dir: TEMPLATE_DIR }));
   console.log(tr('install.bannerTarget', { dir: targetDir }));
   console.log(tr('install.bannerLang', { lang }));
+  console.log(tr('install.bannerStorage', { storage: storageProvider }));
   console.log(tr('install.bannerMode', { mode: force ? tr('install.modeForce') : tr('install.modeSafe') }));
   if (options.ruleFile) {
     console.log(tr('install.bannerRule', { ruleFile: options.ruleFile }));
@@ -465,21 +733,37 @@ async function install(targetPath = '.', options = {}) {
     return { success: false, cancelled: true };
   }
 
-  const { stats } = executeInstallSteps(targetDir, targetRuleFiles, hasGit, force, false, {
-    ...options,
-    lang,
-  });
+  const { stats, storageProvider: finalStorage } = executeInstallSteps(
+    targetDir,
+    targetRuleFiles,
+    hasGit,
+    force,
+    false,
+    {
+      ...options,
+      lang,
+      storageProvider,
+      explicitStorage: Boolean(explicitStorage),
+    }
+  );
 
   console.log('\n=======================================================');
   console.log(tr('install.bannerComplete'));
   console.log('=======================================================\n');
   console.log(tr('install.nextStepsHeading'));
-  buildNextStepsLines(targetDir, targetRuleFiles, hasGit, lang).forEach((line, idx) => {
+  buildNextStepsLines(targetDir, targetRuleFiles, hasGit, lang, finalStorage).forEach((line, idx) => {
     console.log(`  ${idx === 0 && targetDir !== process.cwd() ? '1.' : '-'} ${line}`);
   });
   console.log('=======================================================\n');
 
-  return { success: true, lang, stats, gitAvailable: hasGit, ruleFiles: targetRuleFiles };
+  return {
+    success: true,
+    lang,
+    storageProvider: finalStorage,
+    stats,
+    gitAvailable: hasGit,
+    ruleFiles: targetRuleFiles,
+  };
 }
 
 /**
@@ -560,6 +844,7 @@ function parseInstallCliArgs(args = []) {
   let force = false;
   let nonInteractive = false;
   let ruleFile = null;
+  let storage = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = String(args[i] || '');
@@ -573,6 +858,15 @@ function parseInstallCliArgs(args = []) {
       if (args[i + 1] && !String(args[i + 1]).startsWith('-')) {
         ruleFile = String(args[i + 1]);
         i += 1;
+      }
+    } else if (arg.startsWith('--storage=')) {
+      storage = arg.slice('--storage='.length);
+    } else if (arg === '--storage') {
+      if (args[i + 1] && !String(args[i + 1]).startsWith('-')) {
+        storage = String(args[i + 1]);
+        i += 1;
+      } else {
+        storage = '';
       }
     } else if (arg.startsWith('--lang=') || arg.startsWith('-l=')) {
       // Parsed by parseLangFlag
@@ -589,6 +883,7 @@ function parseInstallCliArgs(args = []) {
     force,
     nonInteractive,
     ruleFile,
+    storage,
     targetArg: positionals[0] || '.',
   };
 }
@@ -612,10 +907,10 @@ async function main() {
     process.exit(0);
   }
 
-  const { force, nonInteractive, ruleFile, targetArg } = parseInstallCliArgs(args);
+  const { force, nonInteractive, ruleFile, storage, targetArg } = parseInstallCliArgs(args);
 
   try {
-    await install(targetArg, { force, ruleFile, nonInteractive, lang: parsedLang });
+    await install(targetArg, { force, ruleFile, storage, nonInteractive, lang: parsedLang });
   } catch (err) {
     console.error(t('cli.installException', {}, parsedLang || DEFAULT_LANGUAGE), err.message);
     process.exit(1);
@@ -629,6 +924,9 @@ if (require.main === module) {
 module.exports = {
   LANGUAGE_OPTIONS,
   promptLanguage,
+  normalizeStorageProvider,
+  getStorageOptions,
+  promptStorageProvider,
   install,
   runPostInstall,
   updateGitIgnore,

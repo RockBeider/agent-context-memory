@@ -30,6 +30,8 @@ const requiredFiles = [
   'scripts/install-template.cjs',
   'scripts/uninstall-template.cjs',
   'scripts/acm-manifest.cjs',
+  'scripts/acm-db-cli.cjs',
+  'scripts/mcp-server.cjs',
   'scripts/group-status.cjs',
   'scripts/smart-pull.cjs',
   'scripts/audit-push.cjs',
@@ -41,6 +43,8 @@ const requiredFiles = [
   'scripts/storage/sqlite-provider.cjs',
   'scripts/storage/markdown-bridge.cjs',
   'scripts/storage/markdown-provider.cjs',
+  'scripts/storage/secret-scrubber.cjs',
+  'scripts/storage/git-orphan-sync.cjs',
   '.agents/MEMORY_GOVERNANCE.md',
   '.agents/rules/60-task-memory-adr.md',
   '.agents/agents/git-release-sentinel.md',
@@ -72,22 +76,6 @@ const requiredFiles = [
   'acm-template/locales/ko/.agents/memory/patterns-index.md',
   'acm-template/locales/ko/.agents/memory/patterns/P-00-sample-pattern.md',
   'acm-template/locales/ko/.agents/memory/project-changelog.md',
-  'acm-template/scripts/i18n.cjs',
-  'acm-template/scripts/locales/en.cjs',
-  'acm-template/scripts/locales/ko.cjs',
-  'acm-template/scripts/acm-manifest.cjs',
-  'acm-template/scripts/audit-push.cjs',
-  'acm-template/scripts/check-git.cjs',
-  'acm-template/scripts/group-status.cjs',
-  'acm-template/scripts/smart-pull.cjs',
-  'acm-template/scripts/sync-agent-rules.cjs',
-  'acm-template/scripts/uninstall-template.cjs',
-  'acm-template/scripts/storage/id-utils.cjs',
-  'acm-template/scripts/storage/config.cjs',
-  'acm-template/scripts/storage/memory-store.cjs',
-  'acm-template/scripts/storage/sqlite-provider.cjs',
-  'acm-template/scripts/storage/markdown-bridge.cjs',
-  'acm-template/scripts/storage/markdown-provider.cjs',
 ];
 
 for (const rel of requiredFiles) {
@@ -103,33 +91,18 @@ assert.ok(
   'Legacy acm-template/rules/ directory still exists'
 );
 assert.ok(
+  !fs.existsSync(path.join(ROOT_DIR, 'acm-template/scripts')),
+  'Duplicate acm-template/scripts/ directory still exists'
+);
+assert.ok(
   !fs.existsSync(path.join(ROOT_DIR, 'acm-template/.agents/memory/patterns/P-01-git-pager-freeze-fix.md')),
   'Real numbered pattern file (P-01) leaked into acm-template'
 );
 
 const normalizeEol = (s) => s.replace(/\r\n/g, '\n');
-const sharedScripts = [
-  'i18n.cjs',
-  'locales/en.cjs',
-  'locales/ko.cjs',
-  'acm-manifest.cjs',
-  'audit-push.cjs',
-  'check-git.cjs',
-  'group-status.cjs',
-  'smart-pull.cjs',
-  'sync-agent-rules.cjs',
-  'uninstall-template.cjs',
-  'storage/id-utils.cjs',
-  'storage/config.cjs',
-  'storage/memory-store.cjs',
-  'storage/sqlite-provider.cjs',
-  'storage/markdown-bridge.cjs',
-  'storage/markdown-provider.cjs',
-];
-for (const scriptName of sharedScripts) {
-  const rootContent = normalizeEol(fs.readFileSync(path.join(ROOT_DIR, 'scripts', scriptName), 'utf-8'));
-  const tplContent = normalizeEol(fs.readFileSync(path.join(ROOT_DIR, 'acm-template', 'scripts', scriptName), 'utf-8'));
-  assert.strictEqual(tplContent, rootContent, `Script mismatch between root and acm-template: ${scriptName}`);
+for (const fileMeta of ACM_MANIFEST.files) {
+  const rootScriptPath = path.join(ROOT_DIR, fileMeta.path);
+  assert.ok(fs.existsSync(rootScriptPath), `Missing manifest script in root scripts/: ${fileMeta.path}`);
 }
 
 const sharedAgentFiles = [
@@ -228,6 +201,13 @@ async function runTests() {
     assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'MEMORY_GOVERNANCE.md')), '.agents/MEMORY_GOVERNANCE.md missing');
     assert.ok(fs.existsSync(path.join(tempDir, 'scripts', 'i18n.cjs')), 'scripts/i18n.cjs missing');
     assert.ok(fs.existsSync(path.join(tempDir, 'scripts', 'locales', 'en.cjs')), 'scripts/locales/en.cjs missing');
+    for (const fileMeta of ACM_MANIFEST.files) {
+      const hostScriptPath = path.join(tempDir, fileMeta.path);
+      assert.ok(fs.existsSync(hostScriptPath), `Host missing manifest script: ${fileMeta.path}`);
+      const expectedScript = normalizeEol(fs.readFileSync(path.join(ROOT_DIR, fileMeta.path), 'utf-8'));
+      const actualScript = normalizeEol(fs.readFileSync(hostScriptPath, 'utf-8'));
+      assert.strictEqual(actualScript, expectedScript, `Host copied script mismatch: ${fileMeta.path}`);
+    }
     assert.ok(!fs.existsSync(path.join(tempDir, 'rules')), 'Legacy rules/ folder created at host root');
     assert.ok(!fs.existsSync(path.join(tempDir, 'locales')), 'Template locales/ leaked into host root');
     assert.ok(!fs.existsSync(path.join(tempDir, '.agents', 'locales')), 'Template locales/ leaked into host .agents');
@@ -238,6 +218,11 @@ async function runTests() {
 
     const metaObj = JSON.parse(fs.readFileSync(path.join(tempDir, '.agents', '.acm-meta.json'), 'utf-8'));
     assert.strictEqual(metaObj.language, 'en', '.acm-meta.json language should default to en');
+    assert.strictEqual(metaObj.storageProvider, 'sqlite', '.acm-meta.json storageProvider should default to sqlite');
+
+    const cfgObj = JSON.parse(fs.readFileSync(path.join(tempDir, '.agents', 'config.json'), 'utf-8'));
+    assert.strictEqual(cfgObj.storage.provider, 'sqlite', '.agents/config.json storage.provider should default to sqlite');
+    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'local', 'memory.db')), '.agents/local/memory.db missing');
 
     const gitignoreContent = fs.readFileSync(path.join(tempDir, '.gitignore'), 'utf-8');
     assert.ok(gitignoreContent.includes('.agents/'), '.agents/ missing in .gitignore');
@@ -552,9 +537,13 @@ async function runTests() {
       fs.rmSync(customDir, { recursive: true, force: true });
     }
 
-    // 4-11. Regression suite (C1 temp-index rm --cached, H1 JSX props, H2 functions, L1 .gitignore preservation)
-    console.log('[Stage 9] Regression verification (C1, H1/H2, L1)');
-    const { tryResolveJsxProps, tryResolveFunctionBlocks } = require('../scripts/smart-pull.cjs');
+    // 4-11. Regression suite (C1 temp-index rm --cached, H1 JSX props, H2 functions, L1 .gitignore preservation, C02 branch validation)
+    console.log('[Stage 9] Regression verification (C1, H1/H2, L1, C02)');
+    const { tryResolveJsxProps, tryResolveFunctionBlocks, isValidBranchName } = require('../scripts/smart-pull.cjs');
+    assert.strictEqual(isValidBranchName('feature/ok-1'), true, 'C02 valid branch rejected');
+    assert.strictEqual(isValidBranchName('--upload-pack=evil'), false, 'C02 leading dash branch flag not blocked');
+    assert.strictEqual(isValidBranchName('main;whoami'), false, 'C02 invalid branch name not blocked');
+    assert.strictEqual(isValidBranchName('main && echo pwn'), false, 'C02 shell metachar branch name not blocked');
     assert.strictEqual(
       tryResolveJsxProps('<Button className="btn primary" onClick={a}>', '<Button className="btn primary" disabled>'),
       '<Button className="btn primary" disabled onClick={a}>',

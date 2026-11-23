@@ -1,6 +1,6 @@
 {
   "name": "agent-context-memory",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Agentic Three-Tier Agent Context Memory & Task-Centric Git Engine",
   "keywords": [
     "ai-agent",
@@ -44,7 +44,7 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "node tests/e2e-install.test.cjs && node tests/non-git-compatibility.test.cjs && node tests/sqlite-storage.test.cjs",
+    "test": "node tests/e2e-install.test.cjs && node tests/non-git-compatibility.test.cjs && node tests/sqlite-storage.test.cjs && node tests/cli-db-commands.test.cjs && node tests/git-orphan-sync.test.cjs && node tests/mcp-server.test.cjs",
     "prepublishOnly": "npm test",
     "postinstall": "node scripts/install-template.cjs --postinstall",
     "init": "node bin/agent-context-memory.js init",

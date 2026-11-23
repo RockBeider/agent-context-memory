@@ -90,19 +90,22 @@ ACM maps human cognitive memory tiers (Working Memory, Long-Term Memory, Cold Ar
 
 Powered by a lightweight interactive CLI (`@clack/prompts`) and a **zero-dependency Node.js runtime engine** (`>=22.13.0` for built-in `node:sqlite`). Install and initialize ACM in any repository with a **single command**.
 
-During interactive installation, ACM prompts you to choose **English (Default)** or **한국어 (Korean)** (`--lang=en|ko` or `ACM_LANG` for non-interactive/scripted installs). When no existing agent rule file is detected, you can multi-select rule files using arrow keys and `Space` (non-interactive mode defaults to `en` and `AGENTS.md`).
+During interactive installation, ACM prompts you to choose **English (Default)** or **한국어 (Korean)** (`--lang=en|ko` or `ACM_LANG` for non-interactive/scripted installs) and your primary **storage backend**: **Local SQLite DB (Recommended)** on Node.js `>= 22.13.0` (`--storage=sqlite`) or **Legacy Markdown Files** (`--storage=markdown`). Existing Markdown records in `.agents/` are automatically imported into `.agents/local/memory.db` on init. When no existing agent rule file is detected, you can multi-select rule files using arrow keys and `Space` (non-interactive mode defaults to `en`, `sqlite`, and `AGENTS.md`).
 
 ### Option A. One-Shot `npx` Execution (Recommended)
 
 Run directly inside any new or existing project directory—no `init` subcommand required:
 
 ```bash
-# Interactive setup: select language (English default / Korean) & rule files
+# Interactive setup: select language (English default / Korean), storage, & rule files
 npx -y agent-context-memory
 
-# Install non-interactively in English (default) or Korean
+# Install non-interactively in English (default, SQLite) or Korean
 npx -y agent-context-memory --non-interactive
-npx -y agent-context-memory --lang=ko --non-interactive
+npx -y agent-context-memory --lang=ko --storage=sqlite --non-interactive
+
+# Use Legacy Markdown-only mode instead of SQLite
+npx -y agent-context-memory init --storage=markdown
 
 # Install into a specific project directory
 npx -y agent-context-memory ./my-project
@@ -186,30 +189,32 @@ ACM is IDE- and vendor-agnostic. It scans root agent rule files and injects a no
 
 ---
 
-## 5. Three-Tier Data Model Specification
+## 5. Three-Tier Data Model & Local-First SQLite Storage
 
-| Tier | Path | Cap | Governance & Purpose |
+ACM runs **Local-First SQLite (`node:sqlite` + FTS5 BM25)** at `.agents/local/memory.db` (configured in `.agents/config.json`, ignored from code branches via `.gitignore`) with automatic Markdown projections to `.agents/task/`, plus a pluggable `MemoryStore` registry (`registerProvider()`) ready for optional future online/cloud adapters:
+
+| Tier | Markdown View / Canonical Path | SQLite & Search Storage | Governance & Purpose |
 | :--- | :--- | :--- | :--- |
-| **L0 (Rules)** | `AGENTS.md` (guardrails)<br>`.agents/rules/60-task-memory-adr.md`<br>`.agents/MEMORY_GOVERNANCE.md` | ~140 tokens always-on | 6 strict core guardrails always injected; detailed ADR/pattern/non-Git specs loaded on demand. |
-| **L1 (Working Memory)** | `.agents/task/task.md` | **<= 5KB** | Single source of truth for active tasks. Immutable `TSK-{N}` IDs and `[Ready]` 3-element format. |
-| **L2 (Long-Term Memory)** | `.agents/memory/patterns-index.md`<br>`.agents/memory/patterns/P-XX-*.md`<br>`.agents/memory/project-changelog.md` | ~5 lines/shard | **Zero-Token Grep**: search index tables first and read only matched `P-XX` or `[LOG-XX]` blocks. |
-| **L3 (Cold Archive)** | `.agents/task/task-completed.md`<br>`.agents/memory/archive/` | Unlimited | Permanent history of committed tasks with verified commit SHAs (or Non-Git approval timestamps). |
+| **L0 (Rules)** | `AGENTS.md` (guardrails)<br>`.agents/rules/60-task-memory-adr.md`<br>`.agents/MEMORY_GOVERNANCE.md` | `.agents/config.json` | 6 strict core guardrails always injected; detailed ADR/pattern/storage specs loaded on demand. |
+| **L1 (Working Memory)** | `.agents/task/task.md` (**<= 5KB**) | `tasks` table + `memory_fts` | Single source of truth for active tasks (`TSK-{N}`), lease locks, and `[Ready]` 3-element validation. |
+| **L2 (Long-Term Memory)** | `.agents/memory/patterns-index.md`<br>`.agents/memory/patterns/P-XX-*.md`<br>`.agents/memory/project-changelog.md` | `patterns` + `adrs` tables + FTS5 BM25 | **Zero-Token Lookup**: instant FTS5 BM25 / token-budget search (`acm search` / MCP) + `supersedes` versioning + Grep index fallback. |
+| **L3 (Cold Archive)** | `.agents/task/task-completed.md`<br>`.agents/memory/archive/` | `tasks (status='done')` + `sync_log` | Permanent history of committed tasks with verified commit SHAs and orphan-branch sync records. |
 
 ---
 
-## 6. CLI & npm Scripts Reference
+## 6. CLI, Git Orphan Sync & MCP Reference
 
-### 1) CLI Commands
+### 1) Core & Task-Centric Git CLI Commands
 
 ```bash
-# Install templates & initialize (interactive EN/KO prompt or --lang=en|ko)
+# Install templates & initialize (EN/KO prompt, SQLite/Markdown backend)
 npx agent-context-memory init [path] [options]
 
 # Inspect task-centric Git status (or Memory Viewer in non-Git environments)
 npx agent-context-memory status
 npx agent-context-memory status --compact
 
-# Commit all [Ready] tasks atomically and auto-archive to task-completed.md
+# Commit all [Ready] tasks atomically and auto-archive to SQLite & task-completed.md
 npx agent-context-memory commit
 npx agent-context-memory commit --commit=TSK-1
 
@@ -217,7 +222,7 @@ npx agent-context-memory commit --commit=TSK-1
 npx agent-context-memory pull
 npx agent-context-memory resolve
 
-# Pre-push static & temporary-file hygiene audit
+# Pre-push hygiene & local SQLite leak audit (blocks *.db / *.db-wal / *.db-shm)
 npx agent-context-memory audit
 
 # Diagnose Git availability and repository status
@@ -227,7 +232,60 @@ npx agent-context-memory check-git
 npx agent-context-memory uninstall [path] [options]
 ```
 
-### 2) Injected `package.json` Scripts
+### 2) Local DB CLI & Team Git Orphan Sync (`acm`)
+
+All DB subcommands support `--json` output and `--stdin` JSON input for zero-quoting script/agent reliability:
+
+```bash
+# Tasks, patterns, ADRs, and full-text BM25 search with token budget packing
+npx agent-context-memory task list
+npx agent-context-memory task add "Implement OAuth" --status=in_progress --owner=agent-1
+npx agent-context-memory search "atomic commit" --kind=all --budget=1500
+npx agent-context-memory pattern add "Git Pager Fix" --supersedes=P-01
+npx agent-context-memory adr add "Adopt Local SQLite" --task=TSK-18 --area="scripts/storage/"
+
+# Switch backends & snapshot portability
+npx agent-context-memory migrate --to=sqlite
+npx agent-context-memory export --format=json --out=.agents/backup.json
+npx agent-context-memory import .agents/backup.json --strategy=merge
+
+# Sync shared memories (patterns, ADRs, done tasks) via Git orphan branch 'acm-memory'
+# Runs pure Git Plumbing (GIT_INDEX_FILE), LWW/code-collision merge, & outbound Secret Scrubber
+npx agent-context-memory sync --status
+npx agent-context-memory sync --pull
+npx agent-context-memory sync --push --dry-run
+npx agent-context-memory sync
+```
+
+### 3) Daemonless Stdio MCP Server (`acm mcp`)
+
+Expose 9 structured tools (`acm_status`, `acm_search`, `acm_task_list`, `acm_task_upsert`, `acm_task_complete`, `acm_pattern_save`, `acm_pattern_get`, `acm_adr_add`, `acm_sync`) over newline-delimited JSON-RPC 2.0 on stdio with zero external dependencies:
+
+```bash
+# Print ready-to-paste MCP client JSON configs (Antigravity, Claude Code, Cursor, etc.)
+npx agent-context-memory mcp --print-config
+
+# Start stdio MCP server directly
+npx agent-context-memory mcp
+```
+
+Example `mcpServers` snippet (generated by `acm mcp --print-config`):
+
+```json
+{
+  "mcpServers": {
+    "agent-context-memory": {
+      "command": "npx",
+      "args": ["-y", "agent-context-memory", "mcp"],
+      "env": {
+        "ACM_ROOT_DIR": "/path/to/your/project"
+      }
+    }
+  }
+}
+```
+
+### 4) Injected `package.json` Scripts
 
 ```bash
 npm run git:status      # Preview task groupings & commit messages (--dry-run)
@@ -244,20 +302,21 @@ npm run git:audit-push  # Pre-push hygiene audit
 
 ```text
 agent-context-memory/
-├── acm-template/           # Distributable clean boilerplate (English default)
-│   ├── .agents/            # Non-polluted samples (TSK-SAMPLE, P-00, LOG-00), rules, agents, skills, hooks
-│   ├── locales/ko/         # Korean (.md) template overlay selected via --lang=ko or interactive prompt
-│   └── scripts/            # Runtime engines, i18n catalogs, and SQLite/Markdown storage providers
-├── .agents/                # Dogfooding workspace for developing ACM itself
-├── bin/                    # Unified CLI entry point (agent-context-memory.js)
-├── scripts/                # Installer, uninstaller, manifest, i18n, runtime engines, storage providers
-│   ├── i18n.cjs            # Zero-dependency EN/KO i18n resolver
-│   ├── locales/            # en.cjs (default) and ko.cjs message catalogs
-│   └── storage/            # MemoryStore abstraction, node:sqlite FTS5 engine, Markdown bridge
-├── tests/                  # Git E2E, Non-Git compatibility, i18n, and SQLite test suites
-├── README.md               # English documentation (default)
-├── README.ko.md            # Korean documentation
-└── LICENSE                 # MIT License
+├── acm-template/               # Distributable clean boilerplate (English default)
+│   ├── .agents/                # Non-polluted samples (TSK-SAMPLE, P-00, LOG-00), rules, agents, skills, hooks
+│   └── locales/ko/             # Korean (.md) template overlay selected via --lang=ko or interactive prompt
+├── .agents/                    # Dogfooding workspace for developing ACM itself
+├── bin/                        # Unified CLI entry point (agent-context-memory.js)
+├── scripts/                    # Canonical runtime engines, installer/uninstaller, manifest, i18n, CLI, MCP, storage
+│   ├── i18n.cjs                # Zero-dependency EN/KO i18n resolver
+│   ├── locales/                # en.cjs (default) and ko.cjs message catalogs
+│   ├── acm-db-cli.cjs          # MemoryStore CLI (task, pattern, adr, search, migrate, export, import, sync)
+│   ├── mcp-server.cjs          # Zero-dependency stdio JSON-RPC 2.0 MCP server
+│   └── storage/                # MemoryStore, node:sqlite FTS5, Markdown bridge, Git orphan sync, Secret Scrubber
+├── tests/                      # Git E2E, Non-Git, SQLite, DB CLI, Git orphan sync, and MCP server tests
+├── README.md                   # English documentation (default)
+├── README.ko.md                # Korean documentation
+└── LICENSE                     # MIT License
 ```
 
 ---

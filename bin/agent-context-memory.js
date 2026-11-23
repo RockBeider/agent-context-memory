@@ -11,6 +11,7 @@ const { spawnSync } = require('child_process');
 const { install } = require('../scripts/install-template.cjs');
 const { uninstall } = require('../scripts/uninstall-template.cjs');
 const { checkGitEnvironment, printGitNotice } = require('../scripts/check-git.cjs');
+const { normalizeStorageProvider } = require('../scripts/storage/config.cjs');
 const {
   normalizeLanguage,
   parseLangFlag,
@@ -19,7 +20,7 @@ const {
 } = require('../scripts/i18n.cjs');
 
 const pkgPath = path.resolve(__dirname, '../package.json');
-let pkgVersion = '0.1.2';
+let pkgVersion = '0.2.0';
 try {
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
   pkgVersion = pkg.version;
@@ -37,6 +38,7 @@ function parseCliArgs(argv = []) {
   let dryRun = false;
   let noBackup = false;
   let ruleFile = null;
+  let storage = null;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = String(argv[i] || '');
@@ -55,6 +57,15 @@ function parseCliArgs(argv = []) {
         ruleFile = String(argv[i + 1]);
         i += 1;
       }
+    } else if (arg.startsWith('--storage=')) {
+      storage = arg.slice('--storage='.length);
+    } else if (arg === '--storage') {
+      if (argv[i + 1] && !String(argv[i + 1]).startsWith('-')) {
+        storage = String(argv[i + 1]);
+        i += 1;
+      } else {
+        storage = '';
+      }
     } else if (arg.startsWith('--lang=') || arg.startsWith('-l=')) {
       // Handled by parseLangFlag
     } else if (arg === '--lang' || arg === '-l') {
@@ -72,6 +83,7 @@ function parseCliArgs(argv = []) {
     dryRun,
     noBackup,
     ruleFile,
+    storage,
     targetDir: positionals[0] || '.',
   };
 }
@@ -87,10 +99,6 @@ function resolveEngineScript(scriptName) {
   const bundleScript = path.resolve(__dirname, '../scripts', scriptName);
   if (fs.existsSync(bundleScript)) {
     return bundleScript;
-  }
-  const templateScript = path.resolve(__dirname, '../acm-template/scripts', scriptName);
-  if (fs.existsSync(templateScript)) {
-    return templateScript;
   }
   return null;
 }
@@ -134,6 +142,17 @@ function printHelp(lang) {
   console.log(tr('cli.help', { version: pkgVersion }));
 }
 
+const DB_COMMANDS = new Set([
+  'task',
+  'pattern',
+  'adr',
+  'search',
+  'migrate',
+  'export',
+  'import',
+  'sync',
+]);
+
 const KNOWN_COMMANDS = new Set([
   'init',
   'uninstall',
@@ -145,6 +164,8 @@ const KNOWN_COMMANDS = new Set([
   'resolve',
   'audit',
   'audit-push',
+  ...DB_COMMANDS,
+  'mcp',
   'help',
   'version',
 ]);
@@ -158,8 +179,10 @@ function isImplicitInitInvocation(firstArg) {
     firstArg === '--rule-file' ||
     firstArg === '-l' ||
     firstArg === '--lang' ||
+    firstArg === '--storage' ||
     firstArg === '--non-interactive' ||
     firstArg.startsWith('--rule-file=') ||
+    firstArg.startsWith('--storage=') ||
     firstArg.startsWith('--lang=') ||
     firstArg.startsWith('-l=')
   ) {
@@ -201,7 +224,7 @@ async function main() {
     process.exit(1);
   }
 
-  if (args.includes('-h') || args.includes('--help') || args[0] === 'help') {
+  if (args[0] === 'help' || (!DB_COMMANDS.has(args[0]) && args[0] !== 'mcp' && (args.includes('-h') || args.includes('--help')))) {
     printHelp(parsedLang);
     process.exit(0);
   }
@@ -219,12 +242,22 @@ async function main() {
   switch (command) {
     case 'init': {
       const parsed = parseCliArgs(commandArgs);
+      let storage = null;
+      if (parsed.storage !== null) {
+        storage = normalizeStorageProvider(parsed.storage);
+        if (!storage) {
+          const tr = createTranslator(resolveLanguage(process.cwd(), effectiveLang));
+          console.error(tr('cli.unsupportedStorage', { storage: parsed.storage }));
+          process.exit(1);
+        }
+      }
       try {
         const result = await install(parsed.targetDir, {
           force: parsed.force,
           ruleFile: parsed.ruleFile,
           nonInteractive: parsed.nonInteractive,
           lang: effectiveLang,
+          storage,
         });
         if (result && result.cancelled) {
           process.exit(0);
@@ -304,6 +337,23 @@ async function main() {
     case 'audit-push': {
       ensureGit('audit', effectiveLang);
       runEngine('audit-push.cjs', args.slice(1), effectiveLang);
+      break;
+    }
+
+    case 'task':
+    case 'pattern':
+    case 'adr':
+    case 'search':
+    case 'migrate':
+    case 'export':
+    case 'import':
+    case 'sync': {
+      runEngine('acm-db-cli.cjs', [command, ...args.slice(1)], effectiveLang);
+      break;
+    }
+
+    case 'mcp': {
+      runEngine('mcp-server.cjs', args.slice(1), effectiveLang);
       break;
     }
 
