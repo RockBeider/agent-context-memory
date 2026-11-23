@@ -1311,6 +1311,67 @@ class SqliteProvider {
       return counts;
     });
   }
+
+  recordSyncLog({
+    direction,
+    provider = 'git-orphan',
+    commitRef = null,
+    recordsPushed = 0,
+    recordsPulled = 0,
+    conflictsResolved = 0,
+  }) {
+    this.open();
+    const now = new Date().toISOString();
+    const res = this.db
+      .prepare(
+        `INSERT INTO sync_log (
+          direction, provider, commit_ref, records_pushed, records_pulled, conflicts_resolved, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        String(direction || 'both'),
+        String(provider || 'git-orphan'),
+        commitRef ? String(commitRef) : null,
+        Number(recordsPushed) || 0,
+        Number(recordsPulled) || 0,
+        Number(conflictsResolved) || 0,
+        now
+      );
+    if (commitRef) {
+      this._setMeta('last_sync_commit', String(commitRef));
+    }
+    return {
+      id: Number(res.lastInsertRowid),
+      direction: String(direction || 'both'),
+      provider: String(provider || 'git-orphan'),
+      commitRef: commitRef ? String(commitRef) : null,
+      recordsPushed: Number(recordsPushed) || 0,
+      recordsPulled: Number(recordsPulled) || 0,
+      conflictsResolved: Number(conflictsResolved) || 0,
+      createdAt: now,
+    };
+  }
+
+  getSyncHistory(limit = 10) {
+    this.open();
+    const lim = Math.max(1, Math.min(100, Number(limit) || 10));
+    const rows = this.db.prepare('SELECT * FROM sync_log ORDER BY id DESC LIMIT ?').all(lim);
+    return rows.map((r) => ({
+      id: r.id,
+      direction: r.direction,
+      provider: r.provider,
+      commitRef: r.commit_ref || null,
+      recordsPushed: r.records_pushed,
+      recordsPulled: r.records_pulled,
+      conflictsResolved: r.conflicts_resolved,
+      createdAt: r.created_at,
+    }));
+  }
+
+  getLastSyncCommit() {
+    this.open();
+    return this._getMeta('last_sync_commit', '');
+  }
 }
 
 module.exports = {
