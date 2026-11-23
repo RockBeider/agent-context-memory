@@ -1,9 +1,14 @@
 # Agent Context Memory Ignored Entries
 /.agents/task/
+/.agents/local/
+/.agents/config.json
 /.agents/.acm-meta.json
+/.agents_backup_*/
 /.agent/
+
+# Local AI Agent & IDE Overrides
 *.local.md
-.geminiignore
+/.geminiignore
 
 # Dependencies
 node_modules/
@@ -19,3 +24,9 @@ yarn-error.log*
 .env.local
 .DS_Store
 Thumbs.db
+
+### VisualStudioCode ###
+.vscode/*
+
+# Local History for Visual Studio Code
+.history/
