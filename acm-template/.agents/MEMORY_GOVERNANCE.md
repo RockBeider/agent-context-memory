@@ -63,3 +63,16 @@
 2. **Disjoint Target Paths**: Parallel tasks must NEVER share overlapping `Targets` paths (serialize tasks touching shared files).
 3. **Atomic ID Issuance**: Always check the canonical source immediately before allocating `max + 1` for `TSK-X`, `P-XX`, or `LOG-XX`.
 4. **Serialized Git Operations**: Execute staging and commits sequentially to prevent `.git/index.lock` collisions.
+
+---
+
+## 6. Storage Modes, DB CLI, Git Orphan Sync & MCP Server
+1. **Local-First SQLite Default & Legacy Fallback**:
+   - On Node.js >= 22.13.0, `acm init` defaults `.agents/config.json` to `sqlite` (`.agents/local/memory.db`, `.gitignore`d) with built-in FTS5 BM25 indexing and automatic Markdown projection (`.agents/task/task.md`, `.agents/task/task-completed.md`).
+   - Legacy projects or older Node.js runtimes operate transparently in `markdown` mode (`--storage=markdown`), and future remote/cloud backends plug into `registerProvider()`.
+2. **Structured CLI & Daemonless Stdio MCP Access**:
+   - Use `acm` DB subcommands (`task`, `pattern`, `adr`, `search`, `migrate`, `export`, `import`) with `--json` / `--stdin`, or run the zero-dependency JSON-RPC 2.0 stdio MCP server (`acm mcp`, `acm mcp --print-config`).
+   - Exposed MCP tools: `acm_status`, `acm_search`, `acm_task_list`, `acm_task_upsert`, `acm_task_complete`, `acm_pattern_save`, `acm_pattern_get`, `acm_adr_add`, `acm_sync`.
+3. **Git Orphan Branch Collaboration (`acm sync`)**:
+   - Shared patterns, ADRs, and archived tasks sync across clones via a dedicated orphan branch (`acm-memory`) using pure Git Plumbing (`GIT_INDEX_FILE`), deterministic JSONL, and structural LWW/code-collision resolution without touching code branches.
+   - Outbound payloads pass through the built-in Secret Scrubber (`--no-scrub` to inspect raw overrides), and `audit-push` blocks accidental commits of `.agents/local/*.db*` / WAL / SHM files.

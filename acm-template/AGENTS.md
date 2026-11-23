@@ -7,6 +7,7 @@
 5. [Execution & Commit Approval Gate] Execute all sub-steps within a single `TSK-X` under its initial plan approval and report via `walkthrough.md` (multi-`TSK` plans require per-phase approval). Plan approval does NOT authorize Git commits — execute `npm run git:commit` (`node scripts/group-status.cjs --all`) ONCE **only on explicit user commit instruction** (e.g. "commit", "apply"), which auto-archives to `task-completed.md`. In non-Git environments, archive with `(Completed: YYYY-MM-DD / Non-Git)` after user confirmation.
 6. [Isolation & Rule Separation] In host projects, `.agents/` files are local-only (`.gitignore`); never attempt a secondary Git commit for them. For multi-agent work, declare owners in `task.md` and never overlap `Targets`. Add project-specific rules only under `# Project Execution Rules`.
 * [Mandatory Read Triggers] Before distilling `P-XX` patterns or recording `LOG-XX` ADRs, read [.agents/rules/60-task-memory-adr.md](.agents/rules/60-task-memory-adr.md). Before non-Git archiving, multi-agent coordination, or checking full governance specs, read [.agents/MEMORY_GOVERNANCE.md](.agents/MEMORY_GOVERNANCE.md).
+* [Storage & MCP Mode] When `.agents/config.json` uses `sqlite`, prefer `acm` CLI (`task`, `pattern`, `adr`, `search`, `sync`) or MCP tools (`acm mcp`) as the structured interface; Markdown projections remain synchronized for human and Git workflows.
 <!-- ACM_GOVERNANCE_END -->
 
 ---

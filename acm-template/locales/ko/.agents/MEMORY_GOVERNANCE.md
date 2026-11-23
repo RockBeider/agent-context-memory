@@ -63,3 +63,16 @@
 2. **대상 영역 상호 배타성 (Path Isolation)**: 병렬 실행 태스크 간 `대상영역` 파일 경로 중첩 엄격 금지 (공통 파일 수정 필요 시 직렬 수행).
 3. **식별자 원자 발급**: `TSK-X`, `P-XX`, `LOG-XX` 발급 전 정본 실시간 확인 후 `최대 번호 + 1` 확정.
 4. **Git 조작 직렬화**: `.git/index.lock` 충돌 차단을 위해 스테이징 및 커밋 조작은 직렬 수행.
+
+---
+
+## 6. 저장소 모드, DB CLI, Git Orphan 동기화 및 MCP 서버
+1. **로컬 우선 SQLite 기본값 및 레거시 폴백**:
+   - Node.js >= 22.13.0 환경에서 `acm init`은 `.agents/config.json`을 `sqlite` 모드(`.agents/local/memory.db`, `.gitignore` 보호)로 기본 설정하며, 내장 FTS5 BM25 검색과 Markdown 자동 투영(`.agents/task/task.md`, `.agents/task/task-completed.md`)을 제공합니다.
+   - 구버전 Node.js 또는 레거시 워크플로에서는 `--storage=markdown` 모드로 무장애 폴백하며, 추후 온라인/클라우드 저장소는 `registerProvider()` 확장 슬롯을 통해 선택 연동됩니다.
+2. **구조화 CLI 및 무의존성 Stdio MCP 접근**:
+   - `--json` / `--stdin`을 지원하는 `acm` DB CLI(`task`, `pattern`, `adr`, `search`, `migrate`, `export`, `import`) 또는 외부 패키지 없는 순수 JSON-RPC 2.0 stdio MCP 서버(`acm mcp`, `acm mcp --print-config`)를 통해 메모리를 조회·갱신합니다.
+   - 노출된 9개 MCP 도구: `acm_status`, `acm_search`, `acm_task_list`, `acm_task_upsert`, `acm_task_complete`, `acm_pattern_save`, `acm_pattern_get`, `acm_adr_add`, `acm_sync`.
+3. **Git Orphan 브랜치 협업 (`acm sync`)**:
+   - 공유 패턴·ADR·완료 태스크는 순수 Git Plumbing(`GIT_INDEX_FILE`)과 결정적 JSONL, LWW/코드 충돌 자동 재채번 병합을 통해 코드 브랜치를 오염시키지 않고 전용 orphan 브랜치(`acm-memory`)로 동기화됩니다.
+   - 원격 전송 전 내장 Secret Scrubber가 민감 토큰을 자동 마스킹하며, `audit-push` 게이트는 `.agents/local/*.db*` 및 WAL/SHM 파일의 코드 브랜치 유출을 원천 차단합니다.

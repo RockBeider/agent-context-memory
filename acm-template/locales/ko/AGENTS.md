@@ -7,6 +7,7 @@
 5. [실행 & 커밋 승인 게이트] 단일 `TSK-X` 내 세부 작업은 계획서 최초 승인 1회로 구현·검증 후 `walkthrough.md`로 보고한다(다중 `TSK` Phase 작업만 Phase별 승인). 계획서 승인만으로 Git 커밋을 자동 실행하지 않으며, **사용자의 명시적 커밋 지시("커밋해", "반영해") 시에만** `npm run git:commit`(`node scripts/group-status.cjs --all`)을 단 1회 실행한다(커밋 직후 `task-completed.md` 자동 이관). 비-Git 환경은 사용자 승인 확인 후 `(Completed: YYYY-MM-DD / Non-Git)` 이관.
 6. [격리 & 규칙 분리] 호스트 프로젝트에서 `.agents/` 하위 문서는 로컬 전용(`.gitignore`)이므로 Git 2차 커밋 시도 금지. 멀티 에이전트 작업 시 `task.md` 담당자 명기 및 대상 영역 중첩 금지. 프로젝트 전용 규칙은 `# Project Execution Rules` 하위에만 작성.
 * [필수 열람 트리거] P-XX 패턴 신설·증류 또는 LOG-XX ADR 기록 시 [.agents/rules/60-task-memory-adr.md](.agents/rules/60-task-memory-adr.md)를, 비-Git 수동 이관·멀티 에이전트 동시성·전체 거버넌스 상세 규격 확인 시 [.agents/MEMORY_GOVERNANCE.md](.agents/MEMORY_GOVERNANCE.md)를 작업 전 반드시 열람할 것.
+* [저장소 및 MCP 모드] `.agents/config.json`이 `sqlite` 모드일 때는 구조화된 `acm` DB CLI(`task`, `pattern`, `adr`, `search`, `sync`) 또는 MCP 도구(`acm mcp`) 사용을 우선하며 Markdown 투영은 자동 동기화된다.
 <!-- ACM_GOVERNANCE_END -->
 
 ---

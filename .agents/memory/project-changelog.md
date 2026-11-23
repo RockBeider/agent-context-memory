@@ -10,6 +10,7 @@
 
 | ID | Date | Architectural Decision Summary | Related Area |
 | :--- | :--- | :--- | :--- |
+| **LOG-04** | 2026-11-23 | Adopt Local-First SQLite (`node:sqlite` + FTS5) storage engine, DB CLI, Git orphan branch (`acm-memory`) sync with Secret Scrubber, and zero-dependency stdio MCP server | `bin/`, `scripts/storage/`, `scripts/acm-db-cli.cjs`, `scripts/mcp-server.cjs`, `.agents/` |
 | **LOG-03** | 2026-11-23 | Switch ACM default language to English (`en`) with install-time EN/KO i18n, Korean template overlay, and bilingual parsers | `bin/`, `scripts/`, `acm-template/`, `README*.md` |
 | **LOG-02** | 2026-11-09 | Integrate auto-archiving (`autoCompleteTask`), `[Ready]` safety gate, `ADR Index Map`, universal release sentinel, and clean sample isolation | `scripts/group-status.cjs`, `.agents/`, `acm-template/` |
 | **LOG-01** | 2026-10-19 | Introduce Three-Tier Context Memory architecture (L1 working tasks, L2 sharded knowledge, L3 cold archive) and task-centric commit engine | `AGENTS.md`, `scripts/group-status.cjs`, `.agents/` |
@@ -17,6 +18,21 @@
 ---
 
 ## 2. Architecture Decision Details
+
+### [LOG-04] [2026-11-23] Local-First SQLite Storage, Git Orphan Sync & Zero-Dependency Stdio MCP Architecture
+
+- **Related Commit/Branch**: `TSK-18, TSK-21, TSK-22, TSK-23` / `main`
+- **Context & Goal**:
+  - Upgrade ACM from Markdown-only persistence to a queryable, concurrent Local-First SQLite storage engine (`node:sqlite` + FTS5 BM25) with pluggable online adapter readiness, seamless Git team collaboration without polluting code branches, and a zero-dependency stdio MCP interface alongside structured DB CLI commands.
+- **Architectural Decisions**:
+  - Built a unified `MemoryStore` registry (`scripts/storage/memory-store.cjs`, `config.cjs`, `sqlite-provider.cjs`, `markdown-provider.cjs`, `markdown-bridge.cjs`) targeting Node.js `>=22.13.0` (`node:sqlite` + WAL + FTS5 BM25 + token budget packing), keeping Markdown projection synchronized and preserving `--storage=markdown` fallback plus `registerProvider()` for future remote backends.
+  - Added unified DB CLI commands (`scripts/acm-db-cli.cjs`: `task`, `pattern`, `adr`, `search`, `migrate`, `export`, `import`, `sync`) with `--json`/`--stdin` support and interactive/non-interactive installer storage selection + automatic Markdown migration (`scripts/install-template.cjs`).
+  - Implemented Git orphan branch (`acm-memory`) synchronization (`scripts/storage/git-orphan-sync.cjs`) using pure Git Plumbing (`GIT_INDEX_FILE`), deterministic JSONL snapshots, structural LWW + code-collision renumbering merges, an outbound Secret Scrubber (`secret-scrubber.cjs`), and `.db*` leak detection in `audit-push.cjs`.
+  - Added a daemonless newline-delimited JSON-RPC 2.0 stdio MCP server (`scripts/mcp-server.cjs`, `acm mcp`, `acm mcp --print-config`) exposing 9 tools (`acm_status`, `acm_search`, `acm_task_list`, `acm_task_upsert`, `acm_task_complete`, `acm_pattern_save`, `acm_pattern_get`, `acm_adr_add`, `acm_sync`) with strict per-call connection closing.
+- **Expected Impact**:
+  - Sub-millisecond BM25 search, token-budgeted context packing, leak-safe team memory synchronization on Git orphan branches, and first-class IDE/agent integration via both CLI and MCP with zero new runtime dependencies.
+
+---
 
 ### [LOG-03] [2026-11-23] English Default Conversion & Install-Time EN/KO i18n Architecture
 
