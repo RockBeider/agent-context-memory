@@ -467,6 +467,175 @@ class MarkdownProvider {
       adrs: this.listAdrs(),
     };
   }
+
+  importSnapshot(snapshot, strategy = 'merge', options = {}) {
+    const lang = resolveLanguage(this.rootDir, options.lang || this.options.lang);
+    if (!snapshot || typeof snapshot !== 'object') {
+      throw new Error(t('storage.snapshotInvalid', {}, lang));
+    }
+
+    const { patternsDir } = resolveMemoryFiles(this.rootDir);
+    if (strategy === 'replace' && fs.existsSync(patternsDir)) {
+      for (const file of fs.readdirSync(patternsDir)) {
+        if (file.endsWith('.md') && !/^P-00\b/i.test(file) && !/sample/i.test(file)) {
+          fs.unlinkSync(path.join(patternsDir, file));
+        }
+      }
+    }
+
+    const taskMap = new Map();
+    const patMap = new Map();
+    const adrMap = new Map();
+
+    if (strategy !== 'replace') {
+      for (const item of this._loadAllTasks()) taskMap.set(item.code.toUpperCase(), item);
+      for (const item of this.listPatterns()) patMap.set(item.code.toUpperCase(), item);
+      for (const item of this.listAdrs()) adrMap.set(item.code.toUpperCase(), item);
+    }
+
+    const counts = { tasks: 0, patterns: 0, adrs: 0, skipped: 0 };
+    const now = new Date().toISOString();
+
+    for (const rawTask of snapshot.tasks || []) {
+      if (!rawTask || rawTask.deletedAt) continue;
+      const num = parseCodeNumber(rawTask.code, 'TSK');
+      const code = num ? formatTaskCode(num) : String(rawTask.code || '').trim().toUpperCase();
+      if (!code) continue;
+
+      if (strategy === 'skip' && taskMap.has(code)) {
+        counts.skipped += 1;
+        continue;
+      }
+
+      const status = normalizeTaskStatus(rawTask.status);
+      taskMap.set(code, {
+        uid: rawTask.uid || code,
+        code,
+        title: String(rawTask.title || code).trim(),
+        status,
+        purpose: rawTask.purpose ? String(rawTask.purpose).trim() : '',
+        results: normalizeArray(rawTask.results),
+        targets: normalizeArray(rawTask.targets).map((p) => p.replace(/\\/g, '/')),
+        owner: rawTask.owner || '',
+        groupName: rawTask.groupName || '',
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        commitSha: rawTask.commitSha || null,
+        completedAt: status === 'done' ? rawTask.completedAt || rawTask.updatedAt || now : null,
+        scope: rawTask.scope || 'local',
+        provenance: rawTask.provenance || 'import',
+        createdAt: rawTask.createdAt || now,
+        updatedAt: rawTask.updatedAt || now,
+        deletedAt: null,
+      });
+      counts.tasks += 1;
+    }
+
+    const allSnapshotPatterns = snapshot.patterns || [];
+    const supersededUids = new Set(
+      allSnapshotPatterns.filter((p) => p && !p.deletedAt && p.supersedesUid).map((p) => p.supersedesUid)
+    );
+    const sortedPatterns = [...allSnapshotPatterns].sort(
+      (a, b) => (Number(a && a.version) || 1) - (Number(b && b.version) || 1)
+    );
+
+    for (const rawPat of sortedPatterns) {
+      if (!rawPat || rawPat.deletedAt) continue;
+      if (rawPat.uid && supersededUids.has(rawPat.uid)) continue;
+      const num = parseCodeNumber(rawPat.code, 'P');
+      const code = num ? formatPatternCode(num) : String(rawPat.code || '').trim().toUpperCase();
+      if (!code) continue;
+
+      if (strategy === 'skip' && patMap.has(code)) {
+        counts.skipped += 1;
+        continue;
+      }
+
+      patMap.set(code, {
+        uid: rawPat.uid || code,
+        code,
+        category: rawPat.category || t('storage.defaultCategory', {}, lang),
+        title: String(rawPat.title || code).trim(),
+        summary: rawPat.summary || rawPat.title || code,
+        symptom: rawPat.symptom || '',
+        solution: rawPat.solution || '',
+        relatedFiles: normalizeArray(rawPat.relatedFiles).map((p) => p.replace(/\\/g, '/')),
+        tags: normalizeArray(rawPat.tags),
+        version: Number(rawPat.version) || 1,
+        supersedesUid: null,
+        scope: rawPat.scope || 'shared',
+        author: rawPat.author || '',
+        provenance: rawPat.provenance || 'import',
+        createdAt: rawPat.createdAt || now,
+        updatedAt: rawPat.updatedAt || now,
+        deletedAt: null,
+      });
+      counts.patterns += 1;
+    }
+
+    for (const rawAdr of snapshot.adrs || []) {
+      if (!rawAdr || rawAdr.deletedAt) continue;
+      const num = parseCodeNumber(rawAdr.code, 'LOG');
+      const code = num ? formatAdrCode(num) : String(rawAdr.code || '').trim().toUpperCase();
+      if (!code) continue;
+
+      if (strategy === 'skip' && adrMap.has(code)) {
+        counts.skipped += 1;
+        continue;
+      }
+
+      adrMap.set(code, {
+        uid: rawAdr.uid || code,
+        code,
+        date: rawAdr.date || now.slice(0, 10),
+        title: String(rawAdr.title || code).trim(),
+        summary: rawAdr.summary || rawAdr.title || code,
+        relatedArea: rawAdr.relatedArea || '',
+        relatedTaskCode: rawAdr.relatedTaskCode || '',
+        branch: rawAdr.branch || 'main',
+        context: rawAdr.context || '',
+        decision: rawAdr.decision || '',
+        impact: rawAdr.impact || '',
+        scope: rawAdr.scope || 'shared',
+        author: rawAdr.author || '',
+        provenance: rawAdr.provenance || 'import',
+        createdAt: rawAdr.createdAt || now,
+        updatedAt: rawAdr.updatedAt || now,
+        deletedAt: null,
+      });
+      counts.adrs += 1;
+    }
+
+    const finalTasks = Array.from(taskMap.values()).sort(
+      (a, b) => (parseCodeNumber(a.code, 'TSK') || 0) - (parseCodeNumber(b.code, 'TSK') || 0)
+    );
+    const finalPatterns = Array.from(patMap.values()).sort(
+      (a, b) => (parseCodeNumber(a.code, 'P') || 0) - (parseCodeNumber(b.code, 'P') || 0)
+    );
+    const finalAdrs = Array.from(adrMap.values()).sort((a, b) => {
+      if (a.date !== b.date) return b.date.localeCompare(a.date);
+      return (parseCodeNumber(b.code, 'LOG') || 0) - (parseCodeNumber(a.code, 'LOG') || 0);
+    });
+
+    exportStoreToMarkdown(
+      this.rootDir,
+      {
+        listTasks: () => finalTasks,
+        listPatterns: () => finalPatterns,
+        listAdrs: () => finalAdrs,
+        getStats: () => ({
+          sequences: {
+            tsk: finalTasks.reduce((acc, item) => Math.max(acc, parseCodeNumber(item.code, 'TSK') || 0), 0) + 1,
+            pat: finalPatterns.reduce((acc, item) => Math.max(acc, parseCodeNumber(item.code, 'P') || 0), 0) + 1,
+            log: finalAdrs.reduce((acc, item) => Math.max(acc, parseCodeNumber(item.code, 'LOG') || 0), 0) + 1,
+          },
+        }),
+      },
+      { lang }
+    );
+
+    return counts;
+  }
 }
 
 module.exports = {

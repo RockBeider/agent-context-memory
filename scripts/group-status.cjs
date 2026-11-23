@@ -569,7 +569,26 @@ function loadTasksFromStore() {
   if (cfg.storage && cfg.storage.provider === 'sqlite') {
     const store = createMemoryStore(ROOT_DIR, { config: cfg, skipProjection: true });
     try {
-      const tasks = store.listTasks({ includeDone: false });
+      let tasks = store.listTasks({ includeDone: false });
+      if (tasks.length === 0 && cfg.storage.markdownProjection !== false) {
+        const mdTasks = parseTaskMd().filter((item) => item.canonicalStatus !== 'done');
+        if (mdTasks.length > 0) {
+          for (const item of mdTasks) {
+            store.upsertTask(
+              {
+                code: item.tskId,
+                title: item.rawTitle,
+                status: item.canonicalStatus,
+                purpose: item.purpose,
+                results: item.details,
+                targets: item.targetPatterns,
+              },
+              { skipValidation: true, skipProjection: true }
+            );
+          }
+          tasks = store.listTasks({ includeDone: false });
+        }
+      }
       return tasks.map((task) => {
         const num = parseCodeNumber(task.code, 'TSK');
         const canonicalStatus = normalizeTaskStatus(task.status);

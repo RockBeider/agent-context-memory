@@ -148,6 +148,25 @@ function saveConfig(rootDir, config = {}) {
 }
 
 /**
+ * Normalizes a storage provider identifier to 'sqlite' or 'markdown', or returns null if invalid.
+ *
+ * @param {string|null|undefined} raw
+ * @returns {'sqlite'|'markdown'|null}
+ */
+function normalizeStorageProvider(raw) {
+  if (raw === null || raw === undefined) return null;
+  const cleaned = String(raw).trim().toLowerCase();
+  if (!cleaned) return null;
+  if (cleaned === 'sqlite' || cleaned === 'db' || cleaned === 'local-db' || cleaned === 'local') {
+    return 'sqlite';
+  }
+  if (cleaned === 'markdown' || cleaned === 'md' || cleaned === 'legacy') {
+    return 'markdown';
+  }
+  return null;
+}
+
+/**
  * Resolves the absolute path to the local SQLite database.
  */
 function resolveDbPath(rootDir, config) {
@@ -160,6 +179,7 @@ function resolveDbPath(rootDir, config) {
 module.exports = {
   DEFAULT_CONFIG,
   isNodeSqliteAvailable,
+  normalizeStorageProvider,
   getConfigPath,
   loadConfig,
   saveConfig,

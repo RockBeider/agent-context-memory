@@ -15,6 +15,7 @@ module.exports = {
     installException: '[Error] Exception during installation:',
     uninstallException: '[Error] Exception during uninstallation:',
     unknownCommand: '[Error] Unknown command: "{{command}}"\n',
+    unsupportedStorage: '[Error] Unsupported storage provider: "{{storage}}". Supported providers: sqlite, markdown',
     help: `
 Agent Context Memory CLI (v{{version}})
 Three-Tier Context Memory Governance & Task-Centric Engine
@@ -34,6 +35,15 @@ Commands:
   pull [options]              Intelligent 3-Way remote sync & hybrid merge (smart-pull)
   resolve [options]           Resolve remaining 3-Way conflicts and complete merge commit
   audit                       Pre-push hygiene and static audit gate (alias: audit-push)
+  task [subcommand]           Manage tasks in local storage (list, add, update, complete, show, lease)
+  pattern [subcommand]        Manage learned patterns (list, add, show)
+  adr [subcommand]            Manage architecture decision records (list, add, show)
+  search <query> [options]    Full-text search across tasks, patterns, and ADRs
+  migrate [options]           Migrate storage between sqlite and markdown (--to=sqlite|markdown)
+  export [options]            Export full memory store as JSON or Markdown
+  import <file> [options]     Import a JSON snapshot into memory store
+  sync [options]              Sync shared memories with Git orphan branch (acm-memory)
+  mcp [--print-config]        Start zero-dependency stdio MCP server (or print client JSON config)
 
 Options:
   -v, --version               Print CLI version
@@ -41,7 +51,8 @@ Options:
   -f, --force                 Skip confirmation prompts and force overwrite
   -l, --lang <en|ko>          Set installation/runtime language (default: en)
   --lang=<en|ko>              Same as --lang <en|ko>
-  --non-interactive           Skip interactive prompts (auto-defaults to en & AGENTS.md)
+  --storage=<sqlite|markdown> Select storage backend during init (default: sqlite on Node >= 22.13)
+  --non-interactive           Skip interactive prompts (auto-defaults to en, sqlite, AGENTS.md)
   --dry-run                   Preview actions without modifying files
   --no-backup                 (uninstall only) Skip creating .agents backup directory
   --rule-file=<files>         Explicitly specify rule file(s) (comma-separated)
@@ -49,9 +60,12 @@ Options:
 
 Examples:
   npx agent-context-memory
-  npx agent-context-memory --lang=ko
+  npx agent-context-memory --lang=ko --storage=sqlite
   npx agent-context-memory --force
-  npx agent-context-memory init
+  npx agent-context-memory init --storage=markdown
+  npx agent-context-memory task list
+  npx agent-context-memory search "atomic commit"
+  npx agent-context-memory mcp --print-config
   npx agent-context-memory status
   npx agent-context-memory commit
   npx agent-context-memory commit --commit=1
@@ -70,15 +84,17 @@ Usage:
   node scripts/install-template.cjs [target-directory] [options]
 
 Options:
-  --force, -f             : Force overwrite existing files
-  --lang=<en|ko>, -l      : Select template & CLI language (default: en)
-  --non-interactive       : Skip interactive prompts (default: en, AGENTS.md)
-  --rule-file=<files>     : Explicitly specify target rule file(s) (comma-separated)
-  -r <files>              : Shorthand for --rule-file
+  --force, -f                 : Force overwrite existing files
+  --lang=<en|ko>, -l          : Select template & CLI language (default: en)
+  --storage=<sqlite|markdown> : Select storage backend (default: sqlite on Node >= 22.13)
+  --non-interactive           : Skip interactive prompts (default: en, sqlite, AGENTS.md)
+  --rule-file=<files>         : Explicitly specify target rule file(s) (comma-separated)
+  -r <files>                  : Shorthand for --rule-file
 
 Examples:
   node scripts/install-template.cjs .
   node scripts/install-template.cjs D:/work/new-project --lang=ko
+  node scripts/install-template.cjs ./my-app --storage=markdown
   node scripts/install-template.cjs ./my-app --rule-file=CLAUDE.md
   node scripts/install-template.cjs ./my-app --force
 `,
@@ -91,6 +107,15 @@ Examples:
     langOptionKoHint: '한국어 거버넌스 문서 및 CLI 출력',
     langPromptFallback: '  Select language / 언어를 선택하세요 [1: English (Default), 2: 한국어 (Korean)] (default: 1): ',
     langSelected: 'Language: {{label}}',
+    storagePromptMessage: 'Select primary memory storage backend:',
+    storageOptionSqliteLabel: 'Local SQLite DB (Recommended)',
+    storageOptionSqliteHint: 'Built-in node:sqlite + FTS5 BM25 search (.agents/local/memory.db); online sync ready later',
+    storageOptionMarkdownLabel: 'Legacy Markdown Files',
+    storageOptionMarkdownHint: 'Classic file-only .agents/ markdown governance (compatible with older Node.js)',
+    storagePromptFallback: '  Select storage backend [1: Local SQLite DB (Recommended), 2: Legacy Markdown] (default: 1): ',
+    storageSelected: 'Storage backend: {{label}}',
+    storageFallbackMarkdownWarn: '  [Notice] Built-in node:sqlite requires Node.js >= 22.13.0 (current: {{version}}); falling back to markdown.',
+    storageMigrated: '  [Migrate] Imported existing Markdown records into SQLite (tasks: {{tasks}}, completed: {{completedTasks}}, patterns: {{patterns}}, adrs: {{adrs}}).',
     targetAndMode: 'Target path: {{targetDir}}\nMode: {{mode}}',
     modeForce: 'Force overwrite (--force)',
     modeSafe: 'Safe preserve mode',
@@ -107,12 +132,14 @@ Examples:
       'Template copy: {{created}} created / {{overwritten}} overwritten / {{skipped}} preserved' +
       '\nRule injection target(s): {{files}}' +
       '\npackage.json scripts added: {{addedCount}}',
+    summaryStorage: 'Storage backend: {{storage}} (.agents/config.json)',
     nextStepsTitle: 'Next Steps',
     outro: 'Agent Context Memory installation complete.',
     bannerStart: '  Agent Context Memory Setup & Initialization',
     bannerSource: '  Source   : {{dir}}',
     bannerTarget: '  Target   : {{dir}}',
     bannerLang: '  Language : {{lang}}',
+    bannerStorage: '  Storage  : {{storage}}',
     bannerMode: '  Mode     : {{mode}}',
     bannerRule: '  Rules    : {{ruleFile}} (explicit)',
     bannerComplete: '  Agent Context Memory installation complete.',
@@ -135,6 +162,7 @@ Examples:
     gitignoreAppended: '  [SYNC] .gitignore (appended {{entries}})',
     nextCd: 'Move to project: cd "{{dir}}"',
     nextTask: 'Check working memory: .agents/task/task.md',
+    nextDbTip: 'Manage local memory DB: npx acm task list / npx acm search "<query>"',
     nextRules: 'Inspect governance rules: {{files}} and .agents/MEMORY_GOVERNANCE.md',
     nextGitStatus: 'Check task-centric commit status: npm run git:status',
     nextNonGitNote: '[Note] Git is unavailable; commit tools run in limited mode.',
@@ -486,6 +514,7 @@ Examples:
     reasonTmpFile: 'Temporary file (*.tmp)',
     reasonBakFile: 'Backup file (*.bak)',
     reasonLogFile: 'Log file (*.log)',
+    reasonLocalDbFile: 'Local SQLite DB file (*.db / *.db-wal / *.db-shm)',
     forbiddenDetected: '\n  [Warn] Unwanted temporary or one-off files detected in push payload:',
     remediationHeader: '\n  [Action Required] Remove them with git rm and amend/commit before pushing:',
     remediationCommit: '    git commit -m "chore: remove temporary scripts"\n',
@@ -522,5 +551,158 @@ Examples:
     adrTitleRequired: 'ADR title is required.',
     snapshotInvalid: 'Valid snapshot object is required.',
     defaultCategory: 'General',
+  },
+
+  dbCli: {
+    help: `
+ACM Memory DB CLI
+
+Usage:
+  acm <command> [subcommand] [options]
+
+Commands:
+  task [list|add|update|complete|show|lease]  Manage tasks
+  pattern [list|add|show]                     Manage learned patterns
+  adr [list|add|show]                         Manage architecture decision records
+  search <query>                              Full-text BM25 search across memory store
+  migrate --to=<sqlite|markdown>              Migrate between SQLite DB and Markdown files
+  export [--format=json|md] [--out=<path>]    Export memory store snapshot
+  import <file> [--strategy=merge|skip|replace] Import snapshot into memory store
+  sync [--pull|--push|--status] [--dry-run]   Sync shared memories via Git orphan branch
+
+Common options:
+  --json                 Output machine-readable JSON
+  --lang=<en|ko>         Set CLI output language
+  -h, --help             Show command-specific help
+`,
+    taskHelp: `
+Usage: acm task <subcommand> [options]
+
+Subcommands:
+  list [--status=todo|in_progress|ready|done|paused] [--all|--done] [--json]
+  show <idOrCode> [--json]
+  add [title] [--title=...] [--status=...] [--purpose=...] [--result=...] [--target=...] [--group=...] [--owner=...] [--stdin] [--skip-validation] [--json]
+  update <idOrCode> [--title=...] [--status=...] [--purpose=...] [--result=...] [--target=...] [--group=...] [--owner=...] [--stdin] [--skip-validation] [--json]
+  complete <idOrCode> [--sha=<sha>] [--json]
+  lease <idOrCode> --owner=<agentId> [--ttl=600] [--release] [--force] [--json]
+`,
+    patternHelp: `
+Usage: acm pattern <subcommand> [options]
+
+Subcommands:
+  list [--category=...] [--include-superseded] [--json]
+  show <idOrCode> [--json]
+  add [title] [--title=...] [--category=...] [--summary=...] [--symptom=...] [--solution=...] [--file=...] [--tag=...] [--supersedes=<uid|code>] [--author=...] [--stdin] [--json]
+`,
+    adrHelp: `
+Usage: acm adr <subcommand> [options]
+
+Subcommands:
+  list [--limit=20] [--json]
+  show <idOrCode> [--json]
+  add [title] [--date=YYYY-MM-DD] [--summary=...] [--area=...] [--task=TSK-X] [--branch=...] [--context=...] [--decision=...] [--impact=...] [--author=...] [--stdin] [--json]
+`,
+    searchHelp: `
+Usage: acm search <query> [options]
+
+Options:
+  --kind=all|task|pattern|adr   Filter entity kind (default: all)
+  --limit=10                    Max number of results
+  --budget=0                    Token budget cap (0 = unlimited)
+  --json                        Output machine-readable JSON
+`,
+    migrateHelp: `
+Usage: acm migrate --to=<sqlite|markdown> [options]
+
+Options:
+  --to=<sqlite|markdown>  Target storage backend
+  --dry-run               Preview migration counts without writing files or config
+  --json                  Output machine-readable JSON
+`,
+    exportHelp: `
+Usage: acm export [options]
+
+Options:
+  --format=json|md    Export format (default: json)
+  --out=<path>        Output file (json) or directory (md)
+  --include-deleted   Include soft-deleted records (json only)
+  --json              Output machine-readable JSON summary
+`,
+    importHelp: `
+Usage: acm import <file|-> [options]
+
+Options:
+  --strategy=merge|skip|replace  Import conflict strategy (default: merge)
+  --stdin                        Read JSON snapshot from stdin
+  --json                         Output machine-readable JSON
+`,
+    unknownCommand: '[Error] Unknown DB command: "{{command}}"',
+    unknownSubcommand: '[Error] Unknown subcommand "{{subcommand}}" for "{{command}}"',
+    missingArg: '[Error] Missing required argument: {{arg}}',
+    invalidJsonStdin: '[Error] Failed to parse JSON input from stdin: {{message}}',
+    invalidStrategy: '[Error] Invalid import strategy: "{{strategy}}". Expected merge, skip, or replace.',
+    invalidFormat: '[Error] Invalid export format: "{{format}}". Expected json or md.',
+    invalidTargetProvider: '[Error] Invalid migration target: "{{to}}". Expected sqlite or markdown.',
+    fileNotFound: '[Error] Input file not found: {{file}}',
+    notFound: '[Error] Record not found: {{id}}',
+    execError: '[Error] {{message}}',
+    noResults: '(No matching records found.)',
+    taskListHeader: '[Tasks] ({{provider}}) - {{count}} record(s):',
+    patternListHeader: '[Patterns] ({{provider}}) - {{count}} record(s):',
+    adrListHeader: '[ADRs] ({{provider}}) - {{count}} record(s):',
+    searchHeader: '[Search: "{{query}}"] - {{count}} match(es):',
+    taskCreated: '[Task Created] {{code}}: {{title}} [{{status}}]',
+    taskUpdated: '[Task Updated] {{code}}: {{title}} [{{status}}]',
+    taskCompleted: '[Task Completed] {{code}}: {{title}} (Commit/Ref: {{sha}})',
+    leaseAcquired: '[Lease Acquired] {{code}} -> {{owner}} (expires: {{expiresAt}})',
+    leaseBusy: '[Lease Conflict] {{code}} is currently held by {{holder}} until {{expiresAt}}',
+    leaseReleased: '[Lease Released] {{code}}',
+    patternSaved: '[Pattern Saved] {{code}} (v{{version}}): {{title}}',
+    adrSaved: '[ADR Saved] {{code}} [{{date}}]: {{title}}',
+    migrateDryRun: '[Dry-Run] Migration preview ({{from}} -> {{to}}): tasks={{tasks}}, completed={{completedTasks}}, patterns={{patterns}}, adrs={{adrs}}',
+    migrateDone: '[Migrated] Storage switched to "{{to}}": tasks={{tasks}}, completed={{completedTasks}}, patterns={{patterns}}, adrs={{adrs}}',
+    migrateAlready: '[Info] Storage provider is already configured as "{{to}}"; refreshed records.',
+    exportJsonDone: '[Exported JSON] Wrote snapshot to {{out}}',
+    exportMdDone: '[Exported Markdown] Wrote Markdown views to {{out}}',
+    importDone: '[Imported] Strategy={{strategy}}: tasks={{tasks}}, patterns={{patterns}}, adrs={{adrs}}, skipped={{skipped}}',
+    syncHelp: `
+Usage: acm sync [options]
+
+Options:
+  --pull                 Fetch and merge remote shared memories into local SQLite DB
+  --push                 Merge, scrub secrets, and push shared memories to orphan branch
+  --status               Show orphan branch status, counts, and recent sync history
+  --dry-run              Preview sync counts and secret redactions without writing
+  --branch=<name>        Override sync branch (default: acm-memory)
+  --remote=<name>        Override Git remote (default: origin)
+  --no-scrub             Disable outbound Secret Scrubber (not recommended)
+  --json                 Output machine-readable JSON
+`,
+    syncInvalidRef: '[Error] Invalid Git branch or remote reference name: "{{ref}}"',
+    syncRequiresSqlite: '[Error] Git orphan sync requires SQLite storage mode. Run "acm migrate --to=sqlite" first.',
+    syncNonGitSkip: '[Notice] Non-Git environment detected; skipping Git orphan sync.',
+    syncStatusHeader: '[Sync Status] branch={{branch}} remote={{remote}} localSha={{localSha}} remoteSha={{remoteSha}} lastSync={{lastSync}}',
+    syncDryRun: '[Dry-Run] Sync preview ({{direction}} -> {{branch}}): pulled={{pulled}}, pushed={{pushed}}, conflicts={{conflictsResolved}}, redacted={{redactedCount}}',
+    syncDone: '[Synced] {{direction}} on {{branch}} (commit={{commitSha}}): pulled={{pulled}}, pushed={{pushed}}, conflicts={{conflictsResolved}}, redacted={{redactedCount}}',
+    syncScrubWarn: '[Secret Scrubber] Redacted {{count}} sensitive token(s) before sync ({{types}}).',
+  },
+
+  mcp: {
+    help: `
+ACM Stdio MCP Server
+
+Usage:
+  npx agent-context-memory mcp [options]
+  node scripts/mcp-server.cjs [options]
+
+Options:
+  --print-config         Print ready-to-paste MCP client JSON configuration snippets
+  --json                 Print raw JSON snippets when combined with --print-config
+  --root=<dir>           Target workspace root directory (default: current directory)
+  -l, --lang <en|ko>     Output language for CLI notices and validation messages
+  -h, --help             Show this help message
+`,
+    printConfigHeader: '[ACM MCP] Ready-to-paste MCP client configuration snippets (workspace: {{rootDir}}):',
+    printConfigNote: 'Tip: Merge either "mcpServers" entry into your MCP client config (Antigravity, Claude Code, Cursor, etc.). Diagnostics log to stderr; stdio speaks JSON-RPC 2.0.',
   },
 };

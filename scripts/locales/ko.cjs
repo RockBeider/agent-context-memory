@@ -15,6 +15,7 @@ module.exports = {
     installException: '[오류] 설치 중 예외가 발생했습니다:',
     uninstallException: '[오류] 제거 중 예외가 발생했습니다:',
     unknownCommand: '[오류] 알 수 없는 명령어: "{{command}}"\n',
+    unsupportedStorage: '[오류] 지원하지 않는 저장소 방식입니다: "{{storage}}". 지원 방식: sqlite, markdown',
     help: `
 Agent Context Memory CLI (v{{version}})
 Three-Tier Context Memory Governance & Task-Centric Engine
@@ -31,27 +32,40 @@ Three-Tier Context Memory Governance & Task-Centric Engine
   check-git               현재 환경의 Git 설치 유무 및 연동 상태 진단
   status [옵션]           작업 단위 Git 상태 점검 (group-status)
   commit [옵션]           작업 단위 개별 원자 커밋 실행 (기본값: --all)
-  pull [옵션]             원격 변경사항 지능형 3-Way 병합 (smart-pull)
+  pull [options]          원격 변경사항 지능형 3-Way 병합 (smart-pull)
   resolve [옵션]          3-Way 충돌 정밀 하이브리드 결합 완결
   audit                   원격 브랜치 푸시 전 위생 및 정적 감사 (별칭: audit-push)
+  task [하위명령]         로컬 저장소 태스크 관리 (list, add, update, complete, show, lease)
+  pattern [하위명령]      지식 패턴 관리 (list, add, show)
+  adr [하위명령]          아키텍처 결정 기록(ADR) 관리 (list, add, show)
+  search <검색어>         태스크·패턴·ADR 통합 전문 검색
+  migrate [옵션]          sqlite <-> markdown 저장소 양방향 마이그레이션
+  export [옵션]           전체 메모리 저장소 JSON 또는 Markdown 내보내기
+  import <파일> [옵션]    JSON 스냅샷을 메모리 저장소로 가져오기
+  sync [옵션]             Git orphan 브랜치(acm-memory)와 공유 메모리 동기화
+  mcp [--print-config]    순수 stdio MCP 서버 실행 (또는 클라이언트 JSON 설정 출력)
 
 옵션:
-  -v, --version           현재 CLI 버전 출력
-  -h, --help              도움말 출력
-  -f, --force             확인 프롬프트 생략 및 강제 실행
-  -l, --lang <en|ko>      설치/실행 언어 지정 (기본값: en)
-  --lang=<en|ko>          --lang <en|ko> 와 동일
-  --non-interactive       대화형 프롬프트 생략 (미감지 시 en 및 AGENTS.md 자동 폴백)
-  --dry-run               실제 조작 없이 결과 미리보기
-  --no-backup             (uninstall 전용) .agents 백업 디렉터리 생성 생략
-  --rule-file=<파일명>    규칙 파일 직접 지정 (쉼표 구분 다중 지정 가능)
-  -r <파일명>             --rule-file 의 축약형
+  -v, --version               현재 CLI 버전 출력
+  -h, --help                  도움말 출력
+  -f, --force                 확인 프롬프트 생략 및 강제 실행
+  -l, --lang <en|ko>          설치/실행 언어 지정 (기본값: en)
+  --lang=<en|ko>              --lang <en|ko> 와 동일
+  --storage=<sqlite|markdown> 초기화 시 저장소 백엔드 지정 (Node >= 22.13 기본값: sqlite)
+  --non-interactive           대화형 프롬프트 생략 (미감지 시 en, sqlite, AGENTS.md 자동 폴백)
+  --dry-run                   실제 조작 없이 결과 미리보기
+  --no-backup                 (uninstall 전용) .agents 백업 디렉터리 생성 생략
+  --rule-file=<파일명>        규칙 파일 직접 지정 (쉼표 구분 다중 지정 가능)
+  -r <파일명>                 --rule-file 의 축약형
 
 예시:
   npx agent-context-memory
-  npx agent-context-memory --lang=ko
+  npx agent-context-memory --lang=ko --storage=sqlite
   npx agent-context-memory --force
-  npx agent-context-memory init
+  npx agent-context-memory init --storage=markdown
+  npx agent-context-memory task list
+  npx agent-context-memory search "원자 커밋"
+  npx agent-context-memory mcp --print-config
   npx agent-context-memory status
   npx agent-context-memory commit
   npx agent-context-memory commit --commit=1
@@ -70,15 +84,17 @@ Three-Tier Context Memory Governance & Task-Centric Engine
   node scripts/install-template.cjs [target-directory] [옵션]
 
 옵션:
-  --force, -f             : 이미 존재하는 파일이 있을 경우 강제 덮어쓰기
-  --lang=<en|ko>, -l      : 템플릿 및 CLI 언어 지정 (기본값: en)
-  --non-interactive       : 대화형 프롬프트 생략 (기본값: en, AGENTS.md)
-  --rule-file=<파일명>    : 규칙을 적용할 대상 파일 직접 지정 (쉼표 구분 다중 지정 가능)
-  -r <파일명>             : --rule-file 의 축약형
+  --force, -f                 : 이미 존재하는 파일이 있을 경우 강제 덮어쓰기
+  --lang=<en|ko>, -l          : 템플릿 및 CLI 언어 지정 (기본값: en)
+  --storage=<sqlite|markdown> : 저장소 백엔드 선택 (Node >= 22.13 기본값: sqlite)
+  --non-interactive           : 대화형 프롬프트 생략 (기본값: en, sqlite, AGENTS.md)
+  --rule-file=<파일명>        : 규칙을 적용할 대상 파일 직접 지정 (쉼표 구분 다중 지정 가능)
+  -r <파일명>                 : --rule-file 의 축약형
 
 예시:
   node scripts/install-template.cjs .
   node scripts/install-template.cjs D:/work/new-project --lang=ko
+  node scripts/install-template.cjs ./my-app --storage=markdown
   node scripts/install-template.cjs ./my-app --rule-file=CLAUDE.md
   node scripts/install-template.cjs ./my-app --force
 `,
@@ -91,6 +107,15 @@ Three-Tier Context Memory Governance & Task-Centric Engine
     langOptionKoHint: '한국어 거버넌스 문서 및 CLI 출력',
     langPromptFallback: '  Select language / 언어를 선택하세요 [1: English (Default), 2: 한국어 (Korean)] (default: 1): ',
     langSelected: '선택된 언어: {{label}}',
+    storagePromptMessage: '기본 메모리 저장소 백엔드를 선택하세요:',
+    storageOptionSqliteLabel: '로컬 SQLite DB (권장)',
+    storageOptionSqliteHint: '내장 node:sqlite + FTS5 BM25 검색 (.agents/local/memory.db), 추후 온라인 동기화 확장 지원',
+    storageOptionMarkdownLabel: '레거시 Markdown 파일',
+    storageOptionMarkdownHint: '기존 파일 기반 .agents/ 마크다운 거버넌스 (구버전 Node.js 호환)',
+    storagePromptFallback: '  저장소 백엔드를 선택하세요 [1: 로컬 SQLite DB (권장), 2: 레거시 Markdown] (기본값: 1): ',
+    storageSelected: '선택된 저장소: {{label}}',
+    storageFallbackMarkdownWarn: '  [안내] 내장 node:sqlite는 Node.js >= 22.13.0이 필요합니다(현재: {{version}}). markdown 모드로 폴백합니다.',
+    storageMigrated: '  [이관] 기존 Markdown 데이터를 SQLite DB로 자동 적재했습니다 (태스크: {{tasks}}, 완료: {{completedTasks}}, 패턴: {{patterns}}, ADR: {{adrs}}).',
     targetAndMode: '대상 경로: {{targetDir}}\n모드: {{mode}}',
     modeForce: '강제 덮어쓰기 (--force)',
     modeSafe: '안전 보존 모드',
@@ -107,12 +132,14 @@ Three-Tier Context Memory Governance & Task-Centric Engine
       '템플릿 복제: 신규 {{created}}건 / 덮어씀 {{overwritten}}건 / 보존 {{skipped}}건' +
       '\n규칙 주입 대상: {{files}}' +
       '\npackage.json 스크립트 추가: {{addedCount}}건',
+    summaryStorage: '저장소 백엔드: {{storage}} (.agents/config.json)',
     nextStepsTitle: '다음 단계 가이드',
     outro: 'Agent Context Memory 설치가 완료되었습니다.',
     bannerStart: '  Agent Context Memory 설치 및 초기화 시작',
     bannerSource: '  출처 자산 : {{dir}}',
     bannerTarget: '  대상 경로 : {{dir}}',
     bannerLang: '  적용 언어 : {{lang}}',
+    bannerStorage: '  저장소    : {{storage}}',
     bannerMode: '  옵션      : {{mode}}',
     bannerRule: '  규칙 대상 : {{ruleFile}} (명시적 지정)',
     bannerComplete: '  Agent Context Memory 설치가 완료되었습니다.',
@@ -135,6 +162,7 @@ Three-Tier Context Memory Governance & Task-Centric Engine
     gitignoreAppended: '  [동기화] .gitignore ({{entries}} 등록 추가)',
     nextCd: '대상 프로젝트 이동: cd "{{dir}}"',
     nextTask: '작업 기억 정본 확인: .agents/task/task.md',
+    nextDbTip: '로컬 메모리 DB 관리: npx acm task list / npx acm search "<검색어>"',
     nextRules: '거버넌스 규칙 점검: {{files}} 및 .agents/MEMORY_GOVERNANCE.md',
     nextGitStatus: '작업 단위 커밋 상태 확인: npm run git:status',
     nextNonGitNote: '[주의] Git 미설치 환경이므로 Git 커밋 도구는 제한 모드입니다.',
@@ -486,6 +514,7 @@ Three-Tier Context Memory Governance & Task-Centric Engine
     reasonTmpFile: '임시 파일 (*.tmp)',
     reasonBakFile: '백업 파일 (*.bak)',
     reasonLogFile: '로그 파일 (*.log)',
+    reasonLocalDbFile: '로컬 SQLite DB 파일 (*.db / *.db-wal / *.db-shm)',
     forbiddenDetected: '\n  [경고] 프로젝트에 불필요한 1회성/임시 파일이 푸시 대상에서 감지되었습니다:',
     remediationHeader: '\n  [조치 방법]: 아래 명령어로 제거 커밋 후 다시 시도하세요:',
     remediationCommit: '    git commit -m "chore: 1회성 스크립트 정리"\n',
@@ -522,5 +551,158 @@ Three-Tier Context Memory Governance & Task-Centric Engine
     adrTitleRequired: 'ADR 제목(title)이 필요합니다.',
     snapshotInvalid: '유효한 스냅샷 객체가 필요합니다.',
     defaultCategory: '일반',
+  },
+
+  dbCli: {
+    help: `
+ACM 메모리 DB CLI
+
+사용법:
+  acm <명령어> [하위명령] [옵션]
+
+명령어:
+  task [list|add|update|complete|show|lease]  태스크 관리
+  pattern [list|add|show]                     지식 패턴 관리
+  adr [list|add|show]                         아키텍처 결정 기록(ADR) 관리
+  search <검색어>                             전체 메모리 FTS5 BM25 통합 검색
+  migrate --to=<sqlite|markdown>              SQLite DB와 Markdown 파일 간 마이그레이션
+  export [--format=json|md] [--out=<경로>]    메모리 저장소 스냅샷 내보내기
+  import <파일> [--strategy=merge|skip|replace] 스냅샷을 메모리 저장소로 가져오기
+  sync [--pull|--push|--status] [--dry-run]   Git orphan 브랜치를 통한 공유 메모리 동기화
+
+공통 옵션:
+  --json                 JSON 형식으로 출력
+  --lang=<en|ko>         CLI 출력 언어 지정
+  -h, --help             명령어별 도움말 표시
+`,
+    taskHelp: `
+사용법: acm task <하위명령> [옵션]
+
+하위명령:
+  list [--status=todo|in_progress|ready|done|paused] [--all|--done] [--json]
+  show <idOrCode> [--json]
+  add [제목] [--title=...] [--status=...] [--purpose=...] [--result=...] [--target=...] [--group=...] [--owner=...] [--stdin] [--skip-validation] [--json]
+  update <idOrCode> [--title=...] [--status=...] [--purpose=...] [--result=...] [--target=...] [--group=...] [--owner=...] [--stdin] [--skip-validation] [--json]
+  complete <idOrCode> [--sha=<sha>] [--json]
+  lease <idOrCode> --owner=<agentId> [--ttl=600] [--release] [--force] [--json]
+`,
+    patternHelp: `
+사용법: acm pattern <하위명령> [옵션]
+
+하위명령:
+  list [--category=...] [--include-superseded] [--json]
+  show <idOrCode> [--json]
+  add [제목] [--title=...] [--category=...] [--summary=...] [--symptom=...] [--solution=...] [--file=...] [--tag=...] [--supersedes=<uid|code>] [--author=...] [--stdin] [--json]
+`,
+    adrHelp: `
+사용법: acm adr <하위명령> [옵션]
+
+하위명령:
+  list [--limit=20] [--json]
+  show <idOrCode> [--json]
+  add [제목] [--date=YYYY-MM-DD] [--summary=...] [--area=...] [--task=TSK-X] [--branch=...] [--context=...] [--decision=...] [--impact=...] [--author=...] [--stdin] [--json]
+`,
+    searchHelp: `
+사용법: acm search <검색어> [옵션]
+
+옵션:
+  --kind=all|task|pattern|adr   엔티티 유형 필터 (기본값: all)
+  --limit=10                    최대 결과 수
+  --budget=0                    토큰 예산 상한 (0 = 무제한)
+  --json                        JSON 형식으로 출력
+`,
+    migrateHelp: `
+사용법: acm migrate --to=<sqlite|markdown> [옵션]
+
+옵션:
+  --to=<sqlite|markdown>  대상 저장소 백엔드
+  --dry-run               파일이나 설정을 변경하지 않고 이관 건수만 미리보기
+  --json                  JSON 형식으로 출력
+`,
+    exportHelp: `
+사용법: acm export [옵션]
+
+옵션:
+  --format=json|md    내보내기 형식 (기본값: json)
+  --out=<경로>        출력 파일(json) 또는 디렉터리(md) 경로
+  --include-deleted   소프트 삭제된 레코드 포함 (json 전용)
+  --json              JSON 요약 출력
+`,
+    importHelp: `
+사용법: acm import <파일|-> [옵션]
+
+옵션:
+  --strategy=merge|skip|replace  가져오기 충돌 처리 전략 (기본값: merge)
+  --stdin                        표준 입력(stdin)에서 JSON 스냅샷 읽기
+  --json                         JSON 형식으로 출력
+`,
+    unknownCommand: '[오류] 알 수 없는 DB 명령어입니다: "{{command}}"',
+    unknownSubcommand: '[오류] "{{command}}"의 알 수 없는 하위 명령어입니다: "{{subcommand}}"',
+    missingArg: '[오류] 필수 인자가 누락되었습니다: {{arg}}',
+    invalidJsonStdin: '[오류] stdin JSON 입력 파싱에 실패했습니다: {{message}}',
+    invalidStrategy: '[오류] 잘못된 가져오기 전략입니다: "{{strategy}}". merge, skip, replace 중 하나를 지정하십시오.',
+    invalidFormat: '[오류] 잘못된 내보내기 형식입니다: "{{format}}". json 또는 md를 지정하십시오.',
+    invalidTargetProvider: '[오류] 잘못된 마이그레이션 대상입니다: "{{to}}". sqlite 또는 markdown을 지정하십시오.',
+    fileNotFound: '[오류] 입력 파일을 찾을 수 없습니다: {{file}}',
+    notFound: '[오류] 레코드를 찾을 수 없습니다: {{id}}',
+    execError: '[오류] {{message}}',
+    noResults: '(일치하는 레코드가 없습니다.)',
+    taskListHeader: '[태스크] ({{provider}}) - 총 {{count}}건:',
+    patternListHeader: '[패턴] ({{provider}}) - 총 {{count}}건:',
+    adrListHeader: '[ADR] ({{provider}}) - 총 {{count}}건:',
+    searchHeader: '[검색: "{{query}}"] - {{count}}건 일치:',
+    taskCreated: '[태스크 등록] {{code}}: {{title}} [{{status}}]',
+    taskUpdated: '[태스크 갱신] {{code}}: {{title}} [{{status}}]',
+    taskCompleted: '[태스크 완료] {{code}}: {{title}} (커밋/참조: {{sha}})',
+    leaseAcquired: '[Lease 점유] {{code}} -> {{owner}} (만료: {{expiresAt}})',
+    leaseBusy: '[Lease 충돌] {{code}}는 현재 {{holder}}가 점유 중입니다 (만료: {{expiresAt}})',
+    leaseReleased: '[Lease 해제] {{code}}',
+    patternSaved: '[패턴 저장] {{code}} (v{{version}}): {{title}}',
+    adrSaved: '[ADR 저장] {{code}} [{{date}}]: {{title}}',
+    migrateDryRun: '[미리보기] 마이그레이션 예정 ({{from}} -> {{to}}): 태스크={{tasks}}, 완료={{completedTasks}}, 패턴={{patterns}}, ADR={{adrs}}',
+    migrateDone: '[이관 완료] 저장소가 "{{to}}"(으)로 전환되었습니다: 태스크={{tasks}}, 완료={{completedTasks}}, 패턴={{patterns}}, ADR={{adrs}}',
+    migrateAlready: '[안내] 저장소 설정이 이미 "{{to}}"입니다. 레코드를 동기화했습니다.',
+    exportJsonDone: '[JSON 내보내기 완료] 스냅샷 저장됨: {{out}}',
+    exportMdDone: '[Markdown 내보내기 완료] 마크다운 파일 생성됨: {{out}}',
+    importDone: '[가져오기 완료] 전략={{strategy}}: 태스크={{tasks}}, 패턴={{patterns}}, ADR={{adrs}}, 건너뜀={{skipped}}',
+    syncHelp: `
+사용법: acm sync [옵션]
+
+옵션:
+  --pull                 원격 공유 메모리를 가져와 로컬 SQLite DB와 구조적으로 병합
+  --push                 시크릿 스크러빙 후 orphan 브랜치에 스냅샷 커밋 및 원격 푸시
+  --status               동기화 브랜치 상태, 공유 건수 및 최근 동기화 이력 조회
+  --dry-run              실제 커밋/DB 변경 없이 병합·마스킹 예정 건수만 미리보기
+  --branch=<이름>        동기화 대상 브랜치 지정 (기본값: acm-memory)
+  --remote=<이름>        원격 저장소 지정 (기본값: origin)
+  --no-scrub             아웃바운드 Secret Scrubber 비활성화 (비권장)
+  --json                 JSON 형식으로 출력
+`,
+    syncInvalidRef: '[오류] 유효하지 않은 Git 브랜치 또는 원격 이름입니다: "{{ref}}"',
+    syncRequiresSqlite: '[오류] Git orphan 동기화는 SQLite 저장소 모드에서만 동작합니다. 먼저 "acm migrate --to=sqlite"를 실행하십시오.',
+    syncNonGitSkip: '[안내] Git 환경이 아니므로 Git orphan 동기화를 건너뜁니다.',
+    syncStatusHeader: '[동기화 상태] 브랜치={{branch}} 원격={{remote}} 로컬SHA={{localSha}} 원격SHA={{remoteSha}} 최근동기화={{lastSync}}',
+    syncDryRun: '[미리보기] 동기화 예정 ({{direction}} -> {{branch}}): 수신={{pulled}}, 송신={{pushed}}, 충돌해소={{conflictsResolved}}, 마스킹={{redactedCount}}',
+    syncDone: '[동기화 완료] {{direction}} -> {{branch}} (커밋={{commitSha}}): 수신={{pulled}}, 송신={{pushed}}, 충돌해소={{conflictsResolved}}, 마스킹={{redactedCount}}',
+    syncScrubWarn: '[Secret Scrubber] 동기화 전 민감정보 {{count}}건을 자동 마스킹했습니다 ({{types}}).',
+  },
+
+  mcp: {
+    help: `
+ACM Stdio MCP 서버
+
+사용법:
+  npx agent-context-memory mcp [옵션]
+  node scripts/mcp-server.cjs [옵션]
+
+옵션:
+  --print-config         MCP 클라이언트용 JSON 설정 스니펫 출력
+  --json                 --print-config 와 함께 순수 JSON만 출력
+  --root=<경로>          대상 워크스페이스 루트 경로 (기본값: 현재 디렉터리)
+  -l, --lang <en|ko>     CLI 안내 및 검증 오류 언어 지정
+  -h, --help             도움말 표시
+`,
+    printConfigHeader: '[ACM MCP] 바로 붙여넣을 수 있는 MCP 클라이언트 JSON 설정 스니펫 (대상 경로: {{rootDir}}):',
+    printConfigNote: '안내: 위 "mcpServers" 항목 중 하나를 Antigravity, Claude Code, Cursor 등의 MCP 설정 파일에 병합하세요. 로그는 stderr로만 출력되며 stdio로 JSON-RPC 2.0 통신합니다.',
   },
 };
