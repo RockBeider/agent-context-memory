@@ -1,12 +1,13 @@
 /**
  * scripts/storage/memory-store.cjs
  *
- * StorageProvider 레지스트리 및 통합 MemoryStore 팩토리
- * 향후 온라인 DB/클라우드 백엔드(Turso, Postgres, Gist 등) 어댑터를 registerProvider()로 플러그인 연동합니다.
+ * StorageProvider registry and unified MemoryStore factory.
+ * Future online DB/cloud adapters (Turso, Postgres, Gist, etc.) plug in via registerProvider().
  */
 
 const path = require('path');
 const { loadConfig } = require('./config.cjs');
+const { t } = require('../i18n.cjs');
 const { SqliteProvider } = require('./sqlite-provider.cjs');
 const { MarkdownProvider } = require('./markdown-provider.cjs');
 const { projectTasksToMarkdown } = require('./markdown-bridge.cjs');
@@ -15,7 +16,7 @@ const providerRegistry = new Map();
 
 function registerProvider(name, factory) {
   if (!name || typeof factory !== 'function') {
-    throw new Error('유효한 프로바이더 이름과 팩토리 함수가 필요합니다.');
+    throw new Error(t('storage.invalidProviderReg'));
   }
   providerRegistry.set(String(name).trim().toLowerCase(), factory);
 }
@@ -24,9 +25,9 @@ registerProvider('sqlite', (rootDir, opts) => new SqliteProvider(rootDir, opts))
 registerProvider('markdown', (rootDir, opts) => new MarkdownProvider(rootDir, opts));
 
 /**
- * SQLite 백엔드 변경 시 설정에 따라 .agents/task/*.md 읽기 전용 뷰를 자동 투영합니다.
+ * Automatically projects read-only .agents/task/*.md views on SQLite store mutations.
  */
-function attachMarkdownProjection(rootDir, provider) {
+function attachMarkdownProjection(rootDir, provider, defaultOptions = {}) {
   const origUpsertTask = provider.upsertTask.bind(provider);
   const origCompleteTask = provider.completeTask.bind(provider);
   const origImportSnapshot = provider.importSnapshot.bind(provider);
@@ -34,7 +35,7 @@ function attachMarkdownProjection(rootDir, provider) {
   provider.upsertTask = (input, opts = {}) => {
     const result = origUpsertTask(input, opts);
     if (!opts.skipProjection) {
-      projectTasksToMarkdown(rootDir, provider);
+      projectTasksToMarkdown(rootDir, provider, { lang: opts.lang || defaultOptions.lang });
     }
     return result;
   };
@@ -42,7 +43,7 @@ function attachMarkdownProjection(rootDir, provider) {
   provider.completeTask = (idOrCode, commitSha, opts = {}) => {
     const result = origCompleteTask(idOrCode, commitSha, opts);
     if (!opts.skipProjection) {
-      projectTasksToMarkdown(rootDir, provider);
+      projectTasksToMarkdown(rootDir, provider, { lang: opts.lang || defaultOptions.lang });
     }
     return result;
   };
@@ -50,7 +51,7 @@ function attachMarkdownProjection(rootDir, provider) {
   provider.importSnapshot = (snapshot, strategy = 'merge', opts = {}) => {
     const result = origImportSnapshot(snapshot, strategy);
     if (!opts.skipProjection) {
-      projectTasksToMarkdown(rootDir, provider);
+      projectTasksToMarkdown(rootDir, provider, { lang: opts.lang || defaultOptions.lang });
     }
     return result;
   };
@@ -59,7 +60,7 @@ function attachMarkdownProjection(rootDir, provider) {
 }
 
 /**
- * 프로젝트 설정(.agents/config.json)에 맞는 MemoryStore 인스턴스를 생성·초기화합니다.
+ * Creates and opens a MemoryStore instance matching project configuration (.agents/config.json).
  *
  * @param {string} [rootDir=process.cwd()]
  * @param {object} [options={}]
@@ -75,9 +76,7 @@ function createMemoryStore(rootDir = process.cwd(), options = {}) {
   const factory = providerRegistry.get(providerName);
   if (!factory) {
     const registered = Array.from(providerRegistry.keys()).join(', ');
-    throw new Error(
-      `[설정 오류] 등록되지 않은 스토리지 프로바이더입니다: "${providerName}" (지원 목록: ${registered})`
-    );
+    throw new Error(t('storage.unknownProvider', { name: providerName, supported: registered }));
   }
 
   const provider = factory(resolvedRoot, { ...options, config });
@@ -92,7 +91,7 @@ function createMemoryStore(rootDir = process.cwd(), options = {}) {
     !options.skipProjection;
 
   if (shouldProject) {
-    return attachMarkdownProjection(resolvedRoot, provider);
+    return attachMarkdownProjection(resolvedRoot, provider, options);
   }
 
   return provider;

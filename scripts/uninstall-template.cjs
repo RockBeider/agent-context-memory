@@ -2,18 +2,11 @@
 /**
  * scripts/uninstall-template.cjs
  *
- * Agent Context Memory(ACM) 자산을 대상 프로젝트에서 안전하고 완전하게 제거(Uninstall) 및 원복하는 스크립트
- * scripts/acm-manifest.cjs 단일 정본 매니페스트를 기반으로 동작합니다.
+ * Safely removes and rolls back Agent Context Memory (ACM) assets from a target project
+ * based on the Single Source of Truth manifest (scripts/acm-manifest.cjs).
  *
- * 사용법:
- *   node scripts/uninstall-template.cjs [target-directory] [옵션]
- *   기본값: target-directory 미지정 시 현재 작업 디렉터리(.)
- *
- * 옵션:
- *   --dry-run               : 실제 삭제/수정 없이 제거 대상 및 영향 범위 시뮬레이션
- *   --force, -f             : 대화형 확인 프롬프트 생략
- *   --no-backup             : .agents 디렉터리 백업 생략
- *   --rule-file=<파일명>    : 특정 규칙 파일 지정 제거
+ * Usage:
+ *   node scripts/uninstall-template.cjs [target-directory] [options]
  */
 
 const fs = require('fs');
@@ -25,23 +18,16 @@ const {
   checkRuleContentDrift,
   removeRuleFromFile,
 } = require('./sync-agent-rules.cjs');
+const {
+  DEFAULT_LANGUAGE,
+  parseLangFlag,
+  resolveLanguage,
+  createTranslator,
+  t,
+} = require('./i18n.cjs');
 
-function printUsage() {
-  console.log('=======================================================');
-  console.log('  Agent Context Memory 템플릿 언인스톨러 (Uninstall)');
-  console.log('=======================================================\n');
-  console.log('사용법:');
-  console.log('  node scripts/uninstall-template.cjs [target-directory] [옵션]\n');
-  console.log('옵션:');
-  console.log('  --dry-run               : 실제 삭제 없이 제거 대상 시뮬레이션 출력');
-  console.log('  --force, -f             : 대화형 확인 프롬프트 건너뛰기');
-  console.log('  --no-backup             : .agents 백업 생성 건너뛰기');
-  console.log('  --rule-file=<파일명>    : 규칙을 제거할 대상 파일 직접 지정 (쉼표 구분 다중 지정 가능)');
-  console.log('  -r <파일명>             : --rule-file 의 축약형\n');
-  console.log('예시:');
-  console.log('  node scripts/uninstall-template.cjs .');
-  console.log('  node scripts/uninstall-template.cjs ./my-app --dry-run');
-  console.log('  node scripts/uninstall-template.cjs ./my-app --force\n');
+function printUsage(lang = DEFAULT_LANGUAGE) {
+  console.log(t('uninstall.usage', {}, lang));
 }
 
 function promptConfirm(questionText) {
@@ -58,9 +44,6 @@ function promptConfirm(questionText) {
   });
 }
 
-/**
- * 디렉터리를 재귀적으로 백업 복사합니다.
- */
 function copyDirRecursive(src, dest) {
   if (!fs.existsSync(dest)) {
     fs.mkdirSync(dest, { recursive: true });
@@ -78,18 +61,17 @@ function copyDirRecursive(src, dest) {
 }
 
 /**
- * 1단계: ACM 전용 디렉터리 백업 및 제거
+ * Step 1: Back up and remove ACM-owned directories.
  */
-function rollbackDirectories(targetDir, options, stats) {
-  console.log('\n[1/5] ACM 소유 디렉터리 검사 및 제거 중...');
+function rollbackDirectories(targetDir, options, stats, tr) {
+  console.log(tr('uninstall.step1'));
   for (const dirMeta of ACM_MANIFEST.directories) {
     const fullDirPath = path.resolve(targetDir, dirMeta.path);
     if (!fs.existsSync(fullDirPath)) {
-      console.log(`  [미존재 건너뜀] ${dirMeta.path}`);
+      console.log(tr('uninstall.dirMissing', { path: dirMeta.path }));
       continue;
     }
 
-    // 백업 생성
     if (dirMeta.backupRequired && !options.noBackup) {
       const now = new Date();
       const pad = (n) => String(n).padStart(2, '0');
@@ -98,31 +80,30 @@ function rollbackDirectories(targetDir, options, stats) {
       const backupFullPath = path.resolve(targetDir, backupDirName);
 
       if (options.dryRun) {
-        console.log(`  [미리보기] 백업 디렉터리 생성 예정: ${backupDirName}`);
+        console.log(tr('uninstall.dryBackup', { backupDir: backupDirName }));
       } else {
         copyDirRecursive(fullDirPath, backupFullPath);
-        console.log(`  [백업 완료] ${dirMeta.path} -> ${backupDirName}`);
+        console.log(tr('uninstall.backupDone', { src: dirMeta.path, dest: backupDirName }));
         stats.backups.push(backupDirName);
       }
     }
 
-    // 디렉터리 삭제
     if (options.dryRun) {
-      console.log(`  [미리보기] 디렉터리 전체 삭제 예정: ${dirMeta.path}`);
+      console.log(tr('uninstall.dryDirDelete', { path: dirMeta.path }));
       stats.removedDirs.push(dirMeta.path);
     } else {
       fs.rmSync(fullDirPath, { recursive: true, force: true });
-      console.log(`  [디렉터리 삭제] ${dirMeta.path}`);
+      console.log(tr('uninstall.dirDeleted', { path: dirMeta.path }));
       stats.removedDirs.push(dirMeta.path);
     }
   }
 }
 
 /**
- * 2단계: ACM 배포 개별 파일 선별 삭제 및 빈 부모 디렉터리 정리
+ * Step 2: Selectively delete ACM-owned individual files and clean up empty parent directories.
  */
-function rollbackOwnedFiles(targetDir, options, stats) {
-  console.log('\n[2/5] ACM 배포 개별 파일 선별 삭제 중...');
+function rollbackOwnedFiles(targetDir, options, stats, tr) {
+  console.log(tr('uninstall.step2'));
   const cleanedDirs = new Set();
 
   for (const fileMeta of ACM_MANIFEST.files) {
@@ -132,11 +113,11 @@ function rollbackOwnedFiles(targetDir, options, stats) {
     }
 
     if (options.dryRun) {
-      console.log(`  [미리보기] 파일 삭제 예정: ${fileMeta.path}`);
+      console.log(tr('uninstall.dryFileDelete', { path: fileMeta.path }));
       stats.removedFiles.push(fileMeta.path);
     } else {
       fs.unlinkSync(fullFilePath);
-      console.log(`  [파일 삭제] ${fileMeta.path}`);
+      console.log(tr('uninstall.fileDeleted', { path: fileMeta.path }));
       stats.removedFiles.push(fileMeta.path);
     }
 
@@ -146,7 +127,7 @@ function rollbackOwnedFiles(targetDir, options, stats) {
     }
   }
 
-  // 파일 삭제 후 비어있는 부모 폴더 정리 (하위 폴더부터 정리되도록 경로 길이 내림차순 정렬)
+  // Sort deepest directories first so child folders are cleaned before parent folders
   if (!options.dryRun) {
     const sortedDirs = Array.from(cleanedDirs).sort((a, b) => b.length - a.length);
     for (const pDir of sortedDirs) {
@@ -156,13 +137,13 @@ function rollbackOwnedFiles(targetDir, options, stats) {
           if (remaining.length === 0) {
             fs.rmdirSync(pDir);
             const relDir = path.relative(targetDir, pDir);
-            console.log(`  [빈 디렉터리 정리] ${relDir}`);
+            console.log(tr('uninstall.emptyDirCleaned', { dir: relDir }));
           } else {
             const relDir = path.relative(targetDir, pDir);
-            console.log(`  [사용자 파일 보존] ${relDir} (잔존 파일 ${remaining.length}개 보존)`);
+            console.log(tr('uninstall.userFilesPreserved', { dir: relDir, count: remaining.length }));
           }
-        } catch (e) {
-          // 정리 실패 시 무시
+        } catch (_) {
+          // Ignore directory cleanup failures
         }
       }
     }
@@ -170,26 +151,26 @@ function rollbackOwnedFiles(targetDir, options, stats) {
 }
 
 /**
- * 3단계: package.json 스크립트 선별 제거
+ * Step 3: Revert ACM scripts from package.json.
  */
-function rollbackPackageJson(targetDir, options, stats) {
-  console.log('\n[3/5] package.json 스크립트 원복 중...');
+function rollbackPackageJson(targetDir, options, stats, tr) {
+  console.log(tr('uninstall.step3'));
   const pkgPath = path.join(targetDir, 'package.json');
   if (!fs.existsSync(pkgPath)) {
-    console.log('  [건너뜀] package.json 파일 미존재');
+    console.log(tr('uninstall.pkgMissing'));
     return;
   }
 
   let pkg = {};
   try {
     pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-  } catch (e) {
-    console.warn('  [경고] package.json 파싱 실패로 스크립트 원복을 건너뜁니다.');
+  } catch (_) {
+    console.warn(tr('uninstall.pkgParseWarn'));
     return;
   }
 
   if (!pkg.scripts) {
-    console.log('  [건너뜀] scripts 필드 없음');
+    console.log(tr('uninstall.pkgNoScripts'));
     return;
   }
 
@@ -199,36 +180,35 @@ function rollbackPackageJson(targetDir, options, stats) {
   for (const [key, expectedCmd] of Object.entries(acmScripts)) {
     if (pkg.scripts[key]) {
       const currentCmd = pkg.scripts[key];
-      // 명령어가 ACM 정의와 일치하는지 확인
       if (currentCmd.trim() === expectedCmd.trim()) {
         if (options.dryRun) {
-          console.log(`  [미리보기] 스크립트 제거 예정: "${key}"`);
+          console.log(tr('uninstall.dryScriptRemove', { key }));
         } else {
           delete pkg.scripts[key];
-          console.log(`  [스크립트 제거] "${key}": "${currentCmd}"`);
+          console.log(tr('uninstall.scriptRemoved', { key, cmd: currentCmd }));
         }
         removedCount++;
       } else {
-        console.log(`  [수정본 보존] "${key}" 명령어가 사용자에 의해 변경되어 있어 보존합니다.`);
+        console.log(tr('uninstall.scriptModifiedKeep', { key }));
       }
     }
   }
 
   if (!options.dryRun && removedCount > 0) {
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf-8');
-    console.log(`  -> package.json 내 ACM 스크립트 ${removedCount}개 항목 원복 완료.`);
+    console.log(tr('uninstall.pkgReverted', { count: removedCount }));
   }
   stats.removedScriptsCount = removedCount;
 }
 
 /**
- * 4단계: .gitignore 엔트리 정밀 절삭
+ * Step 4: Strip ACM entries from .gitignore without disturbing existing user rules.
  */
-function rollbackGitIgnore(targetDir, options, stats, createdGitignore = null) {
-  console.log('\n[4/5] .gitignore 무시 규칙 원복 중...');
+function rollbackGitIgnore(targetDir, options, stats, tr, createdGitignore = null) {
+  console.log(tr('uninstall.step4'));
   const gitignorePath = path.join(targetDir, '.gitignore');
   if (!fs.existsSync(gitignorePath)) {
-    console.log('  [건너뜀] .gitignore 파일 미존재');
+    console.log(tr('uninstall.gitignoreMissing'));
     return;
   }
 
@@ -259,38 +239,38 @@ function rollbackGitIgnore(targetDir, options, stats, createdGitignore = null) {
     if (options.dryRun) {
       if (!remaining.trim()) {
         if (createdGitignore === false) {
-          console.log('  [미리보기] .gitignore (기존 사용자 파일 유지, ACM 엔트리만 제거 예정)');
+          console.log(tr('uninstall.dryGitignoreKeepEmpty'));
         } else {
-          console.log('  [미리보기] .gitignore (ACM 외 내용 없어 파일 삭제 예정)');
+          console.log(tr('uninstall.dryGitignoreDelete'));
         }
       } else {
-        console.log('  [미리보기] .gitignore 내 .agent 엔트리 제거 예정');
+        console.log(tr('uninstall.dryGitignoreRemoveEntries'));
       }
     } else {
       if (!remaining.trim()) {
         if (createdGitignore === false) {
           fs.writeFileSync(gitignorePath, '', 'utf-8');
-          console.log('  [보존] .gitignore (기존 사용자 파일 유지, ACM 엔트리만 제거)');
+          console.log(tr('uninstall.gitignoreKeptEmpty'));
         } else {
           fs.unlinkSync(gitignorePath);
-          console.log('  [파일 삭제] .gitignore (ACM 엔트리 외 내용이 없어 파일 삭제)');
+          console.log(tr('uninstall.gitignoreDeleted'));
         }
       } else {
         fs.writeFileSync(gitignorePath, remaining + '\n', 'utf-8');
-        console.log('  [엔트리 제거] .gitignore 내 .agent 엔트리 절제 완료');
+        console.log(tr('uninstall.gitignoreStripped'));
       }
     }
     stats.gitignoreUpdated = true;
   } else {
-    console.log('  [보존] .gitignore 내 ACM 관련 엔트리가 발견되지 않음');
+    console.log(tr('uninstall.gitignoreNone'));
   }
 }
 
 /**
- * 5단계: AI 에이전트 규칙 파일 마커 절삭 및 내용 변조 감지
+ * Step 5: Strip governance blocks from AI agent rule files with drift detection.
  */
-async function rollbackAgentRules(targetDir, options, stats, metaRuleFiles = []) {
-  console.log('\n[5/5] AI 에이전트 규칙 파일 거버넌스 룰 절삭 중...');
+async function rollbackAgentRules(targetDir, options, stats, tr, lang, metaRuleFiles = []) {
+  console.log(tr('uninstall.step5'));
   let targetFiles = [];
 
   if (options.ruleFile) {
@@ -308,28 +288,28 @@ async function rollbackAgentRules(targetDir, options, stats, metaRuleFiles = [])
     if (options.dryRun) {
       const drift = checkRuleContentDrift(fullPath);
       if (drift.status === 'EXACT_MATCH') {
-        console.log(`  [미리보기] ${relFile} (거버넌스 블록 일치 -> 절삭 예정)`);
+        console.log(tr('uninstall.dryRuleMatch', { file: relFile }));
       } else if (drift.status === 'MODIFIED') {
-        console.log(`  [미리보기 경고] ${relFile} (거버넌스 블록 수정 감지 -> 사용자 확인 대상)`);
+        console.log(tr('uninstall.dryRuleModified', { file: relFile }));
       }
       stats.ruleActions.push({ file: relFile, status: drift.status });
     } else {
-      const result = await removeRuleFromFile(fullPath, options);
+      const result = await removeRuleFromFile(fullPath, { ...options, lang });
       stats.ruleActions.push(result);
       const relResult = path.relative(targetDir, fullPath);
       if (result.status === 'REMOVED_FILE') {
-        console.log(`  [규칙 파일 삭제] ${relResult} (거버넌스 제거 후 빈 파일 정리)`);
+        console.log(tr('uninstall.ruleRemovedFile', { file: relResult }));
       } else if (result.status === 'CLEANED') {
-        console.log(`  [규칙 블록 절삭] ${relResult} (거버넌스 제거 및 사용자 프롬프트 보존)`);
+        console.log(tr('uninstall.ruleCleaned', { file: relResult }));
       } else if (result.status === 'PRESERVED') {
-        console.log(`  [규칙 보존] ${relResult} (${result.detail})`);
+        console.log(tr('uninstall.rulePreserved', { file: relResult, detail: result.detail }));
       }
     }
   }
 }
 
 /**
- * 언인스톨 통합 파이프라인
+ * Unified uninstall pipeline.
  */
 async function uninstall(targetPath = '.', options = {}) {
   const targetDir = path.resolve(process.cwd(), targetPath);
@@ -339,30 +319,7 @@ async function uninstall(targetPath = '.', options = {}) {
     ? options.isInteractive
     : Boolean(process.stdin.isTTY);
 
-  console.log('=======================================================');
-  console.log('  Agent Context Memory 제거(Uninstall) 및 롤백 시작');
-  console.log(`  대상 경로 : ${targetDir}`);
-  console.log(`  실행 모드 : ${dryRun ? '시뮬레이션 모드 (--dry-run)' : '실제 삭제 모드'}`);
-  console.log(`  백업 정책 : ${options.noBackup ? '백업 생략 (--no-backup)' : '안전 백업 활성화'}`);
-  console.log('=======================================================');
-
-  if (!dryRun && !force && isInteractive) {
-    const confirm = await promptConfirm('\n정말 대상 프로젝트에서 Agent Context Memory를 제거하시겠습니까? (y/N): ');
-    if (!confirm) {
-      console.log('\n[취소] 사용자에 의해 제거 작업이 중단되었습니다.\n');
-      return { success: false, cancelled: true };
-    }
-  }
-
-  const stats = {
-    removedDirs: [],
-    removedFiles: [],
-    removedScriptsCount: 0,
-    gitignoreUpdated: false,
-    ruleActions: [],
-    backups: [],
-  };
-
+  // Read metadata before deleting .agents so language and custom ruleFiles are preserved for rollback
   let metaRuleFiles = [];
   let createdGitignore = null;
   const metaPath = path.join(targetDir, '.agents', '.acm-meta.json');
@@ -378,58 +335,127 @@ async function uninstall(targetPath = '.', options = {}) {
     } catch (_) {}
   }
 
-  rollbackDirectories(targetDir, options, stats);
-  rollbackOwnedFiles(targetDir, options, stats);
-  rollbackPackageJson(targetDir, options, stats);
-  rollbackGitIgnore(targetDir, options, stats, createdGitignore);
-  await rollbackAgentRules(targetDir, options, stats, metaRuleFiles);
+  const lang = resolveLanguage(targetDir, options.lang);
+  const tr = createTranslator(lang);
+
+  console.log('=======================================================');
+  console.log(tr('uninstall.bannerTitle'));
+  console.log(tr('uninstall.bannerTarget', { dir: targetDir }));
+  console.log(
+    tr('uninstall.bannerMode', {
+      mode: dryRun ? tr('uninstall.modeDryRun') : tr('uninstall.modeExecute'),
+    })
+  );
+  console.log(
+    tr('uninstall.bannerBackup', {
+      backup: options.noBackup ? tr('uninstall.backupSkip') : tr('uninstall.backupActive'),
+    })
+  );
+  console.log('=======================================================');
+
+  if (!dryRun && !force && isInteractive) {
+    const confirm = await promptConfirm(tr('uninstall.confirmPrompt'));
+    if (!confirm) {
+      console.log(tr('uninstall.cancelled'));
+      return { success: false, cancelled: true };
+    }
+  }
+
+  const stats = {
+    removedDirs: [],
+    removedFiles: [],
+    removedScriptsCount: 0,
+    gitignoreUpdated: false,
+    ruleActions: [],
+    backups: [],
+  };
+
+  rollbackDirectories(targetDir, options, stats, tr);
+  rollbackOwnedFiles(targetDir, options, stats, tr);
+  rollbackPackageJson(targetDir, options, stats, tr);
+  rollbackGitIgnore(targetDir, options, stats, tr, createdGitignore);
+  await rollbackAgentRules(targetDir, options, stats, tr, lang, metaRuleFiles);
 
   console.log('\n=======================================================');
   if (dryRun) {
-    console.log('  [완료] 시뮬레이션(Dry-run) 검사가 완료되었습니다.');
-    console.log('  실제 파일은 변경되지 않았습니다.');
+    console.log(tr('uninstall.doneDryRun1'));
+    console.log(tr('uninstall.doneDryRun2'));
   } else {
-    console.log('  Agent Context Memory 제거 및 롤백이 완료되었습니다.');
+    console.log(tr('uninstall.doneReal'));
   }
   console.log('=======================================================\n');
 
   if (stats.backups.length > 0) {
-    console.log('보관된 백업 목록:');
+    console.log(tr('uninstall.backupListHeader'));
     stats.backups.forEach((b) => console.log(`  - ${b}`));
     console.log('');
   }
 
-  return { success: true, stats };
+  return { success: true, stats, lang };
+}
+
+function parseUninstallCliArgs(args = []) {
+  const positionals = [];
+  let dryRun = false;
+  let force = false;
+  let noBackup = false;
+  let ruleFile = null;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = String(args[i] || '');
+    if (arg === '--dry-run') {
+      dryRun = true;
+    } else if (arg === '--force' || arg === '-f') {
+      force = true;
+    } else if (arg === '--no-backup') {
+      noBackup = true;
+    } else if (arg.startsWith('--rule-file=')) {
+      ruleFile = arg.slice('--rule-file='.length);
+    } else if (arg === '--rule-file' || arg === '-r') {
+      if (args[i + 1] && !String(args[i + 1]).startsWith('-')) {
+        ruleFile = String(args[i + 1]);
+        i += 1;
+      }
+    } else if (arg.startsWith('--lang=') || arg.startsWith('-l=')) {
+      // Parsed by parseLangFlag
+    } else if (arg === '--lang' || arg === '-l') {
+      if (args[i + 1] && !String(args[i + 1]).startsWith('-')) {
+        i += 1;
+      }
+    } else if (!arg.startsWith('-')) {
+      positionals.push(arg);
+    }
+  }
+
+  return {
+    dryRun,
+    force,
+    noBackup,
+    ruleFile,
+    targetArg: positionals[0] || '.',
+  };
 }
 
 async function main() {
   const args = process.argv.slice(2);
+  const { lang: parsedLang, invalid: invalidLang } = parseLangFlag(args);
+
+  if (invalidLang !== null) {
+    console.error(t('cli.unsupportedLang', { lang: invalidLang }, resolveLanguage(process.cwd())));
+    process.exit(1);
+  }
+
   if (args.includes('--help') || args.includes('-h')) {
-    printUsage();
+    printUsage(resolveLanguage(process.cwd(), parsedLang));
     process.exit(0);
   }
 
-  const dryRun = args.includes('--dry-run');
-  const force = args.includes('--force') || args.includes('-f');
-  const noBackup = args.includes('--no-backup');
-
-  let ruleFile = null;
-  const rfArg = args.find((a) => a.startsWith('--rule-file='));
-  if (rfArg) {
-    ruleFile = rfArg.split('=')[1];
-  } else {
-    const rfIdx = args.findIndex((a) => a === '--rule-file' || a === '-r');
-    if (rfIdx !== -1 && args[rfIdx + 1] && !args[rfIdx + 1].startsWith('-')) {
-      ruleFile = args[rfIdx + 1];
-    }
-  }
-
-  const targetArg = args.find((a) => !a.startsWith('-') && a !== ruleFile) || '.';
+  const { dryRun, force, noBackup, ruleFile, targetArg } = parseUninstallCliArgs(args);
 
   try {
-    await uninstall(targetArg, { dryRun, force, noBackup, ruleFile });
+    await uninstall(targetArg, { dryRun, force, noBackup, ruleFile, lang: parsedLang });
   } catch (err) {
-    console.error('[오류] 제거 중 예외가 발생했습니다:', err.message);
+    console.error(t('cli.uninstallException', {}, resolveLanguage(targetArg, parsedLang)), err.message);
     process.exit(1);
   }
 }

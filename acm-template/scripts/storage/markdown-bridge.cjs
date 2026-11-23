@@ -1,7 +1,8 @@
 /**
  * scripts/storage/markdown-bridge.cjs
  *
- * 기존 .agents/ Markdown 정본과 구조화 StorageProvider 간 양방향 파싱·변환·투영 브리지
+ * Bidirectional parser, converter, and projector between .agents/ Markdown
+ * canonical files (English and Korean) and structured StorageProvider instances.
  */
 
 const fs = require('fs');
@@ -14,6 +15,7 @@ const {
   normalizeTaskStatus,
   toMarkdownCheckbox,
 } = require('./id-utils.cjs');
+const { resolveLanguage } = require('../i18n.cjs');
 
 function getLocalDateString(dateObj = new Date()) {
   const y = dateObj.getFullYear();
@@ -58,7 +60,7 @@ function resolveMemoryFiles(rootDir) {
 }
 
 /**
- * 1. .agents/task/task.md 파싱 (불릿형/헤더형 지원, 코드블록 및 TSK-SAMPLE 제외)
+ * 1. Parses .agents/task/task.md (supports English/Korean bullet & heading formats, skips codeblocks and TSK-SAMPLE).
  */
 function parseTaskMdFile(filePath) {
   if (!filePath || !fs.existsSync(filePath)) return [];
@@ -94,7 +96,9 @@ function parseTaskMdFile(filePath) {
       /^-\s*\[([^\]]*)\]\s*\*\*(?:(TSK-[0-9]+|[0-9]+)[\.:]\s*)(.+?)\*\*/i
     );
     const isNumberedSectionTitle =
-      /^#{2,4}\s*[0-9]+[\.:]\s*(?:활성\s*(?:작업|태스크)|Active\s*Tasks|참고|규칙|개요)/i.test(line);
+      /^#{2,4}\s*[0-9]+[\.:]\s*(?:Active\s*Tasks?|Notes?|Rules?|Overview|활성\s*(?:작업|태스크)|참고|규칙|개요)/i.test(
+        line
+      );
     const mdHeaderMatch =
       !bulletHeaderMatch && !isNumberedSectionTitle
         ? line.match(/^#{2,4}\s*(TSK-[0-9]+)[\.:]\s*(.+)$/i) ||
@@ -146,19 +150,21 @@ function parseTaskMdFile(filePath) {
 
     if (!currentTask) continue;
 
-    const regMatch = line.match(/^\s*-\s*\*\*등록일\*\*:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/);
+    const regMatch = line.match(
+      /^\s*-\s*\*\*(?:Registered|Date|Created|등록일|일자)\*\*:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i
+    );
     if (regMatch) {
       currentTask.registeredDate = regMatch[1];
       continue;
     }
 
-    const statusPropMatch = line.match(/^\s*-\s*\*\*상태\*\*:\s*\[?([^\]\r\n]+)\]?/);
+    const statusPropMatch = line.match(/^\s*-\s*\*\*(?:Status|상태)\*\*:\s*\[?([^\]\r\n]+)\]?/i);
     if (statusPropMatch) {
       currentTask.status = normalizeTaskStatus(statusPropMatch[1].trim());
       continue;
     }
 
-    const purposeMatch = line.match(/^\s*-\s*\*\*(?:목적|배경)\*\*:\s*(.+)$/);
+    const purposeMatch = line.match(/^\s*-\s*\*\*(?:Purpose|Goal|Background|목적|배경)\*\*:\s*(.+)$/i);
     if (purposeMatch) {
       inTargetSection = false;
       inDetailSection = false;
@@ -167,7 +173,7 @@ function parseTaskMdFile(filePath) {
     }
 
     const resultMatch = line.match(
-      /^\s*-\s*\*\*(?:수행\s*결과|작업\s*(?:요약|내용)|수정\s*(?:내역|내용)|세부\s*(?:내용|작업))\*\*:\s*(.*)$/
+      /^\s*-\s*\*\*(?:Results?|Summary|Changes|Details|수행\s*결과|작업\s*(?:요약|내용)|수정\s*(?:내역|내용)|세부\s*(?:내용|작업))\*\*:\s*(.*)$/i
     );
     if (resultMatch) {
       inTargetSection = false;
@@ -180,7 +186,7 @@ function parseTaskMdFile(filePath) {
     }
 
     const targetMatch = line.match(
-      /^\s*-\s*\*\*(?:대상|관련|수정|변경)\s*(?:영역|파일|목록)?\*\*:\s*(.*)$/
+      /^\s*-\s*\*\*(?:Targets?|Files?|Scope|Changed\s*Files?|Related\s*Files?|Target\s*(?:Files?|Area)|(?:대상|관련|수정|변경)\s*(?:영역|파일|목록)?)\*\*:\s*(.*)$/i
     );
     if (targetMatch) {
       inTargetSection = true;
@@ -226,7 +232,7 @@ function parseTaskMdFile(filePath) {
     }
 
     const detailMatch = inDetailSection ? line.match(/^\s{2,}-\s*(.+)$/) : line.match(/^\s{4,}-\s*(.+)$/);
-    if (detailMatch && !line.includes('**대상') && !line.includes('**관련') && !line.includes('**목적**')) {
+    if (detailMatch && !/\*\*(?:Target|Purpose|Goal|Background|Related|대상|관련|목적)/i.test(line)) {
       const detailText = detailMatch[1].trim();
       if (detailText.length > 0) {
         currentTask.results.push(detailText);
@@ -239,7 +245,7 @@ function parseTaskMdFile(filePath) {
 }
 
 /**
- * 2. .agents/task/task-completed.md 파싱 (완료 아카이브, 샘플 제외)
+ * 2. Parses .agents/task/task-completed.md (cold archive, skips samples).
  */
 function parseTaskCompletedMdFile(filePath) {
   if (!filePath || !fs.existsSync(filePath)) return [];
@@ -321,7 +327,7 @@ function parseTaskCompletedMdFile(filePath) {
 
     if (!currentTask) continue;
 
-    const purposeMatch = line.match(/^\s*-\s*\*\*(?:목적|배경)\*\*:\s*(.+)$/);
+    const purposeMatch = line.match(/^\s*-\s*\*\*(?:Purpose|Goal|Background|목적|배경)\*\*:\s*(.+)$/i);
     if (purposeMatch) {
       inTargetSection = false;
       inDetailSection = false;
@@ -330,7 +336,7 @@ function parseTaskCompletedMdFile(filePath) {
     }
 
     const resultMatch = line.match(
-      /^\s*-\s*\*\*(?:수행\s*결과|작업\s*(?:요약|내용)|수정\s*(?:내역|내용))\*\*:\s*(.*)$/
+      /^\s*-\s*\*\*(?:Results?|Summary|Changes|Details|수행\s*결과|작업\s*(?:요약|내용)|수정\s*(?:내역|내용))\*\*:\s*(.*)$/i
     );
     if (resultMatch) {
       inTargetSection = false;
@@ -340,7 +346,9 @@ function parseTaskCompletedMdFile(filePath) {
       continue;
     }
 
-    const targetMatch = line.match(/^\s*-\s*\*\*(?:대상|관련|수정|변경)\s*(?:영역|파일|목록)?\*\*:\s*(.*)$/);
+    const targetMatch = line.match(
+      /^\s*-\s*\*\*(?:Targets?|Files?|Scope|Changed\s*Files?|Related\s*Files?|Target\s*(?:Files?|Area)|(?:대상|관련|수정|변경)\s*(?:영역|파일|목록)?)\*\*:\s*(.*)$/i
+    );
     if (targetMatch) {
       inTargetSection = true;
       inDetailSection = false;
@@ -384,7 +392,7 @@ function parseTaskCompletedMdFile(filePath) {
 }
 
 /**
- * 3. .agents/memory/patterns-index.md 및 patterns/*.md 파싱 (P-00 제외)
+ * 3. Parses .agents/memory/patterns-index.md and patterns/*.md (excludes P-00 sample).
  */
 function parsePatternsFromMd(rootDir) {
   const { patternsIndexFile, patternsDir } = resolveMemoryFiles(rootDir);
@@ -426,28 +434,34 @@ function parsePatternsFromMd(rootDir) {
 
     const code = formatPatternCode(num);
     const title = headerMatch ? headerMatch[2].trim() : (meta && meta.summary) || code;
-    const dateMatch = content.match(/\*\*(?:일자|등록일)\*\*:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/);
-    const catMatch = content.match(/\*\*도메인 분류\*\*:\s*([^\r\n]+)/);
-    const symptomMatch = content.match(/\*\*증상 및 원인\*\*:\s*([^\r\n]+)/);
-    const solutionMatch = content.match(/\*\*해결 패턴\*\*:\s*([^\r\n]+)/);
-    const filesMatch = content.match(/\*\*연관 파일\*\*:\s*([^\r\n]+)/);
+    const dateMatch = content.match(/\*\*(?:Date|Registered|일자|등록일)\*\*:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i);
+    const catMatch = content.match(/\*\*(?:Category|Domain(?:\s*Category)?|도메인\s*분류)\*\*:\s*([^\r\n]+)/i);
+    const symptomMatch = content.match(
+      /\*\*(?:Symptom(?:\s*&\s*Root\s*Cause)?|Root\s*Cause|Cause|증상\s*및\s*원인)\*\*:\s*([^\r\n]+)/i
+    );
+    const solutionMatch = content.match(
+      /\*\*(?:Solution(?:\s*Pattern)?|Resolution|해결\s*패턴)\*\*:\s*([^\r\n]+)/i
+    );
+    const filesMatch = content.match(/\*\*(?:Related\s*Files?|연관\s*파일)\*\*:\s*([^\r\n]+)/i);
 
     let relatedFiles = [];
     if (filesMatch) {
       const rawFiles = filesMatch[1].trim();
-      const backticks = rawFiles.match(/`([^`]+)`/g);
-      relatedFiles = backticks
-        ? backticks.map((b) => b.replace(/`/g, '').trim().replace(/\\/g, '/'))
-        : rawFiles
-            .split(',')
-            .map((s) => s.trim().replace(/\\/g, '/'))
-            .filter(Boolean);
+      if (!/^\((?:none|없음)\)$/i.test(rawFiles)) {
+        const backticks = rawFiles.match(/`([^`]+)`/g);
+        relatedFiles = backticks
+          ? backticks.map((b) => b.replace(/`/g, '').trim().replace(/\\/g, '/'))
+          : rawFiles
+              .split(',')
+              .map((s) => s.trim().replace(/\\/g, '/'))
+              .filter(Boolean);
+      }
     }
 
     const createdAt = dateMatch ? `${dateMatch[1]}T00:00:00.000Z` : new Date().toISOString();
     patterns.push({
       code,
-      category: (meta && meta.category) || (catMatch && catMatch[1].trim()) || '일반',
+      category: (meta && meta.category) || (catMatch && catMatch[1].trim()) || 'General',
       title,
       summary: (meta && meta.summary) || title,
       symptom: symptomMatch ? symptomMatch[1].trim() : '',
@@ -464,7 +478,7 @@ function parsePatternsFromMd(rootDir) {
 }
 
 /**
- * 4. .agents/memory/project-changelog.md 파싱 (ADR Index Map + 상세 블록, LOG-00 제외)
+ * 4. Parses .agents/memory/project-changelog.md (ADR Index Map + detail blocks, excludes LOG-00).
  */
 function parseAdrsFromMd(rootDir) {
   const { changelogFile } = resolveMemoryFiles(rootDir);
@@ -507,27 +521,34 @@ function parseAdrsFromMd(rootDir) {
 
     let relatedTaskCode = '';
     let branch = '';
-    const relMatch = body.match(/-\s*\*\*관련 커밋\/브랜치\*\*:\s*([^\r\n]+)/);
+    const relMatch = body.match(/-\s*\*\*(?:Related\s*Commit\/Branch|관련\s*커밋\/브랜치)\*\*:\s*([^\r\n]+)/i);
     if (relMatch) {
       const parts = relMatch[1].split('/').map((s) => s.replace(/`/g, '').trim());
       relatedTaskCode = parts[0] || '';
       branch = parts[1] || '';
     }
 
-    const extractSection = (heading) => {
-      const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const m = body.match(new RegExp(`-\\s*\\*\\*${escaped}\\*\\*:\\s*\\r?\\n([\\s\\S]*?)(?=\\r?\\n-\\s*\\*\\*|\\r?\\n---|$)`));
-      if (!m) return '';
-      return m[1]
-        .split(/\r?\n/)
-        .map((l) => l.replace(/^\s*-\s*/, '').trim())
-        .filter(Boolean)
-        .join('\n');
+    const extractSection = (headings) => {
+      const list = Array.isArray(headings) ? headings : [headings];
+      for (const heading of list) {
+        const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const m = body.match(
+          new RegExp(`-\\s*\\*\\*${escaped}\\*\\*:\\s*\\r?\\n([\\s\\S]*?)(?=\\r?\\n-\\s*\\*\\*|\\r?\\n---|$)`, 'i')
+        );
+        if (m) {
+          return m[1]
+            .split(/\r?\n/)
+            .map((l) => l.replace(/^\s*-\s*/, '').trim())
+            .filter(Boolean)
+            .join('\n');
+        }
+      }
+      return '';
     };
 
-    const context = extractSection('결정 배경 및 목적');
-    const decision = extractSection('아키텍처 결정 사항');
-    const impact = extractSection('예상 효과');
+    const context = extractSection(['Context & Goal', 'Context', '결정 배경 및 목적']);
+    const decision = extractSection(['Architectural Decisions', 'Decision', '아키텍처 결정 사항']);
+    const impact = extractSection(['Expected Impact', 'Impact', '예상 효과']);
 
     adrs.push({
       code,
@@ -549,7 +570,7 @@ function parseAdrsFromMd(rootDir) {
 }
 
 /**
- * 5. 기존 Markdown 3대 정본(.agents/)을 스토리지에 무손실 적재
+ * 5. Imports existing Markdown canonical files (.agents/) losslessly into a MemoryStore.
  */
 function importMarkdownToStore(rootDir, store) {
   const resolvedRoot = path.resolve(rootDir);
@@ -591,10 +612,12 @@ function importMarkdownToStore(rootDir, store) {
 }
 
 /**
- * 6. 스토리지 내 활성/완료 태스크를 .agents/task/task.md & task-completed.md로 투영
+ * 6. Projects active/completed tasks from MemoryStore into .agents/task/task.md & task-completed.md.
  */
-function projectTasksToMarkdown(rootDir, store) {
+function projectTasksToMarkdown(rootDir, store, options = {}) {
   const resolvedRoot = path.resolve(rootDir);
+  const lang = resolveLanguage(resolvedRoot, options && options.lang);
+  const isKo = lang === 'ko';
   const { taskDir, taskFile, completedFile } = resolveTaskFiles(resolvedRoot);
   fs.mkdirSync(taskDir, { recursive: true });
 
@@ -621,24 +644,41 @@ function projectTasksToMarkdown(rootDir, store) {
   const seqNext = stats && stats.sequences ? stats.sequences.tsk : 1;
   const nextNum = Math.max(seqNext, maxDoneNum + 1, maxActiveNum + 1);
 
-  const recentDoneLabel = maxDoneNum > 0 ? `\`TSK-${maxDoneNum}\`` : '`없음`';
+  const noneToken = isKo ? '`없음`' : '`None`';
+  const recentDoneLabel = maxDoneNum > 0 ? `\`TSK-${maxDoneNum}\`` : noneToken;
   const activeLabels =
-    activeTasks.length > 0 ? activeTasks.map((t) => `\`${t.code}\``).join(', ') : '`없음`';
+    activeTasks.length > 0 ? activeTasks.map((t) => `\`${t.code}\``).join(', ') : noneToken;
 
-  const taskLines = [
-    '# Agent Context Memory Task Master (작업 단일 정본)',
-    '',
-    `- **식별자 규칙**: 전역 순차 자연수(\`TSK-1\`...) 불변 부여. (최근 완료: ${recentDoneLabel}, 현재 활성: ${activeLabels}, 차기 예정: \`TSK-${nextNum}\`)`,
-    '- **완료 보관소**: [task-completed.md](./task-completed.md)',
-    '- **상태 전이**: `[ ]` -> `[진행 중]` -> `[커밋 대기]`(3요소 필수) -> `[x]`(커밋·자동 이관)',
-    '',
-    '---',
-    '',
-    '## 1. 활성 작업 목록 (Active Tasks)',
-  ];
+  const taskLines = isKo
+    ? [
+        '# Agent Context Memory Task Master (작업 단일 정본)',
+        '',
+        `- **식별자 규칙**: 전역 순차 자연수(\`TSK-1\`...) 불변 부여. (최근 완료: ${recentDoneLabel}, 현재 활성: ${activeLabels}, 차기 예정: \`TSK-${nextNum}\`)`,
+        '- **완료 보관소**: [task-completed.md](./task-completed.md)',
+        '- **상태 전이**: `[ ]` -> `[진행 중]` -> `[커밋 대기]`(3요소 필수) -> `[x]`(커밋·자동 이관)',
+        '',
+        '---',
+        '',
+        '## 1. 활성 작업 목록 (Active Tasks)',
+      ]
+    : [
+        '# Agent Context Memory Task Master (Single Source of Truth)',
+        '',
+        `- **ID Rule**: Global sequential natural numbers (\`TSK-1\`...), immutable. (Latest Done: ${recentDoneLabel}, Active: ${activeLabels}, Next: \`TSK-${nextNum}\`)`,
+        '- **Completed Archive**: [task-completed.md](./task-completed.md)',
+        '- **Status Flow**: `[ ]` -> `[In Progress]` -> `[Ready]` (3 elements required) -> `[x]` (commit & auto-archive)',
+        '',
+        '---',
+        '',
+        '## 1. Active Tasks',
+      ];
+
+  const purposeLabel = isKo ? '목적' : 'Purpose';
+  const resultsLabel = isKo ? '수행결과' : 'Results';
+  const targetsLabel = isKo ? '대상영역' : 'Targets';
 
   if (activeTasks.length === 0) {
-    taskLines.push('(현재 진행 중인 활성 작업 없음)');
+    taskLines.push(isKo ? '(현재 진행 중인 활성 작업 없음)' : '(No active tasks)');
   } else {
     let lastGroup = '';
     for (const t of activeTasks) {
@@ -646,38 +686,50 @@ function projectTasksToMarkdown(rootDir, store) {
         taskLines.push(`### [${t.groupName}]`);
         lastGroup = t.groupName;
       }
-      const cb = toMarkdownCheckbox(t.status);
+      const cb = toMarkdownCheckbox(t.status, lang);
       taskLines.push(`- [${cb}] **${t.code}. ${t.title}**`);
       if (t.purpose) {
-        taskLines.push(`  - **목적**: ${t.purpose}`);
+        taskLines.push(`  - **${purposeLabel}**: ${t.purpose}`);
       }
       if (t.results && t.results.length > 0) {
-        taskLines.push('  - **수행결과**:');
+        taskLines.push(`  - **${resultsLabel}**:`);
         for (const r of t.results) {
           taskLines.push(`    - ${r}`);
         }
       }
       if (t.targets && t.targets.length > 0) {
-        taskLines.push(`  - **대상영역**: ${t.targets.map((p) => `\`${p}\``).join(', ')}`);
+        taskLines.push(`  - **${targetsLabel}**: ${t.targets.map((p) => `\`${p}\``).join(', ')}`);
       }
     }
   }
   fs.writeFileSync(taskFile, taskLines.join('\n') + '\n', 'utf-8');
 
-  const compLines = [
-    '# Agent Context Memory Task Completed Master (완료 태스크 이력 보관소)',
-    '',
-    '> [!NOTE]',
-    '> 실제 터미널 `git commit` 완료 후 획득한 SHA 해시가 명기된 작업만 보관하는 콜드 아카이브(Cold Archive) 정본입니다.',
-    '> 신규 완료 작업은 최상단 일자 섹션에 누적(Prepend)합니다.',
-    '',
-    `- **이관 현황**: (최근 완료: ${recentDoneLabel}, 현재 활성: ${activeLabels}, 차기 예정: \`TSK-${nextNum}\`)`,
-    '',
-    '---',
-  ];
+  const compLines = isKo
+    ? [
+        '# Agent Context Memory Task Completed Master (완료 태스크 이력 보관소)',
+        '',
+        '> [!NOTE]',
+        '> 실제 터미널 `git commit` 완료 후 획득한 SHA 해시가 명기된 작업만 보관하는 콜드 아카이브(Cold Archive) 정본입니다.',
+        '> 신규 완료 작업은 최상단 일자 섹션에 누적(Prepend)합니다.',
+        '',
+        `- **이관 현황**: (최근 완료: ${recentDoneLabel}, 현재 활성: ${activeLabels}, 차기 예정: \`TSK-${nextNum}\`)`,
+        '',
+        '---',
+      ]
+    : [
+        '# Agent Context Memory Task Completed Master (Cold Archive)',
+        '',
+        '> [!NOTE]',
+        '> Cold archive storing only verified tasks with a real commit SHA obtained from `git commit`.',
+        '> Newly completed tasks are prepended to the top date section.',
+        '',
+        `- **Archive Status**: (Latest Done: ${recentDoneLabel}, Active: ${activeLabels}, Next: \`TSK-${nextNum}\`)`,
+        '',
+        '---',
+      ];
 
   if (doneTasks.length === 0) {
-    compLines.push('(현재 완료 이관된 작업 없음)');
+    compLines.push(isKo ? '(현재 완료 이관된 작업 없음)' : '(No completed tasks archived yet)');
   } else {
     const byDate = new Map();
     for (const t of doneTasks) {
@@ -703,16 +755,16 @@ function projectTasksToMarkdown(rootDir, store) {
           : `(Completed: ${dateKey} / Non-Git)`;
         compLines.push(`- [x] **${t.code}. ${t.title}** ${suffix}`);
         if (t.purpose) {
-          compLines.push(`  - **목적**: ${t.purpose}`);
+          compLines.push(`  - **${purposeLabel}**: ${t.purpose}`);
         }
         if (t.results && t.results.length > 0) {
-          compLines.push('  - **수행결과**:');
+          compLines.push(`  - **${resultsLabel}**:`);
           for (const r of t.results) {
             compLines.push(`    - ${r}`);
           }
         }
         if (t.targets && t.targets.length > 0) {
-          compLines.push(`  - **대상영역**: ${t.targets.map((p) => `\`${p}\``).join(', ')}`);
+          compLines.push(`  - **${targetsLabel}**: ${t.targets.map((p) => `\`${p}\``).join(', ')}`);
         }
       }
     });
@@ -734,11 +786,13 @@ function buildPatternFileName(pattern) {
 }
 
 /**
- * 7. 스토리지 전체(Task + Pattern + ADR)를 표준 ACM Markdown 포맷으로 내보내기
+ * 7. Exports full MemoryStore contents (Tasks + Patterns + ADRs) to standard ACM Markdown files.
  */
-function exportStoreToMarkdown(rootDir, store) {
+function exportStoreToMarkdown(rootDir, store, options = {}) {
   const resolvedRoot = path.resolve(rootDir);
-  const taskPaths = projectTasksToMarkdown(resolvedRoot, store);
+  const lang = resolveLanguage(resolvedRoot, options && options.lang);
+  const isKo = lang === 'ko';
+  const taskPaths = projectTasksToMarkdown(resolvedRoot, store, { ...options, lang });
   const { memDir, changelogFile, patternsIndexFile, patternsDir } = resolveMemoryFiles(resolvedRoot);
   fs.mkdirSync(patternsDir, { recursive: true });
 
@@ -746,18 +800,34 @@ function exportStoreToMarkdown(rootDir, store) {
   const stats = typeof store.getStats === 'function' ? store.getStats() : null;
   const nextPatCode = formatPatternCode((stats && stats.sequences && stats.sequences.pat) || patterns.length + 1);
 
-  const indexLines = [
-    '# Learned Patterns Index (지식 베이스 경량 색인표)',
-    '',
-    '> [!IMPORTANT]',
-    '> **0토큰 온디맨드 검색 원칙 (Just-In-Time Grep)**:',
-    '> 1. AI 에이전트는 본 파일이나 하위 패턴 디렉터리를 무조건 전수 통조회하지 않습니다.',
-    '> 2. 작업 키워드로 본 파일의 요약 열을 `grep_search`하여 매칭된 샤딩 파일(`patterns/P-XX-*.md`)만 선별 로딩합니다.',
-    `> 3. 신규 솔루션 증류 시 다음 불변 번호(\`${nextPatCode}\`) 샤딩 파일을 생성하고, 본 인덱스에 1행을 추가합니다.`,
-    '',
-    '| ID | 카테고리 | 핵심 요약 | 파일 링크 |',
-    '| :--- | :--- | :--- | :--- |',
-  ];
+  const indexLines = isKo
+    ? [
+        '# Learned Patterns Index (지식 베이스 경량 색인표)',
+        '',
+        '> [!IMPORTANT]',
+        '> **0토큰 온디맨드 검색 원칙 (Just-In-Time Grep)**:',
+        '> 1. AI 에이전트는 본 파일이나 하위 패턴 디렉터리를 무조건 전수 통조회하지 않습니다.',
+        '> 2. 작업 키워드로 본 파일의 요약 열을 `grep_search`하여 매칭된 샤딩 파일(`patterns/P-XX-*.md`)만 선별 로딩합니다.',
+        `> 3. 신규 솔루션 증류 시 다음 불변 번호(\`${nextPatCode}\`) 샤딩 파일을 생성하고, 본 인덱스에 1행을 추가합니다.`,
+        '',
+        '| ID | 카테고리 | 핵심 요약 | 파일 링크 |',
+        '| :--- | :--- | :--- | :--- |',
+      ]
+    : [
+        '# Learned Patterns Index (Lightweight Knowledge Base Index)',
+        '',
+        '> [!IMPORTANT]',
+        '> **Zero-Token On-Demand Search Principle (Just-In-Time Grep)**:',
+        '> 1. AI agents must never eagerly read this entire file or all files under `patterns/`.',
+        '> 2. Run `grep_search` on the Summary column by keyword and load ONLY matched sharded files (`patterns/P-XX-*.md`).',
+        `> 3. When distilling a new reusable solution, create the next immutable \`${nextPatCode}\` sharded file and append 1 row below.`,
+        '',
+        '| ID | Category | Summary | File Link |',
+        '| :--- | :--- | :--- | :--- |',
+      ];
+
+  const defaultCat = isKo ? '일반' : 'General';
+  const emptyFilesLabel = isKo ? '(없음)' : '(None)';
 
   const existingFiles = fs.existsSync(patternsDir) ? fs.readdirSync(patternsDir) : [];
   for (const p of patterns) {
@@ -767,62 +837,96 @@ function exportStoreToMarkdown(rootDir, store) {
     const filesStr =
       p.relatedFiles && p.relatedFiles.length > 0
         ? p.relatedFiles.map((f) => `\`${f}\``).join(', ')
-        : '(없음)';
+        : emptyFilesLabel;
 
-    const patLines = [
-      `# [${p.code}] ${p.title}`,
-      '',
-      `- **일자**: ${pDate}`,
-      `- **도메인 분류**: ${p.category || '일반'}`,
-      `- **증상 및 원인**: ${p.symptom || p.summary || ''}`,
-      `- **해결 패턴**: ${p.solution || p.summary || ''}`,
-      `- **연관 파일**: ${filesStr}`,
-    ];
+    const patLines = isKo
+      ? [
+          `# [${p.code}] ${p.title}`,
+          '',
+          `- **일자**: ${pDate}`,
+          `- **도메인 분류**: ${p.category || defaultCat}`,
+          `- **증상 및 원인**: ${p.symptom || p.summary || ''}`,
+          `- **해결 패턴**: ${p.solution || p.summary || ''}`,
+          `- **연관 파일**: ${filesStr}`,
+        ]
+      : [
+          `# [${p.code}] ${p.title}`,
+          '',
+          `- **Date**: ${pDate}`,
+          `- **Category**: ${p.category || defaultCat}`,
+          `- **Symptom & Root Cause**: ${p.symptom || p.summary || ''}`,
+          `- **Solution Pattern**: ${p.solution || p.summary || ''}`,
+          `- **Related Files**: ${filesStr}`,
+        ];
     fs.writeFileSync(path.join(patternsDir, fileName), patLines.join('\n') + '\n', 'utf-8');
     indexLines.push(
-      `| ${p.code} | ${p.category || '일반'} | ${p.summary || p.title} | [${fileName}](file:///./patterns/${fileName}) |`
+      `| ${p.code} | ${p.category || defaultCat} | ${p.summary || p.title} | [${fileName}](file:///./patterns/${fileName}) |`
     );
   }
   fs.writeFileSync(patternsIndexFile, indexLines.join('\n') + '\n', 'utf-8');
 
   const adrs = store.listAdrs();
-  const adrLines = [
-    '# Project Changelog & Architecture Decision Records (ADR)',
-    '',
-    '> [!IMPORTANT]',
-    '> **0토큰 온디맨드 및 색인표 우선 조회 원칙**:',
-    '> 1. 본 문서는 거시 아키텍처 결정 사항(ADR) 및 시스템 주요 변경만 누적 기록합니다.',
-    '> 2. 신규 결정 사항은 `LOG-{순차증가번호}`를 채번하여 **1) 상단 `ADR Index Map` 표 최상단에 1행 추가**, **2) 하단 `ADR 상세 기록` 최상단에 상세 블록 추가**를 동시 수행합니다.',
-    '> 3. AI 에이전트는 평소 본 파일을 전수 조회하지 않으며, 3대 조건부 이벤트 시 **상단 색인표(1~35행)만 먼저 열람하거나 키워드로 `grep_search`한 뒤 필요한 `[LOG-XX]` 섹션만 핀포인트 조회**합니다.',
-    '',
-    '## 1. ADR Index Map (아키텍처 결정 경량 색인표)',
-    '',
-    '| ID | 일자 | 핵심 아키텍처 결정 요약 | 관련 영역 |',
-    '| :--- | :--- | :--- | :--- |',
-  ];
+  const adrLines = isKo
+    ? [
+        '# Project Changelog & Architecture Decision Records (ADR)',
+        '',
+        '> [!IMPORTANT]',
+        '> **0토큰 온디맨드 및 색인표 우선 조회 원칙**:',
+        '> 1. 본 문서는 거시 아키텍처 결정 사항(ADR) 및 시스템 주요 변경만 누적 기록합니다.',
+        '> 2. 신규 결정 사항은 `LOG-{순차증가번호}`를 채번하여 **1) 상단 `ADR Index Map` 표 최상단에 1행 추가**, **2) 하단 `ADR 상세 기록` 최상단에 상세 블록 추가**를 동시 수행합니다.',
+        '> 3. AI 에이전트는 평소 본 파일을 전수 조회하지 않으며, 3대 조건부 이벤트 시 **상단 색인표(1~35행)만 먼저 열람하거나 키워드로 `grep_search`한 뒤 필요한 `[LOG-XX]` 섹션만 핀포인트 조회**합니다.',
+        '',
+        '## 1. ADR Index Map (아키텍처 결정 경량 색인표)',
+        '',
+        '| ID | 일자 | 핵심 아키텍처 결정 요약 | 관련 영역 |',
+        '| :--- | :--- | :--- | :--- |',
+      ]
+    : [
+        '# Project Changelog & Architecture Decision Records (ADR)',
+        '',
+        '> [!IMPORTANT]',
+        '> **Zero-Token On-Demand & Index-First Principle**:',
+        '> 1. This document records macro Architecture Decision Records (ADRs) and major system changes only.',
+        '> 2. For each new decision, assign `LOG-{N}` and simultaneously: **1) prepend 1 row to `ADR Index Map`**, and **2) prepend a detail block under `Architecture Decision Details`**.',
+        '> 3. Do not read this file routinely. Only during global infra changes, regression tracing, or large merges, slice-read lines 1-35 or `grep_search` to pinpoint `[LOG-XX]`.',
+        '',
+        '## 1. ADR Index Map',
+        '',
+        '| ID | Date | Architectural Decision Summary | Related Area |',
+        '| :--- | :--- | :--- | :--- |',
+      ];
 
   for (const a of adrs) {
     const areaCell = a.relatedArea ? a.relatedArea : '-';
     adrLines.push(`| **${a.code}** | ${a.date} | ${a.summary || a.title} | ${areaCell} |`);
   }
 
-  adrLines.push('', '---', '', '## 2. ADR 상세 기록 (Architecture Decision Details)');
+  adrLines.push(
+    '',
+    '---',
+    '',
+    isKo ? '## 2. ADR 상세 기록 (Architecture Decision Details)' : '## 2. Architecture Decision Details'
+  );
 
   adrs.forEach((a, idx) => {
     if (idx > 0) adrLines.push('', '---');
     adrLines.push('', `### [${a.code}] [${a.date}] ${a.title}`, '');
     const taskPart = a.relatedTaskCode ? `\`${a.relatedTaskCode}\`` : '`init`';
     const branchPart = a.branch ? `\`${a.branch}\`` : '`main`';
-    adrLines.push(`- **관련 커밋/브랜치**: ${taskPart} / ${branchPart}`);
-    adrLines.push('- **결정 배경 및 목적**:');
+    adrLines.push(
+      isKo
+        ? `- **관련 커밋/브랜치**: ${taskPart} / ${branchPart}`
+        : `- **Related Commit/Branch**: ${taskPart} / ${branchPart}`
+    );
+    adrLines.push(isKo ? '- **결정 배경 및 목적**:' : '- **Context & Goal**:');
     for (const line of String(a.context || a.summary || '-').split(/\r?\n/).filter(Boolean)) {
       adrLines.push(`  - ${line}`);
     }
-    adrLines.push('- **아키텍처 결정 사항**:');
+    adrLines.push(isKo ? '- **아키텍처 결정 사항**:' : '- **Architectural Decisions**:');
     for (const line of String(a.decision || '-').split(/\r?\n/).filter(Boolean)) {
       adrLines.push(`  - ${line}`);
     }
-    adrLines.push('- **예상 효과**:');
+    adrLines.push(isKo ? '- **예상 효과**:' : '- **Expected Impact**:');
     for (const line of String(a.impact || '-').split(/\r?\n/).filter(Boolean)) {
       adrLines.push(`  - ${line}`);
     }

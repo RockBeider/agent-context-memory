@@ -37,6 +37,7 @@
     "!scripts/sync-dist-branch.cjs",
     "AGENTS.md",
     "README.md",
+    "README.ko.md",
     "LICENSE"
   ],
   "directories": {

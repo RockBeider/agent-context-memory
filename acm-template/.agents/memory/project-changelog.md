@@ -1,27 +1,27 @@
 # Project Changelog & Architecture Decision Records (ADR)
 
 > [!IMPORTANT]
-> **0토큰 온디맨드 및 색인표 우선 조회 원칙**:
-> 1. 본 문서는 거시 아키텍처 결정 사항(ADR) 및 시스템 주요 변경만 누적 기록합니다.
-> 2. 신규 결정 사항은 `LOG-01`부터 채번하여 **1) 상단 `ADR Index Map` 표 최상단(샘플 위)에 1행 추가**, **2) 하단 `ADR 상세 기록` 최상단에 상세 블록 추가**를 동시 수행합니다 (`LOG-00`은 양식 샘플입니다).
-> 3. AI 에이전트는 평소 본 파일을 전수 조회하지 않으며, 3대 조건부 이벤트(공통 모듈 변경, 대규모 머지, 설정 수정) 시 **상단 색인표(1~35행)만 먼저 열람하거나 키워드로 `grep_search`한 뒤 필요한 `[LOG-XX]` 섹션만 핀포인트 조회**합니다.
+> **Zero-Token On-Demand & Index-First Principle**:
+> 1. This document records macro Architecture Decision Records (ADRs) and major system changes only.
+> 2. Start real decisions at `LOG-01` and simultaneously: **1) prepend 1 row above the sample in `ADR Index Map`**, and **2) prepend a detail block under `Architecture Decision Details`** (`LOG-00` is a format sample only).
+> 3. Do not read this file routinely. Only during global infra changes, regression tracing, or large merges, slice-read lines 1-35 or `grep_search` to pinpoint `[LOG-XX]`.
 
-## 1. ADR Index Map (아키텍처 결정 경량 색인표)
+## 1. ADR Index Map
 
-| ID | 일자 | 핵심 아키텍처 결정 요약 | 관련 영역 |
+| ID | Date | Architectural Decision Summary | Related Area |
 | :--- | :--- | :--- | :--- |
-| **LOG-00** | YYYY-MM-DD | [양식 샘플] 아키텍처 결정 요약 1줄 기재 (실제 기록은 `LOG-01`부터 채번) | `AGENTS.md`, `src/` |
+| **LOG-00** | YYYY-MM-DD | [Sample Format] One-line architectural decision summary (start real logs at `LOG-01`) | `AGENTS.md`, `src/` |
 
 ---
 
-## 2. ADR 상세 기록 (Architecture Decision Details)
+## 2. Architecture Decision Details
 
-### [LOG-00] [YYYY-MM-DD] (양식 샘플 - 실제 ADR 아님) 아키텍처 결정 제목
+### [LOG-00] [YYYY-MM-DD] (Sample Format - NOT a real ADR) Architecture Decision Title
 
-- **관련 커밋/브랜치**: (예: `init / main` 또는 `TSK-1`)
-- **결정 배경 및 목적**:
-  - (예: 시스템 전역 설정 변경 또는 코어 아키텍처 도입 배경 기술)
-- **아키텍처 결정 사항**:
-  - (예: 결정된 핵심 구조, 디렉터리 정책, 상태 관리 원칙 등 기술)
-- **예상 효과**:
-  - (예: 유지보수성 향상, 토큰 절감, 성능 개선 등 기대 효과 기술)
+- **Related Commit/Branch**: (e.g. `init / main` or `TSK-1`)
+- **Context & Goal**:
+  - (Describe background and motivation for global config or core architecture changes)
+- **Architectural Decisions**:
+  - (Describe chosen architecture, directory boundaries, or state management rules)
+- **Expected Impact**:
+  - (Describe maintainability, token reduction, or performance impact)

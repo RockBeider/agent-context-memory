@@ -1,11 +1,11 @@
 ---
 trigger: model_decision
-description: 신규 재사용 솔루션을 지식 베이스(P-XX)로 사후 증류하거나, 거시 아키텍처 변경 결정(ADR, LOG-XX)을 project-changelog.md에 열람 및 기록할 때 적용
+description: Apply when distilling a new reusable solution into the knowledge base (P-XX) or reading/recording macro Architecture Decision Records (ADR, LOG-XX) in project-changelog.md
 ---
 
-## 1. 지식 베이스 사후 증류 (.agents/memory/patterns/)
-- 확정된 재사용 솔루션에 한해 다음 불변 자연수 번호(`P-01`, `P-02`... - `P-00`은 양식 샘플이므로 제외) 샤딩 파일(`.agents/memory/patterns/P-XX-*.md`)을 5~6줄 고밀도 요약 포맷(`**일자**:`, `**도메인 분류**:`, `**증상 및 원인**:`, `**해결 패턴**:`, `**연관 파일**:`)으로 신설하고 `patterns-index.md`에 요약 1행을 추가한다.
+## 1. Post-Task Knowledge Distillation (.agents/memory/patterns/)
+- For confirmed reusable solutions only, create the next immutable sharded file (`.agents/memory/patterns/P-XX-*.md`, starting at `P-01`; `P-00` is a format sample) using the 5-line compact format (`**Date**:`, `**Category**:`, `**Symptom & Root Cause**:`, `**Solution Pattern**:`, `**Related Files**:`) and append 1 summary row to `patterns-index.md`.
 
-## 2. 거시 아키텍처 결정 기록 (.agents/memory/project-changelog.md)
-- **열람**: 3대 조건부 이벤트(1. 전역 인프라/설정 수정, 2. 회귀 결함 역추적, 3. 원격 대규모 머지 직후) 발생 시에만 최상단 `ADR Index Map`(1~35라인)을 슬라이스 조회(`StartLine: 1, EndLine: 35`)하거나 키워드로 `grep_search`하여 대상 `LOG-XX`를 특정한 뒤 해당 상세 블록만 핀포인트 열람한다.
-- **기록**: 거시 아키텍처 변경(ADR) 발생 시에만 `ADR Index Map` 최상단에 요약 1행을 추가하고, 상세 섹션 최상단에 누적 기록(`### [LOG-XX] [YYYY-MM-DD] 제목 (Task: \`TSK-X\`)`, 직전 최상단 자연수 번호 + 1 발급, 첫 번호는 `LOG-01`)한다. 일반 기능 개발이나 단순 버그 수정의 changelog 기록은 전면 금지하며 `task` 계층으로 일원화한다.
+## 2. Macro Architecture Decision Records (.agents/memory/project-changelog.md)
+- **Reading**: Only on 3 conditional events (1. global infrastructure/config changes, 2. regression tracing, 3. immediately after large remote merges), slice-read the top `ADR Index Map` (`StartLine: 1, EndLine: 35`) or `grep_search` by keyword to pinpoint `LOG-XX`, then read only that detail block.
+- **Writing**: Only on macro architectural changes (ADRs), prepend 1 summary row to `ADR Index Map` and prepend a detail block (`### [LOG-XX] [YYYY-MM-DD] Title (Task: \`TSK-X\`)`, issuing `prev_top + 1`, starting at `LOG-01`) at the top of the detail section. Never log routine feature work or minor bug fixes here; keep those in the `task` tier.

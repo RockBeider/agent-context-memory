@@ -1,10 +1,12 @@
 /**
  * scripts/storage/id-utils.cjs
  *
- * Agent Context Memory(ACM) 식별자(ULID / 순차 코드) 및 태스크 상태 양방향 변환 유틸리티
+ * Agent Context Memory (ACM) identifier (ULID / sequential code) and
+ * bidirectional task status normalization utilities.
  */
 
 const crypto = require('crypto');
+const { t, normalizeLanguage, DEFAULT_LANGUAGE } = require('../i18n.cjs');
 
 const CROCKFORD_BASE32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const ULID_TIME_LEN = 10;
@@ -14,8 +16,8 @@ let lastUlidTime = -1;
 let lastUlidRandDigits = null;
 
 /**
- * 단조 증가 ULID(26자 Crockford Base32)를 생성합니다.
- * 동일 밀리초 내 연속 호출 시에도 사전식 정렬 순서가 깨지지 않도록 하위 랜덤 비트를 +1 증가시킵니다.
+ * Generates a monotonically increasing 26-character Crockford Base32 ULID.
+ * Increments the lower random digits within the same millisecond to preserve lexical sort order.
  *
  * @param {number} [nowMs=Date.now()]
  * @returns {string}
@@ -50,10 +52,10 @@ function generateUlid(nowMs = Date.now()) {
   lastUlidRandDigits = randDigits.slice();
 
   const timeChars = new Array(ULID_TIME_LEN);
-  let t = timestamp;
+  let tVal = timestamp;
   for (let i = ULID_TIME_LEN - 1; i >= 0; i--) {
-    timeChars[i] = CROCKFORD_BASE32[t % 32];
-    t = Math.floor(t / 32);
+    timeChars[i] = CROCKFORD_BASE32[tVal % 32];
+    tVal = Math.floor(tVal / 32);
   }
 
   const randChars = randDigits.map((d) => CROCKFORD_BASE32[d]);
@@ -61,7 +63,7 @@ function generateUlid(nowMs = Date.now()) {
 }
 
 /**
- * 균등 분포 5비트 Base32 숫자 16개를 생성합니다.
+ * Generates 16 uniformly distributed 5-bit Base32 digits.
  */
 function generateRandomBase32Digits() {
   const bytes = crypto.randomBytes(ULID_RAND_LEN);
@@ -73,41 +75,41 @@ function generateRandomBase32Digits() {
 }
 
 /**
- * 자연수 번호를 태스크 코드(TSK-X)로 포맷팅합니다.
+ * Formats a positive integer into a task code (TSK-X).
  */
 function formatTaskCode(num) {
   const n = parseInt(num, 10);
   if (!Number.isFinite(n) || n <= 0) {
-    throw new Error(`유효하지 않은 태스크 번호입니다: ${num}`);
+    throw new Error(t('storage.invalidTaskNumber', { num }));
   }
   return `TSK-${n}`;
 }
 
 /**
- * 자연수 번호를 패턴 코드(P-XX)로 포맷팅합니다.
+ * Formats a positive integer into a pattern code (P-XX).
  */
 function formatPatternCode(num) {
   const n = parseInt(num, 10);
   if (!Number.isFinite(n) || n <= 0) {
-    throw new Error(`유효하지 않은 패턴 번호입니다: ${num}`);
+    throw new Error(t('storage.invalidPatternNumber', { num }));
   }
   return `P-${String(n).padStart(2, '0')}`;
 }
 
 /**
- * 자연수 번호를 ADR 코드(LOG-XX)로 포맷팅합니다.
+ * Formats a positive integer into an ADR code (LOG-XX).
  */
 function formatAdrCode(num) {
   const n = parseInt(num, 10);
   if (!Number.isFinite(n) || n <= 0) {
-    throw new Error(`유효하지 않은 ADR 번호입니다: ${num}`);
+    throw new Error(t('storage.invalidAdrNumber', { num }));
   }
   return `LOG-${String(n).padStart(2, '0')}`;
 }
 
 /**
- * 식별 코드(예: TSK-18, P-02, LOG-03)에서 자연수 번호를 추출합니다.
- * TSK-SAMPLE, P-00, LOG-00 등 양식 샘플이거나 0 이하인 경우 null을 반환합니다.
+ * Extracts the positive integer from an ACM code (e.g. TSK-18, P-02, LOG-03).
+ * Returns null for format samples (TSK-SAMPLE, P-00, LOG-00) or non-positive numbers.
  *
  * @param {string|number} code
  * @param {string} [prefix]
@@ -133,8 +135,8 @@ function parseCodeNumber(code, prefix = '') {
 const VALID_CANONICAL_STATUSES = new Set(['todo', 'in_progress', 'ready', 'done', 'paused']);
 
 /**
- * 한글/영문/체크박스 상태 표기를 정규 상태 코드로 변환합니다.
- * 반환값: 'todo' | 'in_progress' | 'ready' | 'done' | 'paused'
+ * Normalizes English, Korean, or Markdown checkbox status labels to canonical status codes.
+ * Returns: 'todo' | 'in_progress' | 'ready' | 'done' | 'paused'
  */
 function normalizeTaskStatus(raw) {
   if (raw === null || raw === undefined) return 'todo';
@@ -147,20 +149,33 @@ function normalizeTaskStatus(raw) {
   if (lower === 'x' || lower === 'done' || lower === 'completed' || trimmed === '완료') {
     return 'done';
   }
-  if (lower === 'ready' || trimmed === '커밋 대기' || trimmed === '검증 완료') {
+  if (
+    lower === 'ready' ||
+    lower === 'commit ready' ||
+    lower === 'ready to commit' ||
+    lower === 'ready-to-commit' ||
+    lower === 'commit-ready' ||
+    trimmed === '커밋 대기' ||
+    trimmed === '검증 완료'
+  ) {
     return 'ready';
   }
   if (
     lower === 'in_progress' ||
     lower === 'in-progress' ||
+    lower === 'in progress' ||
     lower === 'working' ||
+    lower.startsWith('in progress') ||
+    lower.startsWith('in_progress') ||
+    lower.startsWith('in-progress') ||
     trimmed === '진행 중' ||
     trimmed === '진행중' ||
-    trimmed.startsWith('진행 중')
+    trimmed.startsWith('진행 중') ||
+    trimmed.startsWith('진행중')
   ) {
     return 'in_progress';
   }
-  if (lower === 'paused' || lower === 'blocked' || trimmed === '보류') {
+  if (lower === 'paused' || lower === 'blocked' || lower === 'on hold' || trimmed === '보류') {
     return 'paused';
   }
   if (lower === 'todo' || lower === 'pending' || trimmed === '진행 대기' || trimmed === '대기') {
@@ -170,39 +185,71 @@ function normalizeTaskStatus(raw) {
 }
 
 /**
- * 정규 상태 코드를 ACM 표준 한국어 표시 상태로 변환합니다.
+ * Converts a canonical status code into a localized display status label.
  */
-function toDisplayStatus(canonical) {
+function toDisplayStatus(canonical, lang = DEFAULT_LANGUAGE) {
   const norm = normalizeTaskStatus(canonical);
+  const normLang = normalizeLanguage(lang) || DEFAULT_LANGUAGE;
+  if (normLang === 'ko') {
+    switch (norm) {
+      case 'in_progress':
+        return '진행 중';
+      case 'ready':
+        return '커밋 대기';
+      case 'done':
+        return '완료';
+      case 'paused':
+        return '보류';
+      case 'todo':
+      default:
+        return '진행 대기';
+    }
+  }
   switch (norm) {
     case 'in_progress':
-      return '진행 중';
+      return 'In Progress';
     case 'ready':
-      return '커밋 대기';
+      return 'Ready';
     case 'done':
-      return '완료';
+      return 'Done';
     case 'paused':
-      return '보류';
+      return 'Paused';
     case 'todo':
     default:
-      return '진행 대기';
+      return 'Todo';
   }
 }
 
 /**
- * 정규 상태 코드를 task.md 체크박스(`[...]`) 내부 표기로 변환합니다.
+ * Converts a canonical status code into a task.md Markdown checkbox token ([...]).
  */
-function toMarkdownCheckbox(canonical) {
+function toMarkdownCheckbox(canonical, lang = DEFAULT_LANGUAGE) {
   const norm = normalizeTaskStatus(canonical);
+  const normLang = normalizeLanguage(lang) || DEFAULT_LANGUAGE;
+  if (normLang === 'ko') {
+    switch (norm) {
+      case 'in_progress':
+        return '진행 중';
+      case 'ready':
+        return '커밋 대기';
+      case 'done':
+        return 'x';
+      case 'paused':
+        return '보류';
+      case 'todo':
+      default:
+        return ' ';
+    }
+  }
   switch (norm) {
     case 'in_progress':
-      return '진행 중';
+      return 'In Progress';
     case 'ready':
-      return '커밋 대기';
+      return 'Ready';
     case 'done':
       return 'x';
     case 'paused':
-      return '보류';
+      return 'Paused';
     case 'todo':
     default:
       return ' ';

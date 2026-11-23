@@ -1,11 +1,12 @@
 /**
  * scripts/storage/config.cjs
  *
- * Agent Context Memory(ACM) 저장소 및 동기화 설정(.agents/config.json) 로드/저장 모듈
+ * Loads and saves Agent Context Memory (ACM) storage and sync configuration (.agents/config.json).
  */
 
 const fs = require('fs');
 const path = require('path');
+const { normalizeLanguage, t } = require('../i18n.cjs');
 
 const DEFAULT_CONFIG = {
   version: 1,
@@ -27,7 +28,7 @@ const DEFAULT_CONFIG = {
 };
 
 /**
- * 현재 Node.js 런타임이 내장 node:sqlite(DatabaseSync)를 지원하는지 확인합니다.
+ * Checks whether the current Node.js runtime provides built-in node:sqlite (DatabaseSync).
  */
 function isNodeSqliteAvailable() {
   try {
@@ -39,7 +40,7 @@ function isNodeSqliteAvailable() {
 }
 
 /**
- * 프로젝트 내 .agents/config.json 경로를 반환합니다.
+ * Returns the path to .agents/config.json within the project root.
  */
 function getConfigPath(rootDir) {
   return path.join(path.resolve(rootDir), '.agents', 'config.json');
@@ -64,9 +65,9 @@ function deepMerge(base, override) {
 }
 
 /**
- * 프로젝트의 ACM 설정을 로드합니다.
- * .agents/config.json이 없는 레거시 호스트 프로젝트는 기존 DB 유무를 확인해
- * DB가 없으면 자동으로 'markdown' 프로바이더로 해석하여 100% 하위 호환을 보장합니다.
+ * Loads the project's ACM configuration.
+ * Legacy host projects without .agents/config.json automatically resolve to 'markdown'
+ * when no local SQLite database exists, preserving 100% backward compatibility.
  *
  * @param {string} rootDir
  * @returns {object}
@@ -80,9 +81,17 @@ function loadConfig(rootDir) {
     try {
       parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
     } catch (err) {
-      throw new Error(`.agents/config.json 파싱 실패 (${configPath}): ${err.message}`);
+      throw new Error(t('storage.invalidConfigJson', { path: configPath, message: err.message }));
     }
     const merged = deepMerge(DEFAULT_CONFIG, parsed);
+    if (parsed && parsed.language !== undefined) {
+      const normLang = normalizeLanguage(parsed.language);
+      if (normLang) {
+        merged.language = normLang;
+      } else {
+        delete merged.language;
+      }
+    }
     Object.defineProperty(merged, 'explicit', { value: true, enumerable: false });
     Object.defineProperty(merged, 'configPath', { value: configPath, enumerable: false });
     return merged;
@@ -99,7 +108,7 @@ function loadConfig(rootDir) {
 }
 
 /**
- * .agents/config.json에 설정을 저장합니다.
+ * Saves configuration to .agents/config.json.
  *
  * @param {string} rootDir
  * @param {object} config
@@ -126,6 +135,11 @@ function saveConfig(rootDir, config = {}) {
     online: merged.online,
   };
 
+  const explicitLang = normalizeLanguage(config.language || merged.language);
+  if (explicitLang) {
+    sanitized.language = explicitLang;
+  }
+
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, JSON.stringify(sanitized, null, 2) + '\n', 'utf-8');
   Object.defineProperty(sanitized, 'explicit', { value: true, enumerable: false });
@@ -134,7 +148,7 @@ function saveConfig(rootDir, config = {}) {
 }
 
 /**
- * 설정에 따른 로컬 SQLite DB 절대 경로를 반환합니다.
+ * Resolves the absolute path to the local SQLite database.
  */
 function resolveDbPath(rootDir, config) {
   const resolvedRoot = path.resolve(rootDir || process.cwd());

@@ -1,44 +1,59 @@
 # Project Changelog & Architecture Decision Records (ADR)
 
 > [!IMPORTANT]
-> **0토큰 온디맨드 및 색인표 우선 조회 원칙**:
-> 1. 본 문서는 거시 아키텍처 결정 사항(ADR) 및 시스템 주요 변경만 누적 기록합니다.
-> 2. 신규 결정 사항은 `LOG-{순차증가번호}`를 채번하여 **1) 상단 `ADR Index Map` 표 최상단에 1행 추가**, **2) 하단 `ADR 상세 기록` 최상단에 상세 블록 추가**를 동시 수행합니다.
-> 3. AI 에이전트는 평소 본 파일을 전수 조회하지 않으며, 3대 조건부 이벤트(공통 모듈 변경, 대규모 머지, 설정 수정) 시 **상단 색인표(1~35행)만 먼저 열람하거나 키워드로 `grep_search`한 뒤 필요한 `[LOG-XX]` 섹션만 핀포인트 조회**합니다.
+> **Zero-Token On-Demand & Index-First Principle**:
+> 1. This document records macro Architecture Decision Records (ADRs) and major system changes only.
+> 2. For each new decision, assign `LOG-{N}` and simultaneously: **1) prepend 1 row to `ADR Index Map`**, and **2) prepend a detail block under `Architecture Decision Details`**.
+> 3. Do not read this file routinely. Only during global infra changes, regression tracing, or large merges, slice-read lines 1-35 (`ADR Index Map`) or `grep_search` to pinpoint `[LOG-XX]`.
 
-## 1. ADR Index Map (아키텍처 결정 경량 색인표)
+## 1. ADR Index Map
 
-| ID | 일자 | 핵심 아키텍처 결정 요약 | 관련 영역 |
+| ID | Date | Architectural Decision Summary | Related Area |
 | :--- | :--- | :--- | :--- |
-| **LOG-02** | 2026-11-09 | 실전 고도화 기능(무인 완료 이관, `[커밋 대기]` 안전 게이트, ADR Index Map, 범용 릴리스 센티넬, 비오염 샘플) 통합 | `scripts/group-status.cjs`, `.agents/`, `acm-template/` |
-| **LOG-01** | 2026-10-19 | 3계층 컨텍스트 메모리 시스템(L1 활성 태스크, L2 지식 샤딩, L3 콜드 아카이브) 및 작업 단위 커밋 엔진 도입 | `AGENTS.md`, `scripts/group-status.cjs`, `.agents/` |
+| **LOG-03** | 2026-11-23 | Switch ACM default language to English (`en`) with install-time EN/KO i18n, Korean template overlay, and bilingual parsers | `bin/`, `scripts/`, `acm-template/`, `README*.md` |
+| **LOG-02** | 2026-11-09 | Integrate auto-archiving (`autoCompleteTask`), `[Ready]` safety gate, `ADR Index Map`, universal release sentinel, and clean sample isolation | `scripts/group-status.cjs`, `.agents/`, `acm-template/` |
+| **LOG-01** | 2026-10-19 | Introduce Three-Tier Context Memory architecture (L1 working tasks, L2 sharded knowledge, L3 cold archive) and task-centric commit engine | `AGENTS.md`, `scripts/group-status.cjs`, `.agents/` |
 
 ---
 
-## 2. ADR 상세 기록 (Architecture Decision Details)
+## 2. Architecture Decision Details
 
-### [LOG-02] [2026-11-09] 실전 고도화 기능 이식, ADR Index Map 도입 및 배포 템플릿 비오염 샘플 체계 확립
+### [LOG-03] [2026-11-23] English Default Conversion & Install-Time EN/KO i18n Architecture
 
-- **관련 커밋/브랜치**: `TSK-14` / `main`
-- **결정 배경 및 목적**:
-  - 실전 프로젝트(`gcd_front_new`) 운영을 통해 검증된 무인 태스크 이관 및 안전 커밋 게이트를 ACM 코어 및 `acm-template/`에 통합하고, 초기 템플릿 샘플을 실제 작업으로 오인하는 문제를 원천 차단함.
-- **아키텍처 결정 사항**:
-  - `group-status.cjs`에 `autoCompleteTask()` 자동 이관 엔진, `--all` 실행 시 `[커밋 대기]` 전용 필터링, 커밋 직전 `git diff --cached --check` 공백/충돌 마커 사전 검사를 통합함.
-  - `project-changelog.md` 상단에 `ADR Index Map` 마크다운 요약 테이블을 도입하여 장기 프로젝트에서도 35줄 이내에 전체 ADR 이력을 조망하고 핀포인트 열람하도록 개선함.
-  - `AGENTS.md` 상시 주입 블록을 완결형으로 강화하고 `.agents/rules/60-task-memory-adr.md` 및 범용 `.agents/agents/git-release-sentinel.md`를 신설함.
-  - `acm-template/` 초기 샘플에서 실제 채번(`TSK-1`, `P-01`, `LOG-01`)을 제거하고 `TSK-SAMPLE`, `P-00`, `LOG-00` 양식 샘플로 비오염화함.
-- **예상 효과**:
-  - 커밋과 동시에 `task.md` 절삭 및 `task-completed.md` 이관이 무인 완결되어 수동 누락 및 로컬 문서 2차 수정 오염이 0건으로 감소하며, 호스트 프로젝트 온보딩 즉시 `TSK-1`, `P-01`, `LOG-01`부터 깨끗하게 채번 시작 가능.
+- **Related Commit/Branch**: `TSK-19` / `main`
+- **Context & Goal**:
+  - Standardize ACM's primary runtime, governance templates, documentation, and CLI outputs on English (`en`) for global open-source distribution and lower prompt token overhead, while preserving first-class Korean (`ko`) support selectable during installation.
+- **Architectural Decisions**:
+  - Built a zero-dependency CJS i18n core (`scripts/i18n.cjs`) with separated `scripts/locales/en.cjs` and `scripts/locales/ko.cjs` catalogs resolved via `--lang`/`-l`, `ACM_LANG`, `.agents/config.json`, or `.agents/.acm-meta.json` (defaulting to `'en'`).
+  - Adopted an English-canonical `acm-template/.agents/` structure paired with a Korean `.md`-only overlay (`acm-template/locales/ko/`), avoiding duplicate script maintenance while keeping host installs free of unused locale folders.
+  - Decoupled core parsers (`group-status.cjs`, `markdown-bridge.cjs`, `id-utils.cjs`, `smart-pull.cjs`) from localized literals using canonical task statuses and bilingual regexes, and extended Drift Detection (`acm-manifest.cjs`, `sync-agent-rules.cjs`) to verify both `en` and `ko` rule blocks.
+- **Expected Impact**:
+  - Reduces baseline governance prompt token usage, simplifies global adoption, and guarantees full backward compatibility with existing Korean ACM projects.
 
 ---
 
-### [LOG-01] [2026-10-19] 3계층 컨텍스트 메모리 시스템 도입
+### [LOG-02] [2026-11-09] Production Hardening, ADR Index Map & Unpolluted Template Samples
 
-- **관련 커밋/브랜치**: `init` / `main`
-- **결정 배경 및 목적**:
-  - 장기 프로젝트 진행 시 AI 에이전트의 컨텍스트 윈도우 초과 및 정보 소실 문제를 해결하기 위해 3계층 메모리 모델을 정립함.
-- **아키텍처 결정 사항**:
-  - L1(단일 활성 태스크: `task.md`), L2(지식 베이스 색인 및 샤딩: `patterns-index.md`, `patterns/`), L3(완료 아카이브: `task-completed.md`) 계층 분리.
-  - `group-status.cjs` 커밋 엔진을 도입하여 태스크 정본 기반의 원자적 커밋 자동화 확립.
-- **예상 효과**:
-  - 에이전트의 세션 시작 시 컨텍스트 토큰 소모를 0에 가깝게 억제하고 지식 검색 효율 극대화.
+- **Related Commit/Branch**: `TSK-14` / `main`
+- **Context & Goal**:
+  - Upstream field-tested features (unattended task archiving and safe commit gates) into ACM core and `acm-template/`, and stop agents from treating initial template boilerplate as real work.
+- **Architectural Decisions**:
+  - Integrated `autoCompleteTask()`, `[Ready]`-only `--all` filtering, and pre-commit `git diff --cached --check` verification into `group-status.cjs`.
+  - Added the top `ADR Index Map` table to `project-changelog.md` so agents can scan architecture history within 35 lines.
+  - Strengthened the self-contained `AGENTS.md` injection block and added `.agents/rules/60-task-memory-adr.md` and `.agents/agents/git-release-sentinel.md`.
+  - Replaced `TSK-1`, `P-01`, `LOG-01` boilerplate in `acm-template/` with non-polluted `TSK-SAMPLE`, `P-00`, `LOG-00` sample formats.
+- **Expected Impact**:
+  - Eliminates manual task archival drift, prevents secondary local `.agents/` commits, and lets host projects start cleanly at `TSK-1`, `P-01`, `LOG-01`.
+
+---
+
+### [LOG-01] [2026-10-19] Three-Tier Context Memory System Introduction
+
+- **Related Commit/Branch**: `init` / `main`
+- **Context & Goal**:
+  - Solve context window overflow and amnesia in long-running AI-assisted projects via a structured 3-tier memory model.
+- **Architectural Decisions**:
+  - Separated L1 (active task `task.md`), L2 (indexed sharded knowledge `patterns-index.md` / `patterns/`), and L3 (cold archive `task-completed.md`).
+  - Introduced `group-status.cjs` to enforce task-driven atomic commits.
+- **Expected Impact**:
+  - Keeps baseline session token overhead near zero while maximizing precision retrieval efficiency.

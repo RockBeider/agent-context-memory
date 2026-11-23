@@ -1,7 +1,7 @@
 /**
  * scripts/storage/sqlite-provider.cjs
  *
- * Node.js 내장 node:sqlite(DatabaseSync) + FTS5(bm25) 기반 로컬 우선 저장소 프로바이더
+ * Local-first storage provider backed by Node.js built-in node:sqlite (DatabaseSync) + FTS5 (bm25).
  */
 
 const fs = require('fs');
@@ -15,6 +15,7 @@ const {
   normalizeTaskStatus,
 } = require('./id-utils.cjs');
 const { isNodeSqliteAvailable, loadConfig, resolveDbPath } = require('./config.cjs');
+const { t, DEFAULT_LANGUAGE } = require('../i18n.cjs');
 
 const SCHEMA_VERSION = '1';
 
@@ -62,7 +63,7 @@ function parseJsonArraySafe(raw) {
 }
 
 /**
- * FTS5 MATCH 질의에서 특수문자(-, ., /, :, 따옴표 등)로 인한 구문 오류를 방지합니다.
+ * Escapes tokens for FTS5 MATCH queries to prevent syntax errors from -, ., /, :, or quotes.
  */
 function buildFtsQueries(rawQuery) {
   const cleaned = String(rawQuery || '').trim();
@@ -110,28 +111,26 @@ function canonicalAdrCodeInput(rawCode) {
 }
 
 /**
- * [커밋 대기](ready) 상태 전환 시 3요소(목적/수행결과/대상영역) 필수 여부를 검증합니다.
+ * Validates that transitioning to [Ready] includes all 3 required elements (purpose/results/targets).
  */
-function validateReadyTask(task) {
+function validateReadyTask(task, lang = DEFAULT_LANGUAGE) {
   if (normalizeTaskStatus(task.status) !== 'ready') return;
 
   const missing = [];
   if (!task.purpose || typeof task.purpose !== 'string' || !task.purpose.trim()) {
-    missing.push('목적(purpose)');
+    missing.push(t('storage.readyMissingPurpose', {}, lang));
   }
   const results = normalizeStringArray(task.results);
   if (results.length === 0) {
-    missing.push('수행결과(results)');
+    missing.push(t('storage.readyMissingResults', {}, lang));
   }
   const targets = normalizeTargetArray(task.targets);
   if (targets.length === 0) {
-    missing.push('대상영역(targets)');
+    missing.push(t('storage.readyMissingTargets', {}, lang));
   }
 
   if (missing.length > 0) {
-    throw new Error(
-      `[검증 실패] [커밋 대기](ready) 상태 전환에는 3요소가 필수입니다. 누락 항목: ${missing.join(', ')}`
-    );
+    throw new Error(t('storage.readyValidationError', { missing: missing.join(', ') }, lang));
   }
 }
 
@@ -208,10 +207,7 @@ function hydrateAdr(row) {
 class SqliteProvider {
   constructor(rootDir, options = {}) {
     if (!isNodeSqliteAvailable()) {
-      throw new Error(
-        '[환경 오류] 로컬 SQLite 저장소는 Node.js >= 22.13.0의 내장 node:sqlite 모듈이 필요합니다. ' +
-          `현재 버전(${process.version})에서는 Node.js를 업그레이드하거나 --storage=markdown 옵션을 사용하십시오.`
-      );
+      throw new Error(t('storage.sqliteRequired', { version: process.version }));
     }
 
     this.rootDir = path.resolve(rootDir || process.cwd());
@@ -476,7 +472,7 @@ class SqliteProvider {
 
   upsertTask(input, options = {}) {
     if (!input || typeof input !== 'object') {
-      throw new Error('태스크 입력 객체가 필요합니다.');
+      throw new Error(t('storage.taskInputRequired'));
     }
 
     return this._runInTx(() => {
@@ -496,7 +492,7 @@ class SqliteProvider {
       const title =
         input.title !== undefined ? String(input.title).trim() : existing ? existing.title : '';
       if (!title) {
-        throw new Error('태스크 제목(title)이 필요합니다.');
+        throw new Error(t('storage.taskTitleRequired'));
       }
 
       const status =
@@ -636,7 +632,7 @@ class SqliteProvider {
     return this._runInTx(() => {
       const task = this.getTask(idOrCode);
       if (!task) {
-        throw new Error(`완료 처리할 태스크를 찾을 수 없습니다: ${idOrCode}`);
+        throw new Error(t('storage.taskNotFoundComplete', { id: idOrCode }));
       }
       const now = options.completedAt || new Date().toISOString();
       const sha = commitSha ? String(commitSha).trim() : task.commitSha || null;
@@ -658,7 +654,7 @@ class SqliteProvider {
 
   acquireLease(idOrCode, owner, ttlSeconds = 600) {
     if (!owner || !String(owner).trim()) {
-      throw new Error('Lease 점유자(owner) 식별자가 필요합니다.');
+      throw new Error(t('storage.leaseOwnerRequired'));
     }
     const normOwner = String(owner).trim();
     const ttl = Math.max(1, Math.min(3600, Number(ttlSeconds) || 600));
@@ -666,7 +662,7 @@ class SqliteProvider {
     return this._runInTx(() => {
       const task = this.getTask(idOrCode);
       if (!task || task.deletedAt) {
-        throw new Error(`Lease를 설정할 태스크를 찾을 수 없습니다: ${idOrCode}`);
+        throw new Error(t('storage.leaseTaskNotFoundSet', { id: idOrCode }));
       }
 
       const nowMs = Date.now();
@@ -706,7 +702,7 @@ class SqliteProvider {
     return this._runInTx(() => {
       const task = this.getTask(idOrCode);
       if (!task || task.deletedAt) {
-        throw new Error(`Lease를 해제할 태스크를 찾을 수 없습니다: ${idOrCode}`);
+        throw new Error(t('storage.leaseTaskNotFoundRelease', { id: idOrCode }));
       }
       const normOwner = owner ? String(owner).trim() : '';
       if (normOwner && task.leaseOwner && task.leaseOwner !== normOwner && !options.force) {
@@ -780,7 +776,7 @@ class SqliteProvider {
 
   upsertPattern(input) {
     if (!input || typeof input !== 'object') {
-      throw new Error('패턴 입력 객체가 필요합니다.');
+      throw new Error(t('storage.patternInputRequired'));
     }
 
     return this._runInTx(() => {
@@ -793,7 +789,7 @@ class SqliteProvider {
       const supersedesRef = input.supersedesUid || input.supersedesCode || null;
       let prevPattern = supersedesRef ? this.getPattern(supersedesRef) : null;
       if (supersedesRef && !prevPattern) {
-        throw new Error(`대체 대상 패턴을 찾을 수 없습니다: ${supersedesRef}`);
+        throw new Error(t('storage.patternSupersedesNotFound', { ref: supersedesRef }));
       }
 
       if (!existingRow && !prevPattern && input.code) {
@@ -814,7 +810,7 @@ class SqliteProvider {
               ? prevPattern.title
               : '';
       if (!title) {
-        throw new Error('패턴 제목(title)이 필요합니다.');
+        throw new Error(t('storage.patternTitleRequired'));
       }
 
       const category =
@@ -862,7 +858,7 @@ class SqliteProvider {
       if (prevPattern && (!existing || existing.uid !== prevPattern.uid)) {
         version = (prevPattern.version || 1) + 1;
         supersedesUid = prevPattern.uid;
-        // 이전 버전은 검색 인덱스에서 제외하되 버전 체인 레코드는 유지
+        // Exclude superseded version from FTS index while retaining the version-chain record
         this.db.prepare('DELETE FROM memory_fts WHERE uid = ?').run(prevPattern.uid);
       } else if (input.version !== undefined) {
         version = Number(input.version) || 1;
@@ -981,7 +977,7 @@ class SqliteProvider {
 
   upsertAdr(input) {
     if (!input || typeof input !== 'object') {
-      throw new Error('ADR 입력 객체가 필요합니다.');
+      throw new Error(t('storage.adrInputRequired'));
     }
 
     return this._runInTx(() => {
@@ -1001,7 +997,7 @@ class SqliteProvider {
       const title =
         input.title !== undefined ? String(input.title).trim() : existing ? existing.title : '';
       if (!title) {
-        throw new Error('ADR 제목(title)이 필요합니다.');
+        throw new Error(t('storage.adrTitleRequired'));
       }
 
       const date =
@@ -1268,7 +1264,7 @@ class SqliteProvider {
 
   importSnapshot(snapshot, strategy = 'merge') {
     if (!snapshot || typeof snapshot !== 'object') {
-      throw new Error('유효한 스냅샷 객체가 필요합니다.');
+      throw new Error(t('storage.snapshotInvalid'));
     }
 
     return this._runInTx(() => {
@@ -1290,7 +1286,7 @@ class SqliteProvider {
         counts.tasks += 1;
       }
 
-      // 버전 체인 참조 무결성을 위해 version 오름차순으로 적재
+      // Insert in ascending version order to preserve version-chain referential integrity
       const sortedPatterns = [...(snapshot.patterns || [])].sort(
         (a, b) => (Number(a.version) || 1) - (Number(b.version) || 1)
       );

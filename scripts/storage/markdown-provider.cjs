@@ -1,10 +1,9 @@
 /**
  * scripts/storage/markdown-provider.cjs
  *
- * 기존 .agents/ Markdown 정본 파일 위에서 동작하는 하위 호환 StorageProvider 구현
+ * Backward-compatible StorageProvider operating directly on .agents/ Markdown files.
  */
 
-const fs = require('fs');
 const path = require('path');
 const {
   generateUlid,
@@ -25,6 +24,7 @@ const {
   projectTasksToMarkdown,
   exportStoreToMarkdown,
 } = require('./markdown-bridge.cjs');
+const { t, resolveLanguage } = require('../i18n.cjs');
 
 function normalizeArray(val) {
   if (Array.isArray(val)) return val.map((v) => String(v).trim()).filter(Boolean);
@@ -49,14 +49,14 @@ class MarkdownProvider {
   }
 
   close() {
-    // 파일 핸들을 상시 점유하지 않으므로 별도 정리 없음
+    // No persistent file handles held
   }
 
   _loadAllTasks() {
     const { taskFile, completedFile } = resolveTaskFiles(this.rootDir);
-    const active = parseTaskMdFile(taskFile).map((t) => ({
-      uid: t.code,
-      ...t,
+    const active = parseTaskMdFile(taskFile).map((task) => ({
+      uid: task.code,
+      ...task,
       owner: '',
       leaseOwner: null,
       leaseExpiresAt: null,
@@ -64,20 +64,20 @@ class MarkdownProvider {
       completedAt: null,
       scope: 'local',
       provenance: 'user',
-      createdAt: t.registeredDate ? `${t.registeredDate}T00:00:00.000Z` : new Date().toISOString(),
+      createdAt: task.registeredDate ? `${task.registeredDate}T00:00:00.000Z` : new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
     }));
-    const done = parseTaskCompletedMdFile(completedFile).map((t) => ({
-      uid: t.code,
-      ...t,
+    const done = parseTaskCompletedMdFile(completedFile).map((task) => ({
+      uid: task.code,
+      ...task,
       owner: '',
       leaseOwner: null,
       leaseExpiresAt: null,
       scope: 'local',
       provenance: 'user',
-      createdAt: t.completedAt || new Date().toISOString(),
-      updatedAt: t.completedAt || new Date().toISOString(),
+      createdAt: task.completedAt || new Date().toISOString(),
+      updatedAt: task.completedAt || new Date().toISOString(),
       deletedAt: null,
     }));
 
@@ -94,9 +94,9 @@ class MarkdownProvider {
     let tasks = this._loadAllTasks();
     if (status) {
       const target = normalizeTaskStatus(status);
-      tasks = tasks.filter((t) => t.status === target);
+      tasks = tasks.filter((item) => item.status === target);
     } else if (!includeDone) {
-      tasks = tasks.filter((t) => t.status !== 'done');
+      tasks = tasks.filter((item) => item.status !== 'done');
     }
     return tasks;
   }
@@ -106,25 +106,26 @@ class MarkdownProvider {
     const raw = String(idOrCode).trim().toUpperCase();
     const num = parseCodeNumber(raw, 'TSK');
     const lookupCode = num ? formatTaskCode(num) : raw;
-    return this._loadAllTasks().find((t) => t.uid === raw || t.code.toUpperCase() === lookupCode) || null;
+    return this._loadAllTasks().find((item) => item.uid === raw || item.code.toUpperCase() === lookupCode) || null;
   }
 
   upsertTask(input, options = {}) {
+    const lang = resolveLanguage(this.rootDir, options.lang || this.options.lang);
     if (!input || typeof input !== 'object') {
-      throw new Error('태스크 입력 객체가 필요합니다.');
+      throw new Error(t('storage.taskInputRequired', {}, lang));
     }
     const all = this._loadAllTasks();
     const lookupCode = input.code ? formatTaskCode(parseCodeNumber(input.code, 'TSK') || 0) : null;
     const existingIdx = all.findIndex(
-      (t) =>
-        (input.uid && t.uid === input.uid) ||
-        (lookupCode && t.code.toUpperCase() === lookupCode.toUpperCase())
+      (item) =>
+        (input.uid && item.uid === input.uid) ||
+        (lookupCode && item.code.toUpperCase() === lookupCode.toUpperCase())
     );
     const existing = existingIdx !== -1 ? all[existingIdx] : null;
 
     const title =
       input.title !== undefined ? String(input.title).trim() : existing ? existing.title : '';
-    if (!title) throw new Error('태스크 제목(title)이 필요합니다.');
+    if (!title) throw new Error(t('storage.taskTitleRequired', {}, lang));
 
     const status =
       input.status !== undefined
@@ -144,10 +145,10 @@ class MarkdownProvider {
           : [];
 
     if (!options.skipValidation) {
-      validateReadyTask({ status, purpose, results, targets });
+      validateReadyTask({ status, purpose, results, targets }, lang);
     }
 
-    const maxNum = all.reduce((acc, t) => Math.max(acc, parseCodeNumber(t.code, 'TSK') || 0), 0);
+    const maxNum = all.reduce((acc, item) => Math.max(acc, parseCodeNumber(item.code, 'TSK') || 0), 0);
     const code = existing
       ? existing.code
       : input.code
@@ -192,18 +193,18 @@ class MarkdownProvider {
       listAdrs: () => this.listAdrs(),
       getStats: () => ({
         sequences: {
-          tsk: all.reduce((acc, t) => Math.max(acc, parseCodeNumber(t.code, 'TSK') || 0), 0) + 1,
+          tsk: all.reduce((acc, item) => Math.max(acc, parseCodeNumber(item.code, 'TSK') || 0), 0) + 1,
         },
       }),
     };
-    projectTasksToMarkdown(this.rootDir, viewStore);
+    projectTasksToMarkdown(this.rootDir, viewStore, { lang });
     return updated;
   }
 
   completeTask(idOrCode, commitSha, options = {}) {
     const task = this.getTask(idOrCode);
     if (!task) {
-      throw new Error(`완료 처리할 태스크를 찾을 수 없습니다: ${idOrCode}`);
+      throw new Error(t('storage.taskNotFoundComplete', { id: idOrCode }));
     }
     return this.upsertTask(
       {
@@ -213,13 +214,13 @@ class MarkdownProvider {
         commitSha: commitSha || task.commitSha || null,
         completedAt: options.completedAt || new Date().toISOString(),
       },
-      { skipValidation: true }
+      { skipValidation: true, lang: options.lang }
     );
   }
 
   acquireLease(idOrCode, owner, ttlSeconds = 600) {
     const task = this.getTask(idOrCode);
-    if (!task) throw new Error(`태스크를 찾을 수 없습니다: ${idOrCode}`);
+    if (!task) throw new Error(t('storage.taskNotFound', { id: idOrCode }));
     return {
       acquired: true,
       uid: task.uid,
@@ -231,7 +232,7 @@ class MarkdownProvider {
 
   releaseLease(idOrCode) {
     const task = this.getTask(idOrCode);
-    if (!task) throw new Error(`태스크를 찾을 수 없습니다: ${idOrCode}`);
+    if (!task) throw new Error(t('storage.taskNotFound', { id: idOrCode }));
     return { released: true, uid: task.uid, code: task.code };
   }
 
@@ -259,7 +260,8 @@ class MarkdownProvider {
     return this.listPatterns().find((p) => p.uid === raw || p.code.toUpperCase() === code) || null;
   }
 
-  upsertPattern(input) {
+  upsertPattern(input, options = {}) {
+    const lang = resolveLanguage(this.rootDir, options.lang || this.options.lang);
     const all = this.listPatterns();
     const maxNum = all.reduce((acc, p) => Math.max(acc, parseCodeNumber(p.code, 'P') || 0), 0);
     const code = input.code
@@ -270,7 +272,7 @@ class MarkdownProvider {
     const item = {
       uid: code,
       code,
-      category: input.category || '일반',
+      category: input.category || t('storage.defaultCategory', {}, lang),
       title: input.title,
       summary: input.summary || input.title,
       symptom: input.symptom || '',
@@ -289,19 +291,23 @@ class MarkdownProvider {
     if (existingIdx !== -1) all[existingIdx] = item;
     else all.push(item);
 
-    exportStoreToMarkdown(this.rootDir, {
-      listTasks: () => this._loadAllTasks(),
-      listPatterns: () => all,
-      listAdrs: () => this.listAdrs(),
-      getStats: () => ({
-        sequences: {
-          tsk:
-            this._loadAllTasks().reduce((acc, t) => Math.max(acc, parseCodeNumber(t.code, 'TSK') || 0), 0) +
-            1,
-          pat: all.reduce((acc, p) => Math.max(acc, parseCodeNumber(p.code, 'P') || 0), 0) + 1,
-        },
-      }),
-    });
+    exportStoreToMarkdown(
+      this.rootDir,
+      {
+        listTasks: () => this._loadAllTasks(),
+        listPatterns: () => all,
+        listAdrs: () => this.listAdrs(),
+        getStats: () => ({
+          sequences: {
+            tsk:
+              this._loadAllTasks().reduce((acc, task) => Math.max(acc, parseCodeNumber(task.code, 'TSK') || 0), 0) +
+              1,
+            pat: all.reduce((acc, p) => Math.max(acc, parseCodeNumber(p.code, 'P') || 0), 0) + 1,
+          },
+        }),
+      },
+      { lang }
+    );
     return item;
   }
 
@@ -325,7 +331,8 @@ class MarkdownProvider {
     return this.listAdrs().find((a) => a.uid === raw || a.code.toUpperCase() === code) || null;
   }
 
-  upsertAdr(input) {
+  upsertAdr(input, options = {}) {
+    const lang = resolveLanguage(this.rootDir, options.lang || this.options.lang);
     const all = this.listAdrs();
     const maxNum = all.reduce((acc, a) => Math.max(acc, parseCodeNumber(a.code, 'LOG') || 0), 0);
     const code = input.code
@@ -355,21 +362,25 @@ class MarkdownProvider {
     if (existingIdx !== -1) all[existingIdx] = item;
     else all.unshift(item);
 
-    exportStoreToMarkdown(this.rootDir, {
-      listTasks: () => this._loadAllTasks(),
-      listPatterns: () => this.listPatterns(),
-      listAdrs: () => all,
-      getStats: () => ({
-        sequences: {
-          tsk:
-            this._loadAllTasks().reduce((acc, t) => Math.max(acc, parseCodeNumber(t.code, 'TSK') || 0), 0) +
-            1,
-          pat:
-            this.listPatterns().reduce((acc, p) => Math.max(acc, parseCodeNumber(p.code, 'P') || 0), 0) +
-            1,
-        },
-      }),
-    });
+    exportStoreToMarkdown(
+      this.rootDir,
+      {
+        listTasks: () => this._loadAllTasks(),
+        listPatterns: () => this.listPatterns(),
+        listAdrs: () => all,
+        getStats: () => ({
+          sequences: {
+            tsk:
+              this._loadAllTasks().reduce((acc, task) => Math.max(acc, parseCodeNumber(task.code, 'TSK') || 0), 0) +
+              1,
+            pat:
+              this.listPatterns().reduce((acc, p) => Math.max(acc, parseCodeNumber(p.code, 'P') || 0), 0) +
+              1,
+          },
+        }),
+      },
+      { lang }
+    );
     return item;
   }
 
@@ -381,10 +392,10 @@ class MarkdownProvider {
 
     const candidates = [];
     if (normKind === 'all' || normKind === 'task' || normKind === 'tasks') {
-      for (const t of this._loadAllTasks()) {
-        const hay = `${t.code} ${t.title} ${t.purpose} ${t.results.join(' ')} ${t.targets.join(' ')}`.toLowerCase();
+      for (const task of this._loadAllTasks()) {
+        const hay = `${task.code} ${task.title} ${task.purpose} ${task.results.join(' ')} ${task.targets.join(' ')}`.toLowerCase();
         const hits = tokens.filter((tok) => hay.includes(tok)).length;
-        if (hits > 0) candidates.push({ uid: t.uid, kind: 'task', code: t.code, title: t.title, score: -hits, record: t });
+        if (hits > 0) candidates.push({ uid: task.uid, kind: 'task', code: task.code, title: task.title, score: -hits, record: task });
       }
     }
     if (normKind === 'all' || normKind === 'pattern' || normKind === 'patterns') {
@@ -433,14 +444,14 @@ class MarkdownProvider {
       workspaceId: generateUlid(),
       tasks: {
         total: tasks.length,
-        active: tasks.filter((t) => t.status !== 'done').length,
-        ready: tasks.filter((t) => t.status === 'ready').length,
-        done: tasks.filter((t) => t.status === 'done').length,
+        active: tasks.filter((task) => task.status !== 'done').length,
+        ready: tasks.filter((task) => task.status === 'ready').length,
+        done: tasks.filter((task) => task.status === 'done').length,
       },
       patterns: { total: patterns.length, active: patterns.length, superseded: 0 },
       adrs: { total: adrs.length },
       sequences: {
-        tsk: tasks.reduce((acc, t) => Math.max(acc, parseCodeNumber(t.code, 'TSK') || 0), 0) + 1,
+        tsk: tasks.reduce((acc, task) => Math.max(acc, parseCodeNumber(task.code, 'TSK') || 0), 0) + 1,
         pat: patterns.reduce((acc, p) => Math.max(acc, parseCodeNumber(p.code, 'P') || 0), 0) + 1,
         log: adrs.reduce((acc, a) => Math.max(acc, parseCodeNumber(a.code, 'LOG') || 0), 0) + 1,
       },

@@ -1,25 +1,25 @@
-# Agent Context Memory Task Master (작업 단일 정본)
+# Agent Context Memory Task Master (Single Source of Truth)
 
 > [!IMPORTANT]
-> **거버넌스 원칙 (Rule)**:
-> 1. 본 문서는 현재 활성화된 작업만을 관리하는 단일 정본(Single Source of Truth)입니다. (최대 5KB 유지, 최근 완료: `없음`, 현재 활성: `없음`, 차기 예정: `TSK-1`)
-> 2. 태스크 번호(`TSK-{자연수}`)는 영구 불변이며, 첫 작업은 `TSK-1`부터 시작하고 이후 전체(`task-completed.md` 포함) 최대 번호 + 1을 부여합니다.
-> 3. 상태 라이프사이클: `[ ]` (대기) -> `[진행 중]` -> `[커밋 대기]` (검증 완료) -> `[x]` (`npm run git:commit` 실행 시 `task-completed.md`로 자동 이관).
-> 4. `[커밋 대기]` 전환 시 반드시 하위 불릿에 **목적**, **수행결과(파일별 상세 내역)**, **대상영역(실제 수정된 모든 파일 경로 백틱 명시)** 3요소를 기록해야 `group-status.cjs`가 커밋 본문을 생성하고 자동 이관합니다.
+> **Governance Rules**:
+> 1. This document is the Single Source of Truth for active tasks only (keep `<= 5KB`; Latest Done: `None`, Active: `None`, Next: `TSK-1`).
+> 2. Task IDs (`TSK-{N}`) are immutable sequential integers starting at `TSK-1`, allocated as `max(all IDs including archive) + 1`.
+> 3. Status lifecycle: `[ ]` (Todo) -> `[In Progress]` -> `[Ready]` (verified) -> `[x]` (auto-archived to `task-completed.md` on `npm run git:commit`).
+> 4. When transitioning to `[Ready]`, record **Purpose**, **Results**, and **Targets** (all modified paths in backticks) so `group-status.cjs` generates commit messages and archives automatically.
 
 > [!NOTE]
-> **작업 기록 양식 샘플 (Sample Format - 실제 작업 아님)**:
-> 아래 블록은 작성 예시입니다. 실제 작업 등록 시 `## 활성 태스크 목록` 하단에 `TSK-1`부터 작성하십시오.
+> **Sample Format (NOT a real task)**:
+> Keep this example untouched or remove only when desired. Register real tasks under `## Active Tasks` starting at `TSK-1`.
 > ```markdown
-> ### [기능 분류 또는 작업 그룹명]
-> - [커밋 대기] **TSK-SAMPLE. (샘플 예시) 작업 제목을 여기에 기재합니다**
->   - **목적**: 이 작업을 수행하는 배경과 달성 목표를 1줄로 요약합니다.
->   - **수행결과**:
->     - `src/example.js`: 수정한 핵심 로직 및 함수 변경 사항 요약
->   - **대상영역**: `src/example.js`, `README.md`
+> ### [Feature or Work Group]
+> - [Ready] **TSK-SAMPLE. (Sample Example) Concise task title here**
+>   - **Purpose**: One-line summary of background and goal.
+>   - **Results**:
+>     - `src/example.js`: Summary of core logic and function changes
+>   - **Targets**: `src/example.js`, `README.md`
 > ```
 
 ---
 
-## 활성 태스크 목록
-(현재 진행 중인 활성 작업 없음)
+## Active Tasks
+(No active tasks)

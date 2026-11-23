@@ -1,15 +1,60 @@
 #!/usr/bin/env node
 /**
  * @file token-monitor.cjs
- * @description Antigravity PreInvocation 훅 스크립트.
- *              세션 트랜스크립트(transcript.jsonl) 파일 크기를 0 토큰(순수 OS 프로세스)으로 측정하여
- *              컨텍스트 팽창 시 선제 알림을 주입합니다. (MD5 상태 캐싱으로 중복 알림 노이즈 방지)
+ * @description Antigravity PreInvocation hook script.
+ *              Measures session transcript (transcript.jsonl) file size with zero model tokens
+ *              and injects proactive threshold alerts (deduplicated via MD5 state cache).
+ *              Self-contained with zero external imports to guarantee crash-free hook execution.
  */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+
+const MESSAGES = {
+  en: {
+    alert: (sizeKB, estTokens) =>
+      `[Context Saturation Alert] Session log reached ~${sizeKB}KB (~${estTokens.toLocaleString()} tokens). Wrapping up the current task, updating task.md, and starting a new session is strongly recommended.`,
+    warn: (sizeKB) =>
+      `[Context Notice] Session log reached ~${sizeKB}KB. Avoid full-file reads and stick to sliced reads (lines 1-35) where possible.`,
+  },
+  ko: {
+    alert: (sizeKB, estTokens) =>
+      `[컨텍스트 포화 경고] 세션 누적 로그가 약 ${sizeKB}KB (약 ${estTokens.toLocaleString()} 토큰)에 도달했습니다. 현재 작업 일단락 후 /태스크(task.md) 정리 및 새 세션 분리를 강력히 권장합니다.`,
+    warn: (sizeKB) =>
+      `[컨텍스트 주의] 세션 누적 로그가 약 ${sizeKB}KB에 진입했습니다. 파일 전체 읽기를 지양하고 상위 30~40라인 슬라이스 조회를 유지하십시오.`,
+  },
+};
+
+function normalizeLang(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim().toLowerCase();
+  if (s === 'ko' || s.startsWith('ko-') || s === 'korean') return 'ko';
+  if (s === 'en' || s.startsWith('en-') || s === 'english') return 'en';
+  return null;
+}
+
+function resolveHookLanguage() {
+  const fromEnv = normalizeLang(process.env.ACM_LANG);
+  if (fromEnv) return fromEnv;
+
+  const workspaceRoot = path.resolve(__dirname, '..', '..');
+  const candidates = [
+    path.join(workspaceRoot, '.agents', 'config.json'),
+    path.join(workspaceRoot, '.agents', '.acm-meta.json'),
+  ];
+  for (const filePath of candidates) {
+    try {
+      if (fs.existsSync(filePath)) {
+        const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        const lang = normalizeLang(data && data.language);
+        if (lang) return lang;
+      }
+    } catch (_) {}
+  }
+  return 'en';
+}
 
 function getStateFilePath(transcriptPath) {
   const hash = crypto.createHash('md5').update(transcriptPath).digest('hex').slice(0, 12);
@@ -22,14 +67,14 @@ function getPreviousAlertLevel(stateFile) {
       const data = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
       return data.level || 'none';
     }
-  } catch {}
+  } catch (_) {}
   return 'none';
 }
 
 function saveAlertLevel(stateFile, level) {
   try {
     fs.writeFileSync(stateFile, JSON.stringify({ level, updatedAt: Date.now() }), 'utf-8');
-  } catch {}
+  } catch (_) {}
 }
 
 function main() {
@@ -60,7 +105,7 @@ function main() {
       const stateFile = getStateFilePath(transcriptPath);
       const previousLevel = getPreviousAlertLevel(stateFile);
 
-      // 단계별 임계치 판정
+      // Evaluate threshold tier
       let currentLevel = 'none';
       if (sizeKB >= 500) {
         currentLevel = 'alert';
@@ -68,23 +113,24 @@ function main() {
         currentLevel = 'warn';
       }
 
-      // 이전 경고 레벨과 동일하면 중복 알림 주입 억제 (노이즈 방지)
+      // Suppress duplicate alerts when tier has not changed
       if (currentLevel === previousLevel) {
         console.log(JSON.stringify({}));
         return;
       }
 
-      // 상태 저장
       saveAlertLevel(stateFile, currentLevel);
 
-      // 500KB 초과: 세션 분리 및 압축 강력 권고
+      const lang = resolveHookLanguage();
+      const msgMap = MESSAGES[lang] || MESSAGES.en;
+
       if (currentLevel === 'alert') {
         const estTokens = Math.round((sizeKB / 4.5) * 1000);
         console.log(
           JSON.stringify({
             injectSteps: [
               {
-                ephemeralMessage: `[컨텍스트 포화 경고] 세션 누적 로그가 약 ${sizeKB}KB (약 ${estTokens.toLocaleString()} 토큰)에 도달했습니다. 현재 작업 일단락 후 /태스크(task.md) 정리 및 새 세션 분리를 강력히 권장합니다.`,
+                ephemeralMessage: msgMap.alert(sizeKB, estTokens),
               },
             ],
           })
@@ -92,13 +138,12 @@ function main() {
         return;
       }
 
-      // 200KB ~ 500KB: 주의 단계 (슬라이스 조회 권장)
       if (currentLevel === 'warn') {
         console.log(
           JSON.stringify({
             injectSteps: [
               {
-                ephemeralMessage: `[컨텍스트 주의] 세션 누적 로그가 약 ${sizeKB}KB에 진입했습니다. 파일 전체 읽기를 지양하고 상위 30~40라인 슬라이스 조회를 유지하십시오.`,
+                ephemeralMessage: msgMap.warn(sizeKB),
               },
             ],
           })
@@ -106,10 +151,9 @@ function main() {
         return;
       }
 
-      // 200KB 미만: 정상 통과
       console.log(JSON.stringify({}));
-    } catch (e) {
-      // 훅 내부 오류 발생 시에도 에이전트 루프가 중단되지 않도록 빈 객체 출력
+    } catch (_) {
+      // Output empty JSON so hook errors never interrupt the agent loop
       console.log(JSON.stringify({}));
     }
   });
