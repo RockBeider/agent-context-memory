@@ -27,6 +27,12 @@ const requiredFiles = [
   'scripts/audit-push.cjs',
   'scripts/check-git.cjs',
   'scripts/sync-agent-rules.cjs',
+  'scripts/storage/id-utils.cjs',
+  'scripts/storage/config.cjs',
+  'scripts/storage/memory-store.cjs',
+  'scripts/storage/sqlite-provider.cjs',
+  'scripts/storage/markdown-bridge.cjs',
+  'scripts/storage/markdown-provider.cjs',
   '.agents/MEMORY_GOVERNANCE.md',
   '.agents/rules/60-task-memory-adr.md',
   '.agents/agents/git-release-sentinel.md',
@@ -52,6 +58,12 @@ const requiredFiles = [
   'acm-template/scripts/smart-pull.cjs',
   'acm-template/scripts/sync-agent-rules.cjs',
   'acm-template/scripts/uninstall-template.cjs',
+  'acm-template/scripts/storage/id-utils.cjs',
+  'acm-template/scripts/storage/config.cjs',
+  'acm-template/scripts/storage/memory-store.cjs',
+  'acm-template/scripts/storage/sqlite-provider.cjs',
+  'acm-template/scripts/storage/markdown-bridge.cjs',
+  'acm-template/scripts/storage/markdown-provider.cjs',
 ];
 
 for (const rel of requiredFiles) {
@@ -80,6 +92,12 @@ const sharedScripts = [
   'smart-pull.cjs',
   'sync-agent-rules.cjs',
   'uninstall-template.cjs',
+  'storage/id-utils.cjs',
+  'storage/config.cjs',
+  'storage/memory-store.cjs',
+  'storage/sqlite-provider.cjs',
+  'storage/markdown-bridge.cjs',
+  'storage/markdown-provider.cjs',
 ];
 for (const scriptName of sharedScripts) {
   const rootContent = normalizeEol(fs.readFileSync(path.join(ROOT_DIR, 'scripts', scriptName), 'utf-8'));

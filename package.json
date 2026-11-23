@@ -43,7 +43,7 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "node tests/e2e-install.test.cjs && node tests/non-git-compatibility.test.cjs",
+    "test": "node tests/e2e-install.test.cjs && node tests/non-git-compatibility.test.cjs && node tests/sqlite-storage.test.cjs",
     "prepublishOnly": "npm test",
     "postinstall": "node scripts/install-template.cjs --postinstall",
     "init": "node bin/agent-context-memory.js init",
@@ -60,7 +60,7 @@
     "dist:push": "node scripts/sync-dist-branch.cjs --push"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.13.0"
   },
   "dependencies": {
     "@clack/prompts": "^1.9.0"

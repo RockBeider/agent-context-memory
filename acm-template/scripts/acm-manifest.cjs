@@ -26,6 +26,12 @@ const ACM_MANIFEST = {
     { path: 'scripts/sync-agent-rules.cjs', parentDirCleanup: true },
     { path: 'scripts/acm-manifest.cjs', parentDirCleanup: true },
     { path: 'scripts/uninstall-template.cjs', parentDirCleanup: true },
+    { path: 'scripts/storage/id-utils.cjs', parentDirCleanup: true },
+    { path: 'scripts/storage/config.cjs', parentDirCleanup: true },
+    { path: 'scripts/storage/memory-store.cjs', parentDirCleanup: true },
+    { path: 'scripts/storage/sqlite-provider.cjs', parentDirCleanup: true },
+    { path: 'scripts/storage/markdown-bridge.cjs', parentDirCleanup: true },
+    { path: 'scripts/storage/markdown-provider.cjs', parentDirCleanup: true },
   ],
 
   // 3. .gitignore 주입 관리 명세

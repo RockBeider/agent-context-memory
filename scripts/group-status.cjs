@@ -19,6 +19,9 @@ const fs = require('fs');
 const path = require('path');
 const { execSync, spawnSync } = require('child_process');
 const readline = require('readline');
+const { loadConfig } = require('./storage/config.cjs');
+const { createMemoryStore } = require('./storage/memory-store.cjs');
+const { parseCodeNumber, toDisplayStatus } = require('./storage/id-utils.cjs');
 
 const ROOT_DIR = process.env.ACM_ROOT_DIR ? path.resolve(process.env.ACM_ROOT_DIR) : path.resolve(__dirname, '..');
 const TASK_FILE = path.join(ROOT_DIR, '.agents', 'task', 'task.md');
@@ -111,8 +114,14 @@ function parseTaskMd() {
 
       // 1) 불릿 헤더 감지: - [상태] **TSK-26. 작업명** 또는 - [상태] **26. 작업명** 또는 **TSK-26: 작업명**
       const bulletHeaderMatch = line.match(/^-\s*\[([^\]]*)\]\s*\*\*(?:(TSK-[0-9]+|[0-9]+)[\.:]\s*)(.+?)\*\*/i);
-      // 2) 마크다운 헤더 감지: ### TSK-1. 작업명 또는 ### 1. 작업명 (## ~ #### 허용)
-      const mdHeaderMatch = !bulletHeaderMatch ? line.match(/^#{2,4}\s*(?:(TSK-[0-9]+|[0-9]+)[\.:]\s*)(.+)$/i) : null;
+      const isNumberedSectionTitle =
+        /^#{2,4}\s*[0-9]+[\.:]\s*(?:활성\s*(?:작업|태스크)|Active\s*Tasks|참고|규칙|개요)/i.test(line);
+      // 2) 마크다운 헤더 감지: ##~#### TSK-1. 작업명 또는 ###~#### 1. 작업명 (H2 번호 섹션 헤더 제외)
+      const mdHeaderMatch =
+        !bulletHeaderMatch && !isNumberedSectionTitle
+          ? line.match(/^#{2,4}\s*(TSK-[0-9]+)[\.:]\s*(.+)$/i) ||
+            line.match(/^#{3,4}\s*([0-9]+)[\.:]\s*(.+)$/i)
+          : null;
 
       // 상위 섹션 구분자 감지 시 현재 태스크 블록 종료 (단, 태스크 마크다운 헤더 자체는 제외)
       if (!bulletHeaderMatch && !mdHeaderMatch && /^(?:##\s|###\s|---)/.test(line)) {
@@ -551,6 +560,41 @@ function buildCommitMessage(task, files) {
 }
 
 /**
+ * 스토리지 설정(.agents/config.json)에 따라 SQLite DB 또는 Markdown 정본에서 활성 태스크를 로드합니다.
+ */
+function loadTasksFromStore() {
+  const cfg = loadConfig(ROOT_DIR);
+  if (cfg.storage && cfg.storage.provider === 'sqlite') {
+    const store = createMemoryStore(ROOT_DIR, { config: cfg, skipProjection: true });
+    try {
+      const tasks = store.listTasks({ includeDone: false });
+      return tasks.map((t) => {
+        const num = parseCodeNumber(t.code, 'TSK');
+        return {
+          source: 'sqlite',
+          id: `task-${t.code}`,
+          taskNum: num !== null ? String(num) : '',
+          tskId: t.code,
+          title: `[${t.code}] ${t.title}`,
+          rawTitle: t.title,
+          status: toDisplayStatus(t.status),
+          purpose: t.purpose || '',
+          details: Array.isArray(t.results) ? t.results : [],
+          targetPatterns: Array.isArray(t.targets) ? t.targets : [],
+        };
+      });
+    } finally {
+      store.close();
+    }
+  }
+  return parseTaskMd();
+}
+
+function isTaskGroup(group) {
+  return Boolean(group && (group.source === 'task.md' || group.source === 'sqlite'));
+}
+
+/**
  * 7. 변경 파일들을 작업 단위로 분류 및 그룹화
  */
 function classifyChanges() {
@@ -560,7 +604,7 @@ function classifyChanges() {
   }
   if (gitFiles.length === 0) return { groups: [], totalFiles: 0, isNonGit: false };
 
-  const taskList = parseTaskMd();
+  const taskList = loadTasksFromStore();
 
   const assigned = new Set();
   const groups = [];
@@ -608,7 +652,7 @@ function classifyChanges() {
         title: task.title,
         rawTitle: task.rawTitle,
         status: task.status,
-        source: 'task.md',
+        source: task.source === 'sqlite' ? 'sqlite' : 'task.md',
         purpose: task.purpose,
         files: matchedFiles,
         sharedOnly: false,
@@ -627,7 +671,7 @@ function classifyChanges() {
           title: task.title,
           rawTitle: task.rawTitle,
           status: task.status,
-          source: 'task.md',
+          source: task.source === 'sqlite' ? 'sqlite' : 'task.md',
           purpose: task.purpose,
           files: [],
           sharedFiles: allMatchingInGit,
@@ -742,6 +786,24 @@ function getLocalDateString() {
  */
 function autoCompleteTask(group, sha) {
   if (!group || !group.tskId || !sha) return;
+
+  const cfg = loadConfig(ROOT_DIR);
+  if (cfg.storage && cfg.storage.provider === 'sqlite') {
+    let store = null;
+    try {
+      store = createMemoryStore(ROOT_DIR, { config: cfg });
+      store.completeTask(group.tskId, sha);
+      const projMsg =
+        cfg.storage.markdownProjection !== false ? ' 및 task-completed.md 투영' : '';
+      console.log(`[자동 이관] ${group.tskId} 완료 내역이 SQLite DB${projMsg}에 자동 기록되었습니다.`);
+    } catch (err) {
+      console.warn(`[경고] SQLite 완료 태스크 자동 이관 중 예외 발생: ${err.message}`);
+    } finally {
+      if (store) store.close();
+    }
+    return;
+  }
+
   if (!fs.existsSync(TASK_FILE) || !fs.existsSync(TASK_COMPLETED_FILE)) return;
 
   try {
@@ -1227,9 +1289,38 @@ function executeCommitGroup(group) {
  * 9. 비-Git 환경 메모리 상태 리포트 (Graceful Fallback 뷰어)
  */
 function reportNonGitMemoryStatus(isCompact) {
-  const tasks = parseTaskMd();
-  const changelog = parseChangelog();
-  const patterns = parseLearnedPatterns();
+  const cfg = loadConfig(ROOT_DIR);
+  let tasks;
+  let changelog;
+  let patterns;
+  let storageLabel = '.agents/task/task.md';
+
+  if (cfg.storage && cfg.storage.provider === 'sqlite') {
+    const store = createMemoryStore(ROOT_DIR, { config: cfg, skipProjection: true });
+    try {
+      storageLabel = cfg.storage.dbPath || '.agents/local/memory.db';
+      tasks = store.listTasks({ includeDone: false }).map((t) => ({
+        title: `[${t.code}] ${t.title}`,
+        status: toDisplayStatus(t.status),
+        purpose: t.purpose || '',
+        targetPatterns: Array.isArray(t.targets) ? t.targets : [],
+      }));
+      changelog = store.listAdrs({ limit: 3 }).map((a) => ({
+        date: a.date,
+        title: `[${a.code}] ${a.title}`,
+      }));
+      patterns = store.listPatterns().map((p) => ({
+        title: `[${p.code}] ${p.category || p.title} 패턴`,
+        purpose: p.summary || p.title,
+      }));
+    } finally {
+      store.close();
+    }
+  } else {
+    tasks = parseTaskMd();
+    changelog = parseChangelog();
+    patterns = parseLearnedPatterns();
+  }
 
   const activeTasks = tasks.filter((t) => t.status !== '완료');
 
@@ -1247,7 +1338,7 @@ function reportNonGitMemoryStatus(isCompact) {
   console.log('         (파일 변경 감지 및 자동 커밋 비활성화, 메모리 뷰어 가동)');
   console.log('=======================================================\n');
 
-  console.log(`[1] 작업 기억 정본 (.agents/task/task.md) - 활성 작업 ${activeTasks.length}건:`);
+  console.log(`[1] 작업 기억 정본 (${storageLabel}) - 활성 작업 ${activeTasks.length}건:`);
   if (activeTasks.length === 0) {
     console.log('    (현재 진행 중인 활성 태스크가 없습니다.)\n');
   } else {
@@ -1357,10 +1448,10 @@ function main() {
     process.exit(0);
   }
 
-  // 3) --all 실행 시 task.md의 '[커밋 대기]' 상태 태스크만 안전하게 순차 원자 커밋
+  // 3) --all 실행 시 '[커밋 대기]' 상태 태스크만 안전하게 순차 원자 커밋
   if (isAll) {
-    const commitReadyGroups = groups.filter((g) => g.source === 'task.md' && g.status === '커밋 대기');
-    const skippedGroups = groups.filter((g) => !(g.source === 'task.md' && g.status === '커밋 대기'));
+    const commitReadyGroups = groups.filter((g) => isTaskGroup(g) && g.status === '커밋 대기');
+    const skippedGroups = groups.filter((g) => !(isTaskGroup(g) && g.status === '커밋 대기'));
 
     if (commitReadyGroups.length === 0) {
       console.error('=======================================================');
@@ -1474,7 +1565,7 @@ function main() {
     }
 
     if (trimmed === 'all') {
-      const readyGroups = groups.filter((g) => g.source === 'task.md' && g.status === '커밋 대기');
+      const readyGroups = groups.filter((g) => isTaskGroup(g) && g.status === '커밋 대기');
       if (readyGroups.length === 0) {
         console.error('\n[중단] task.md에 "[커밋 대기]" 상태로 매칭된 작업이 없습니다.');
         process.exit(1);

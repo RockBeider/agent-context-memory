@@ -146,9 +146,10 @@ function rollbackOwnedFiles(targetDir, options, stats) {
     }
   }
 
-  // 파일 삭제 후 비어있는 부모 폴더 정리 (타 파일이 있으면 건드리지 않음)
+  // 파일 삭제 후 비어있는 부모 폴더 정리 (하위 폴더부터 정리되도록 경로 길이 내림차순 정렬)
   if (!options.dryRun) {
-    for (const pDir of cleanedDirs) {
+    const sortedDirs = Array.from(cleanedDirs).sort((a, b) => b.length - a.length);
+    for (const pDir of sortedDirs) {
       if (fs.existsSync(pDir)) {
         try {
           const remaining = fs.readdirSync(pDir);
