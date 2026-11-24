@@ -175,9 +175,9 @@ node scripts/install-template.cjs /path/to/my-project --lang=ko --rule-file=CLAU
 - **문제**: AI 에이전트는 코드를 작성하자마자 "작업 완료"로 표시하거나 임의로 커밋해 버리는 실수를 반복합니다.
 - **해결**: 상태 라이프사이클에 `[커밋 대기]`/`[Ready]` 단계를 강제하고, 사용자의 명시적 커밋 지시 후 `npm run git:commit`을 통해 실제 커밋 SHA 해시를 획득함과 동시에 `task-completed.md`로 자동 이관합니다.
 
-### 4) 초기 샘플 비오염 설계 (Sample-Only Isolation)
-- **문제**: 보일러플레이트 템플릿에 `TSK-1`, `P-01`, `LOG-01` 같은 실제 번호 샘플이 들어 있으면 에이전트가 이를 실제 수행된 작업으로 오인하거나 채번이 밀립니다.
-- **해결**: 배포 템플릿(`acm-template/`)의 모든 초기 샘플은 `TSK-SAMPLE`, `P-00`, `LOG-00` 양식 예시로 격리되어 있어, 호스트 프로젝트 설치 즉시 `TSK-1`, `P-01`, `LOG-01`부터 깨끗하게 시작할 수 있습니다.
+### 4) 초기 샘플 비오염 & 무충돌 단축 식별자 (`short-id`) 단일 체계
+- **문제**: 전역 순차 번호(`TSK-1`, `P-01`, `LOG-01`)는 다중 개발자, 멀티 PC, Git Worktree, 병렬 에이전트 환경에서 번호 충돌을 일으키며, 보일러플레이트의 실제 번호 샘플은 에이전트 오인을 유발합니다.
+- **해결**: 배포 템플릿(`acm-template/`)의 초기 샘플은 `TSK-SAMPLE`, `P-00`, `LOG-00`으로 격리하고, 모든 신규 레코드는 별도 설정·모드 전환 없이 6자리 Crockford Base32 단축 ID(`TSK-K7M29A`, `P-M3N8Q2`, `LOG-R9A4C1`)로 발급됩니다. 앞 3~5자리 접두사 단축 조회(`K7M2`)와 기존 숫자 ID(`TSK-1`, `P-01`, `LOG-01`) 읽기를 100% 하위 호환합니다.
 
 ### 5) 완전한 가역성 (100% Safe Uninstall) 및 비-Git 무장애 가동
 - `scripts/acm-manifest.cjs` 단일 정본 매니페스트와 영/한 다국어 변조 감지(Drift Detection)를 통해 `npx agent-context-memory uninstall` 시 원본을 100% 복구하며, `scripts/check-git.cjs`를 통해 비-Git 환경에서도 메모리 뷰어 모드로 무장애 작동합니다.
@@ -191,7 +191,7 @@ ACM은 코드 브랜치를 오염시키지 않는 `.agents/local/memory.db` 기�
 | 계층 | Markdown 뷰 / 정본 경로 | SQLite 및 검색 저장소 | 역할 및 거버넌스 규격 |
 | :--- | :--- | :--- | :--- |
 | **L0 (규칙 계층)** | `AGENTS.md` (상시 가드레일)<br>`.agents/rules/60-task-memory-adr.md`<br>`.agents/MEMORY_GOVERNANCE.md` | `.agents/config.json` | 완결형 6대 가드레일 상시 주입 및 조건부 세부 규격·저장소 모드 참조 |
-| **L1 (작업 기억)** | `.agents/task/task.md` (**5KB 이하**) | `tasks` 테이블 + `memory_fts` | 현재 활성화된 작업의 단일 정본. `TSK-{자연수}`, 에이전트 Lease 잠금 및 `[커밋 대기]` 3요소 검증. |
+| **L1 (작업 기억)** | `.agents/task/task.md` (**5KB 이하**) | `tasks` 테이블 + `memory_fts` | 현재 활성화된 작업의 단일 정본. `TSK-XXXXXX`(기존 `TSK-{자연수}` 호환), 에이전트 Lease 잠금 및 `[커밋 대기]` 3요소 검증. |
 | **L2 (장기 지식)** | `.agents/memory/patterns-index.md`<br>`.agents/memory/patterns/P-XX-*.md`<br>`.agents/memory/project-changelog.md` | `patterns` + `adrs` 테이블 + FTS5 BM25 | **0토큰 탐색**: FTS5 BM25/토큰 예산 검색(`acm search` / MCP) + `supersedes` 버전 체인 + 색인표 Grep 폴백. |
 | **L3 (콜드 아카이브)** | `.agents/task/task-completed.md`<br>`.agents/memory/archive/` | `tasks (status='done')` + `sync_log` | `npm run git:commit` 성공 시 획득한 커밋 SHA 및 orphan 브랜치 동기화 이력 보관. |
 
@@ -211,7 +211,7 @@ npx agent-context-memory status --compact
 
 # '[Ready]' / '[커밋 대기]' 작업 순차 원자 커밋 및 SQLite + task-completed.md 자동 이관
 npx agent-context-memory commit
-npx agent-context-memory commit --commit=TSK-1
+npx agent-context-memory commit --commit=K7M2   # 순번, 전체 ID, 3~5자 단축 접두사 모두 지원
 
 # 원격 브랜치 변경사항 지능형 3-Way 병합 (Git 환경 전용)
 npx agent-context-memory pull
@@ -232,12 +232,17 @@ npx agent-context-memory uninstall [경로] [옵션]
 모든 DB 명령어는 `--json` 출력 및 `--stdin` JSON 입력을 지원하여 셸 따옴표 문제 없이 안정적으로 자동화할 수 있습니다:
 
 ```bash
+# 수동 Markdown 편집 시 무충돌 6자리 단축 ID 발급
+npx agent-context-memory id task
+npx agent-context-memory id pattern --count=3
+
 # 태스크, 지식 패턴, ADR 관리 및 토큰 예산 기반 FTS5 BM25 검색
 npx agent-context-memory task list
 npx agent-context-memory task add "OAuth 인증 구현" --status=in_progress --owner=agent-1
+npx agent-context-memory task show K7M2
 npx agent-context-memory search "원자 커밋" --kind=all --budget=1500
-npx agent-context-memory pattern add "Git Pager 프리징 해결" --supersedes=P-01
-npx agent-context-memory adr add "로컬 SQLite 도입" --task=TSK-18 --area="scripts/storage/"
+npx agent-context-memory pattern add "Git Pager 프리징 해결" --supersedes=P-M3N8Q2
+npx agent-context-memory adr add "로컬 SQLite 도입" --task=TSK-K7M29A --area="scripts/storage/"
 
 # 저장소 전환 및 스냅샷 이식
 npx agent-context-memory migrate --to=sqlite

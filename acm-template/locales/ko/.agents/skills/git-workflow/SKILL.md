@@ -53,11 +53,11 @@ description: 작업 단위(Task-Centric) 자동 분류 커밋, 지능형 3-Way �
 무관한 파일을 한꺼번에 묶는 임의 커밋(`git add .`)을 금지하고, **"`task.md` `[커밋 대기]` 3요소 기록 -> 사용자 명시적 커밋 승인 후 `npm run git:commit` 원스톱 실행"** 순서로 완결합니다.
 
 1. **`task.md` `[커밋 대기]` 선행 기록 및 3요소 작성 (필수)**:
-   - 커밋할 작업을 `.agents/task/task.md`에 `[커밋 대기] TSK-X` 상태로 등록(또는 갱신)합니다.
+   - 커밋할 작업을 `.agents/task/task.md`에 `[커밋 대기] TSK-XXXXXX` 상태로 등록(`acm task add` / `acm id` / MCP 발급) 또는 갱신합니다.
    - `group-status.cjs`가 `task.md`의 내용을 파싱하여 커밋 메시지를 생성하고 완료 이관을 수행하므로, 아래 **3요소(목적 / 수행결과 / 대상영역)**를 빠짐없이 작성합니다:
      ```markdown
      ### [작업 소제목]
-     - [커밋 대기] **TSK-X. 핵심 작업 요약 제목**
+     - [커밋 대기] **TSK-XXXXXX. 핵심 작업 요약 제목**
        - **등록일**: YYYY-MM-DD
        - **목적**: 작업 배경 및 핵심 변경 목적 1줄 요약
        - **수행결과**:
@@ -75,7 +75,7 @@ description: 작업 단위(Task-Centric) 자동 분류 커밋, 지능형 3-Way �
    - **기타 실행 옵션**:
      - 커밋 없이 분류 및 커밋 메시지 미리보기: `npm run git:status` (`node scripts/group-status.cjs --dry-run`)
      - 초경량 1줄 요약 조회: `npm run git:summary` (`node scripts/group-status.cjs --compact`)
-     - 특정 태스크만 선택 커밋: `node scripts/group-status.cjs --commit=<TSK-번호>`
+     - 특정 태스크만 선택 커밋: `node scripts/group-status.cjs --commit=<번호|TSK-XXXXXX|접두사>`
 3. **`.agents/` 로컬 전용 문서 2차 커밋 금지 (호스트 프로젝트)**:
    - `.gitignore`에 의해 `.agents/`가 제외된 호스트 프로젝트에서는 커밋 완료 후 `.agents/` 문서를 Git에 커밋하려는 추가 명령을 실행하지 마십시오.
 

@@ -88,7 +88,7 @@ const TOOLS = [
       properties: {
         idOrCode: {
           type: 'string',
-          description: 'Existing task UID or code (e.g. TSK-1) when updating.',
+          description: 'Existing task UID, code (e.g. TSK-K7M29A or legacy TSK-1), or unambiguous prefix (e.g. K7M2) when updating.',
         },
         title: {
           type: 'string',
@@ -143,7 +143,7 @@ const TOOLS = [
       properties: {
         idOrCode: {
           type: 'string',
-          description: 'Task UID or code (e.g. TSK-1).',
+          description: 'Task UID, code (e.g. TSK-K7M29A or legacy TSK-1), or unambiguous prefix (e.g. K7M2).',
         },
         commitSha: {
           type: 'string',
@@ -157,7 +157,7 @@ const TOOLS = [
   {
     name: 'acm_pattern_save',
     description:
-      'Distill or update a reusable learned pattern (P-XX) with optional supersedes version chaining.',
+      'Distill or update a reusable learned pattern (P-XXXXXX / legacy P-XX) with optional supersedes version chaining.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -193,7 +193,7 @@ const TOOLS = [
         },
         supersedesCode: {
           type: 'string',
-          description: 'Existing pattern code (e.g. P-01) that this new version supersedes.',
+          description: 'Existing pattern code (e.g. P-M3N8Q2 or legacy P-01) or unambiguous prefix that this new version supersedes.',
         },
         supersedesUid: {
           type: 'string',
@@ -215,13 +215,13 @@ const TOOLS = [
   },
   {
     name: 'acm_pattern_get',
-    description: 'Retrieve a specific learned pattern record by UID or code (e.g. P-01).',
+    description: 'Retrieve a specific learned pattern record by UID, code (e.g. P-M3N8Q2 or legacy P-01), or unambiguous prefix.',
     inputSchema: {
       type: 'object',
       properties: {
         idOrCode: {
           type: 'string',
-          description: 'Pattern UID or code (e.g. P-01).',
+          description: 'Pattern UID, code (e.g. P-M3N8Q2 or legacy P-01), or unambiguous prefix.',
         },
       },
       required: ['idOrCode'],
@@ -230,7 +230,7 @@ const TOOLS = [
   },
   {
     name: 'acm_adr_add',
-    description: 'Record a macro Architecture Decision Record (LOG-XX) in the memory store.',
+    description: 'Record a macro Architecture Decision Record (LOG-XXXXXX / legacy LOG-XX) in the memory store.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -252,7 +252,7 @@ const TOOLS = [
         },
         relatedTaskCode: {
           type: 'string',
-          description: 'Associated task code (e.g. TSK-23).',
+          description: 'Associated task code (e.g. TSK-K7M29A or legacy TSK-23).',
         },
         branch: {
           type: 'string',

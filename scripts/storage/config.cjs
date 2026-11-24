@@ -92,6 +92,11 @@ function loadConfig(rootDir) {
         delete merged.language;
       }
     }
+    if (parsed && typeof parsed.author === 'string' && parsed.author.trim()) {
+      merged.author = parsed.author.trim();
+    } else {
+      delete merged.author;
+    }
     Object.defineProperty(merged, 'explicit', { value: true, enumerable: false });
     Object.defineProperty(merged, 'configPath', { value: configPath, enumerable: false });
     return merged;
@@ -140,6 +145,11 @@ function saveConfig(rootDir, config = {}) {
     sanitized.language = explicitLang;
   }
 
+  const rawAuthor = config.author !== undefined ? config.author : merged.author;
+  if (typeof rawAuthor === 'string' && rawAuthor.trim()) {
+    sanitized.author = rawAuthor.trim();
+  }
+
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, JSON.stringify(sanitized, null, 2) + '\n', 'utf-8');
   Object.defineProperty(sanitized, 'explicit', { value: true, enumerable: false });
@@ -176,6 +186,13 @@ function resolveDbPath(rootDir, config) {
   return path.resolve(resolvedRoot, relOrAbs);
 }
 
+/**
+ * Resolves the optional author identifier from ACM_AUTHOR or .agents/config.json (never auto-reads git user.name).
+ */
+function resolveDefaultAuthor(config) {
+  return String(process.env.ACM_AUTHOR || (config && config.author) || '').trim();
+}
+
 module.exports = {
   DEFAULT_CONFIG,
   isNodeSqliteAvailable,
@@ -184,4 +201,5 @@ module.exports = {
   loadConfig,
   saveConfig,
   resolveDbPath,
+  resolveDefaultAuthor,
 };

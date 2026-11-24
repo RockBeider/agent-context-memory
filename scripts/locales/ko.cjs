@@ -35,6 +35,7 @@ Three-Tier Context Memory Governance & Task-Centric Engine
   pull [options]          원격 변경사항 지능형 3-Way 병합 (smart-pull)
   resolve [옵션]          3-Way 충돌 정밀 하이브리드 결합 완결
   audit                   원격 브랜치 푸시 전 위생 및 정적 감사 (별칭: audit-push)
+  id [task|pattern|adr]   무충돌 6자리 단축 ID 발급 (TSK-XXXXXX / P-XXXXXX / LOG-XXXXXX)
   task [하위명령]         로컬 저장소 태스크 관리 (list, add, update, complete, show, lease)
   pattern [하위명령]      지식 패턴 관리 (list, add, show)
   adr [하위명령]          아키텍처 결정 기록(ADR) 관리 (list, add, show)
@@ -357,7 +358,7 @@ Three-Tier Context Memory Governance & Task-Centric Engine
     compactRow: '[작업 {{idx}}] {{status}} | {{title}} ({{countLabel}}) -> {{header}}',
     errNoMatchingGroup: '[오류] 일치하는 작업 그룹을 찾을 수 없습니다: {{arg}}',
     errNoReadyAll: '  [중단] 현재 task.md에 "[커밋 대기]" 상태로 매칭된 작업이 없습니다.',
-    errNoReadyAllHint1: '         커밋할 작업을 task.md에 "[커밋 대기] TSK-X" 양식',
+    errNoReadyAllHint1: '         커밋할 작업을 task.md에 "[커밋 대기] TSK-K7M29A" 양식',
     errNoReadyAllHint2: '         (목적 / 수행결과 / 대상영역)으로 먼저 기록한 뒤 실행하세요.',
     allStart: '  [커밋 대기 작업 순차 원자 커밋 시작] 총 {{count}}개 작업',
     allStepError: '\n[중단] 작업 {{idx}} 커밋 중 오류가 발생하여 후속 작업을 중단합니다.',
@@ -377,7 +378,7 @@ Three-Tier Context Memory Governance & Task-Centric Engine
     reportSharedTag: '[공유]',
     reportCommitMsgLabel: '\n  [자동 생성 커밋 메시지]:',
     optionsTitle: '  [실행 옵션 안내]',
-    optCommitOne: '  - 특정 작업만 커밋 : node scripts/group-status.cjs --commit=<작업번호>',
+    optCommitOne: '  - 특정 작업만 커밋 : node scripts/group-status.cjs --commit=<번호|TSK-XXXXXX|접두사>',
     optCommitAll: '  - 전체 순차 커밋   : node scripts/group-status.cjs --all',
     optCompact: '  - 에이전트 요약    : node scripts/group-status.cjs --compact',
     dryRunDone: '[드라이런 완료] 커밋을 실행하지 않고 종료합니다.',
@@ -527,6 +528,7 @@ Three-Tier Context Memory Governance & Task-Centric Engine
     invalidTaskNumber: '유효하지 않은 태스크 번호입니다: {{num}}',
     invalidPatternNumber: '유효하지 않은 패턴 번호입니다: {{num}}',
     invalidAdrNumber: '유효하지 않은 ADR 번호입니다: {{num}}',
+    ambiguousCodePrefix: '모호한 코드 접두사 "{{id}}": 복수 항목과 일치합니다: {{matches}}',
     invalidConfigJson: '.agents/config.json 파싱 실패 ({{path}}): {{message}}',
     invalidProviderReg: '유효한 프로바이더 이름과 팩토리 함수가 필요합니다.',
     unknownProvider: '[설정 오류] 등록되지 않은 스토리지 프로바이더입니다: "{{name}}" (지원 목록: {{supported}})',
@@ -561,6 +563,7 @@ ACM 메모리 DB CLI
   acm <명령어> [하위명령] [옵션]
 
 명령어:
+  id [task|pattern|adr] [--count=N]           무충돌 단축 ID 발급
   task [list|add|update|complete|show|lease]  태스크 관리
   pattern [list|add|show]                     지식 패턴 관리
   adr [list|add|show]                         아키텍처 결정 기록(ADR) 관리
@@ -600,8 +603,17 @@ ACM 메모리 DB CLI
 하위명령:
   list [--limit=20] [--json]
   show <idOrCode> [--json]
-  add [제목] [--date=YYYY-MM-DD] [--summary=...] [--area=...] [--task=TSK-X] [--branch=...] [--context=...] [--decision=...] [--impact=...] [--author=...] [--stdin] [--json]
+  add [제목] [--date=YYYY-MM-DD] [--summary=...] [--area=...] [--task=TSK-XXXXXX] [--branch=...] [--context=...] [--decision=...] [--impact=...] [--author=...] [--stdin] [--json]
 `,
+    idHelp: `
+사용법: acm id [task|pattern|adr] [옵션]
+
+옵션:
+  --count=<1..20>   발급할 무충돌 단축 ID 개수 (기본값: 1)
+  --json            JSON 형식으로 출력
+`,
+    invalidIdKind: '[오류] 유효하지 않은 ID 유형입니다: "{{kind}}". task, pattern, adr 중 하나를 지정하십시오.',
+    invalidIdCount: '[오류] 유효하지 않은 --count 값입니다: "{{count}}". 1에서 20 사이의 정수를 지정하십시오.',
     searchHelp: `
 사용법: acm search <검색어> [옵션]
 

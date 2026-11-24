@@ -4,15 +4,19 @@
  * Backward-compatible StorageProvider operating directly on .agents/ Markdown files.
  */
 
+const fs = require('fs');
 const path = require('path');
 const {
   generateUlid,
-  formatTaskCode,
-  formatPatternCode,
-  formatAdrCode,
+  generateShortCode,
+  parseCode,
+  normalizeCodeInput,
+  compareRecordsByTimeAndCode,
   parseCodeNumber,
+  isSampleCode,
   normalizeTaskStatus,
 } = require('./id-utils.cjs');
+const { loadConfig, resolveDefaultAuthor } = require('./config.cjs');
 const { validateReadyTask } = require('./sqlite-provider.cjs');
 const {
   resolveTaskFiles,
@@ -37,10 +41,61 @@ function normalizeArray(val) {
   return [];
 }
 
+function allocateUniqueShortCode(records, prefix) {
+  const existingCodes = new Set(
+    records.map((r) => String((r && r.code) || '').toUpperCase()).filter(Boolean)
+  );
+  for (let attempt = 0; attempt < 64; attempt++) {
+    const candidate = generateShortCode(prefix);
+    if (!existingCodes.has(candidate.toUpperCase())) {
+      return candidate;
+    }
+  }
+  throw new Error(`Failed to allocate unique ${prefix} short code after 64 attempts`);
+}
+
+function findRecordByIdOrCode(records, prefix, idOrCode) {
+  if (!idOrCode) return null;
+  const raw = String(idOrCode).trim();
+  if (!raw) return null;
+
+  const byUid = records.find((item) => item.uid === raw);
+  if (byUid) return byUid;
+
+  const { exactCode, prefixQuery } = normalizeCodeInput(raw, prefix);
+  if (exactCode) {
+    const target = exactCode.toUpperCase();
+    return records.find((item) => String(item.code || '').toUpperCase() === target) || null;
+  }
+
+  if (prefixQuery) {
+    const matches = records.filter(
+      (item) =>
+        !item.deletedAt &&
+        !String(item.code || '').includes('@') &&
+        String(item.code || '').toUpperCase().startsWith(prefixQuery)
+    );
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) {
+      throw new Error(
+        t('storage.ambiguousCodePrefix', {
+          id: raw,
+          matches: matches.map((m) => m.code).join(', '),
+        })
+      );
+    }
+    return null;
+  }
+
+  const upperRaw = raw.toUpperCase();
+  return records.find((item) => String(item.code || '').toUpperCase() === upperRaw) || null;
+}
+
 class MarkdownProvider {
   constructor(rootDir, options = {}) {
     this.rootDir = path.resolve(rootDir || process.cwd());
     this.options = options;
+    this.config = options.config || loadConfig(this.rootDir);
     this.providerName = 'markdown';
   }
 
@@ -85,8 +140,8 @@ class MarkdownProvider {
     for (const item of [...done, ...active]) {
       byCode.set(item.code, item);
     }
-    return Array.from(byCode.values()).sort(
-      (a, b) => (parseCodeNumber(a.code, 'TSK') || 0) - (parseCodeNumber(b.code, 'TSK') || 0)
+    return Array.from(byCode.values()).sort((a, b) =>
+      compareRecordsByTimeAndCode(a, b, 'TSK', false)
     );
   }
 
@@ -102,11 +157,7 @@ class MarkdownProvider {
   }
 
   getTask(idOrCode) {
-    if (!idOrCode) return null;
-    const raw = String(idOrCode).trim().toUpperCase();
-    const num = parseCodeNumber(raw, 'TSK');
-    const lookupCode = num ? formatTaskCode(num) : raw;
-    return this._loadAllTasks().find((item) => item.uid === raw || item.code.toUpperCase() === lookupCode) || null;
+    return findRecordByIdOrCode(this._loadAllTasks(), 'TSK', idOrCode);
   }
 
   upsertTask(input, options = {}) {
@@ -115,7 +166,12 @@ class MarkdownProvider {
       throw new Error(t('storage.taskInputRequired', {}, lang));
     }
     const all = this._loadAllTasks();
-    const lookupCode = input.code ? formatTaskCode(parseCodeNumber(input.code, 'TSK') || 0) : null;
+    const parsedInputCode = input.code ? parseCode(input.code, 'TSK') : null;
+    const lookupCode = parsedInputCode
+      ? parsedInputCode.code
+      : input.code
+        ? String(input.code).trim().toUpperCase()
+        : null;
     const existingIdx = all.findIndex(
       (item) =>
         (input.uid && item.uid === input.uid) ||
@@ -148,12 +204,9 @@ class MarkdownProvider {
       validateReadyTask({ status, purpose, results, targets }, lang);
     }
 
-    const maxNum = all.reduce((acc, item) => Math.max(acc, parseCodeNumber(item.code, 'TSK') || 0), 0);
     const code = existing
       ? existing.code
-      : input.code
-        ? formatTaskCode(parseCodeNumber(input.code, 'TSK'))
-        : formatTaskCode(maxNum + 1);
+      : lookupCode || allocateUniqueShortCode(all, 'TSK');
     const now = new Date().toISOString();
 
     const updated = {
@@ -164,7 +217,7 @@ class MarkdownProvider {
       purpose,
       results,
       targets,
-      owner: input.owner !== undefined ? input.owner : existing ? existing.owner : '',
+      owner: input.owner !== undefined ? String(input.owner).trim() : existing ? existing.owner : '',
       groupName:
         input.groupName !== undefined ? input.groupName : existing ? existing.groupName : '',
       leaseOwner: null,
@@ -253,22 +306,26 @@ class MarkdownProvider {
   }
 
   getPattern(idOrCode) {
-    if (!idOrCode) return null;
-    const raw = String(idOrCode).trim().toUpperCase();
-    const num = parseCodeNumber(raw, 'P');
-    const code = num ? formatPatternCode(num) : raw;
-    return this.listPatterns().find((p) => p.uid === raw || p.code.toUpperCase() === code) || null;
+    return findRecordByIdOrCode(this.listPatterns(), 'P', idOrCode);
   }
 
   upsertPattern(input, options = {}) {
     const lang = resolveLanguage(this.rootDir, options.lang || this.options.lang);
     const all = this.listPatterns();
-    const maxNum = all.reduce((acc, p) => Math.max(acc, parseCodeNumber(p.code, 'P') || 0), 0);
-    const code = input.code
-      ? formatPatternCode(parseCodeNumber(input.code, 'P') || maxNum + 1)
-      : formatPatternCode(maxNum + 1);
-    const existingIdx = all.findIndex((p) => p.code === code);
+    const parsedInputCode = input.code ? parseCode(input.code, 'P') : null;
+    const code = parsedInputCode
+      ? parsedInputCode.code
+      : input.code
+        ? String(input.code).trim().toUpperCase()
+        : allocateUniqueShortCode(all, 'P');
+    const existingIdx = all.findIndex((p) => p.code.toUpperCase() === code.toUpperCase());
     const now = new Date().toISOString();
+    const author =
+      input.author !== undefined
+        ? String(input.author).trim()
+        : existingIdx !== -1
+          ? all[existingIdx].author
+          : resolveDefaultAuthor(this.config);
     const item = {
       uid: code,
       code,
@@ -282,7 +339,7 @@ class MarkdownProvider {
       version: 1,
       supersedesUid: null,
       scope: 'shared',
-      author: input.author || '',
+      author,
       provenance: 'user',
       createdAt: (existingIdx !== -1 && all[existingIdx].createdAt) || now,
       updatedAt: now,
@@ -324,22 +381,26 @@ class MarkdownProvider {
   }
 
   getAdr(idOrCode) {
-    if (!idOrCode) return null;
-    const raw = String(idOrCode).trim().toUpperCase();
-    const num = parseCodeNumber(raw, 'LOG');
-    const code = num ? formatAdrCode(num) : raw;
-    return this.listAdrs().find((a) => a.uid === raw || a.code.toUpperCase() === code) || null;
+    return findRecordByIdOrCode(this.listAdrs(), 'LOG', idOrCode);
   }
 
   upsertAdr(input, options = {}) {
     const lang = resolveLanguage(this.rootDir, options.lang || this.options.lang);
     const all = this.listAdrs();
-    const maxNum = all.reduce((acc, a) => Math.max(acc, parseCodeNumber(a.code, 'LOG') || 0), 0);
-    const code = input.code
-      ? formatAdrCode(parseCodeNumber(input.code, 'LOG') || maxNum + 1)
-      : formatAdrCode(maxNum + 1);
-    const existingIdx = all.findIndex((a) => a.code === code);
+    const parsedInputCode = input.code ? parseCode(input.code, 'LOG') : null;
+    const code = parsedInputCode
+      ? parsedInputCode.code
+      : input.code
+        ? String(input.code).trim().toUpperCase()
+        : allocateUniqueShortCode(all, 'LOG');
+    const existingIdx = all.findIndex((a) => a.code.toUpperCase() === code.toUpperCase());
     const now = new Date().toISOString();
+    const author =
+      input.author !== undefined
+        ? String(input.author).trim()
+        : existingIdx !== -1
+          ? all[existingIdx].author
+          : resolveDefaultAuthor(this.config);
     const item = {
       uid: code,
       code,
@@ -353,7 +414,7 @@ class MarkdownProvider {
       decision: input.decision || '',
       impact: input.impact || '',
       scope: 'shared',
-      author: input.author || '',
+      author,
       provenance: 'user',
       createdAt: (existingIdx !== -1 && all[existingIdx].createdAt) || now,
       updatedAt: now,
@@ -438,6 +499,7 @@ class MarkdownProvider {
 
     return {
       provider: 'markdown',
+      idFormat: 'short-id',
       taskFile,
       changelogFile,
       schemaVersion: 'markdown',
@@ -498,8 +560,9 @@ class MarkdownProvider {
 
     for (const rawTask of snapshot.tasks || []) {
       if (!rawTask || rawTask.deletedAt) continue;
-      const num = parseCodeNumber(rawTask.code, 'TSK');
-      const code = num ? formatTaskCode(num) : String(rawTask.code || '').trim().toUpperCase();
+      const parsed = parseCode(rawTask.code, 'TSK');
+      const fallbackRaw = String(rawTask.code || '').trim().toUpperCase();
+      const code = parsed ? parsed.code : !isSampleCode(fallbackRaw) ? fallbackRaw : '';
       if (!code) continue;
 
       if (strategy === 'skip' && taskMap.has(code)) {
@@ -542,8 +605,9 @@ class MarkdownProvider {
     for (const rawPat of sortedPatterns) {
       if (!rawPat || rawPat.deletedAt) continue;
       if (rawPat.uid && supersededUids.has(rawPat.uid)) continue;
-      const num = parseCodeNumber(rawPat.code, 'P');
-      const code = num ? formatPatternCode(num) : String(rawPat.code || '').trim().toUpperCase();
+      const parsed = parseCode(rawPat.code, 'P');
+      const fallbackRaw = String(rawPat.code || '').trim().toUpperCase();
+      const code = parsed ? parsed.code : !isSampleCode(fallbackRaw) ? fallbackRaw : '';
       if (!code) continue;
 
       if (strategy === 'skip' && patMap.has(code)) {
@@ -575,8 +639,9 @@ class MarkdownProvider {
 
     for (const rawAdr of snapshot.adrs || []) {
       if (!rawAdr || rawAdr.deletedAt) continue;
-      const num = parseCodeNumber(rawAdr.code, 'LOG');
-      const code = num ? formatAdrCode(num) : String(rawAdr.code || '').trim().toUpperCase();
+      const parsed = parseCode(rawAdr.code, 'LOG');
+      const fallbackRaw = String(rawAdr.code || '').trim().toUpperCase();
+      const code = parsed ? parsed.code : !isSampleCode(fallbackRaw) ? fallbackRaw : '';
       if (!code) continue;
 
       if (strategy === 'skip' && adrMap.has(code)) {
@@ -606,15 +671,15 @@ class MarkdownProvider {
       counts.adrs += 1;
     }
 
-    const finalTasks = Array.from(taskMap.values()).sort(
-      (a, b) => (parseCodeNumber(a.code, 'TSK') || 0) - (parseCodeNumber(b.code, 'TSK') || 0)
+    const finalTasks = Array.from(taskMap.values()).sort((a, b) =>
+      compareRecordsByTimeAndCode(a, b, 'TSK', false)
     );
-    const finalPatterns = Array.from(patMap.values()).sort(
-      (a, b) => (parseCodeNumber(a.code, 'P') || 0) - (parseCodeNumber(b.code, 'P') || 0)
+    const finalPatterns = Array.from(patMap.values()).sort((a, b) =>
+      compareRecordsByTimeAndCode(a, b, 'P', false)
     );
     const finalAdrs = Array.from(adrMap.values()).sort((a, b) => {
       if (a.date !== b.date) return b.date.localeCompare(a.date);
-      return (parseCodeNumber(b.code, 'LOG') || 0) - (parseCodeNumber(a.code, 'LOG') || 0);
+      return compareRecordsByTimeAndCode(a, b, 'LOG', true);
     });
 
     exportStoreToMarkdown(

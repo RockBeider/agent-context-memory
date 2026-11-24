@@ -7,14 +7,14 @@
 ## 1. 3대 정본 및 고유 식별자 규격
 1. **작업 기억 (L1)**: `.agents/task/task.md`
    - 단일 활성 작업 정본 (Single Source of Truth), 상시 **5KB 이하** 유지 (단, 사용자의 커밋 승인을 대기 중인 복수의 `[커밋 대기]` 태스크 누적으로 인한 일시적 5KB 초과는 예외로 허용하며 커밋 직후 자동 이관으로 해소).
-   - 식별자: `TSK-{자연수}` (패딩 없음, 예: `TSK-1`, `TSK-24`). 신규 발급 시 전체(완료 포함) `최대 번호 + 1` (초기 샘플 `TSK-SAMPLE`은 번호 산정 및 실행에서 제외하며 첫 실제 태스크는 `TSK-1` 부여).
-   - 서식 지원: 불릿형(`- [상태] **TSK-X. 작업명**`) 또는 블록형(`### TSK-X. 작업명` 하위 `- **상태**: [상태]`).
+   - 식별자: 영구 불변 6자리 단축 ID(`TSK-XXXXXX`, 영문자 시작 Crockford Base32, `acm task add` / `acm id` / MCP 발급; 기존 `TSK-{N}` 호환). 임의 수기 채번을 금지하며 초기 샘플 `TSK-SAMPLE`은 파싱·실행에서 제외한다.
+   - 서식 지원: 불릿형(`- [상태] **TSK-XXXXXX. 작업명**`) 또는 블록형(`### TSK-XXXXXX. 작업명` 하위 `- **상태**: [상태]`).
 2. **장기 지식 (L2)**: `.agents/memory/patterns-index.md` / `patterns/`
-   - 패턴 식별자: `P-{순차증가번호}` (예: `P-01`, `P-45` - 초기 샘플 `P-00`은 제외하며 첫 실제 패턴은 `P-01` 부여).
-   - `patterns/` 하위에 5~6줄 고밀도 요약 샤딩 파일로 보관하며, `patterns-index.md`에는 1행 요약 메타데이터만 등록.
+   - 패턴 식별자: `P-XXXXXX` (`acm pattern add` / `acm id pattern` / MCP 발급; 기존 `P-{NN}` 호환; `P-00` 샘플 제외).
+   - `patterns/` 하위에 5~6줄 고밀도 요약 샤딩 파일(`patterns/P-XXXXXX-*.md` 또는 기존 `P-XX-*.md`)로 보관하며, `patterns-index.md`에는 1행 요약 메타데이터만 등록.
 3. **거시 ADR 로그 (L2)**: `.agents/memory/project-changelog.md`
-   - 아키텍처 식별자: `LOG-{순차증가번호}` (예: `LOG-01`, `LOG-02` - 초기 샘플 `LOG-00`은 제외하며 첫 실제 기록은 `LOG-01` 부여).
-   - 최상단 `## 1. ADR Index Map` 요약 색인표와 하단 `## 2. ADR 상세 기록`(`### [LOG-XX]` Prepend) 2단 구조로 운용.
+   - 아키텍처 식별자: `LOG-XXXXXX` (`acm adr add` / `acm id adr` / MCP 발급; 기존 `LOG-{NN}` 호환; `LOG-00` 샘플 제외).
+   - 최상단 `## 1. ADR Index Map` 요약 색인표와 하단 `## 2. ADR 상세 기록`(`### [LOG-XXXXXX]` Prepend) 2단 구조로 운용.
 4. **콜드 아카이브 (L3)**: `.agents/task/task-completed.md`
    - Git 커밋 SHA 해시(Git 환경) 또는 사용자 승인 완료 표기(비-Git 환경)를 확보한 완료 태스크 영구 보관소.
 
@@ -23,7 +23,7 @@
 ## 2. 작업 수명주기, 실행 게이트 및 Git 원자 커밋 거버넌스
 1. **상태 라이프사이클**: `[ ]` (대기) -> `[진행 중]` -> `[커밋 대기]` (검증 완료) -> `[x]` (커밋 완료).
 2. **커밋 대기 3요소 의무 기재**:
-   - 경미한 수정을 포함한 모든 커밋 전 반드시 `task.md`에서 해당 태스크를 `[커밋 대기] TSK-X` 상태로 갱신하며, 커밋 메시지와 완료 아카이브에 즉시 활용될 수 있도록 아래 3요소를 빠짐없이 기재한다:
+   - 경미한 수정을 포함한 모든 커밋 전 반드시 `task.md`에서 해당 태스크를 `[커밋 대기] TSK-XXXXXX` 상태로 갱신하며, 커밋 메시지와 완료 아카이브에 즉시 활용될 수 있도록 아래 3요소를 빠짐없이 기재한다:
      - `- **목적**:` 작업 배경 및 핵심 변경 목적 1줄 요약
      - `- **수행결과**:` 핵심 파일별 구체적인 로직/스타일 수정 내역 하위 불릿 (5줄 이내 요약)
      - `- **대상영역**:` 변경된 모든 파일 또는 디렉터리 경로 목록
@@ -41,9 +41,9 @@
 
 ## 3. 0토큰 온디맨드 검색 원칙 (Just-In-Time Grep)
 1. **전수 통조회 100% 금지**: 세션 시작 시 `patterns/` 하위 파일이나 전체 히스토리 문서를 통째로 읽는 행위 엄격 금지.
-2. **색인표 정밀 Grep**: 작업 키워드로 `patterns-index.md` 요약열만 `grep_search`하고, 매칭된 특정 샤딩 파일(`patterns/P-XX-*.md`)만 핀포인트 로딩 (미매칭 시 즉시 종료, `P-00` 샘플 제외).
+2. **색인표 정밀 Grep**: 작업 키워드로 `patterns-index.md` 요약열만 `grep_search`하고, 매칭된 특정 샤딩 파일(`patterns/P-*-*.md`)만 핀포인트 로딩 (미매칭 시 즉시 종료, `P-00` 샘플 제외).
 3. **바이패스 프리픽스**: 사용자 프롬프트에 `/스킵`, `/태스크`, `/task` 프리픽스가 있거나 단순 질의 시 지식 검색 생략.
-4. **사후 증류**: 검증 완료된 범용 재사용 솔루션에 한해 다음 불변 번호(`P-XX`) 샤딩 파일 신설 및 `patterns-index.md` 1행 등록 (`.agents/rules/60-task-memory-adr.md` 준수).
+4. **사후 증류**: 검증 완료된 범용 재사용 솔루션에 한해 신규 단축 ID(`P-XXXXXX`) 샤딩 파일 신설 및 `patterns-index.md` 1행 등록 (`.agents/rules/60-task-memory-adr.md` 준수).
 
 ---
 
@@ -53,15 +53,15 @@
    - 1) 전역 인프라/설정 수정
    - 2) 회귀 결함 역추적
    - 3) 원격 대규모 머지 직후
-   - 위 조건 발생 시에만 `project-changelog.md` 최상단 `ADR Index Map`(1~35라인)을 슬라이스 조회하거나 키워드로 `grep_search`하여 관련 `LOG-XX`를 특정한 뒤, 해당 상세 블록만 핀포인트 열람.
-3. **ADR 기록**: 거시 아키텍처 변경 시 `ADR Index Map` 최상단에 요약 1행을 추가하고 상세 섹션 최상단에 `### [LOG-XX] [YYYY-MM-DD] 제목` 블록을 Prepend 기록.
+   - 위 조건 발생 시에만 `project-changelog.md` 최상단 `ADR Index Map`(1~35라인)을 슬라이스 조회하거나 키워드로 `grep_search`하여 관련 `LOG-*`를 특정한 뒤, 해당 상세 블록만 핀포인트 열람.
+3. **ADR 기록**: 거시 아키텍처 변경 시 `ADR Index Map` 최상단에 요약 1행을 추가하고 상세 섹션 최상단에 `### [LOG-XXXXXX] [YYYY-MM-DD] 제목` 블록을 Prepend 기록.
 
 ---
 
 ## 5. 멀티 에이전트 동시성 및 작업 영역 격리 거버넌스
 1. **작업 배타적 점유**: 복수 에이전트 환경에서 태스크 착수 시 담당자 명기(`- [진행 중 (Agent: ID)]`), 타 에이전트가 진행 중인 태스크 간섭 금지.
 2. **대상 영역 상호 배타성 (Path Isolation)**: 병렬 실행 태스크 간 `대상영역` 파일 경로 중첩 엄격 금지 (공통 파일 수정 필요 시 직렬 수행).
-3. **식별자 원자 발급**: `TSK-X`, `P-XX`, `LOG-XX` 발급 전 정본 실시간 확인 후 `최대 번호 + 1` 확정.
+3. **원자적 단축 ID 발급**: `TSK-XXXXXX`, `P-XXXXXX`, `LOG-XXXXXX`는 수기로 임의 문자열을 생성하지 말고 `acm` CLI(`id`, `task add`, `pattern add`, `adr add`) 또는 MCP 도구를 통해 발급한다.
 4. **Git 조작 직렬화**: `.git/index.lock` 충돌 차단을 위해 스테이징 및 커밋 조작은 직렬 수행.
 
 ---
@@ -71,8 +71,8 @@
    - Node.js >= 22.13.0 환경에서 `acm init`은 `.agents/config.json`을 `sqlite` 모드(`.agents/local/memory.db`, `.gitignore` 보호)로 기본 설정하며, 내장 FTS5 BM25 검색과 Markdown 자동 투영(`.agents/task/task.md`, `.agents/task/task-completed.md`)을 제공합니다.
    - 구버전 Node.js 또는 레거시 워크플로에서는 `--storage=markdown` 모드로 무장애 폴백하며, 추후 온라인/클라우드 저장소는 `registerProvider()` 확장 슬롯을 통해 선택 연동됩니다.
 2. **구조화 CLI 및 무의존성 Stdio MCP 접근**:
-   - `--json` / `--stdin`을 지원하는 `acm` DB CLI(`task`, `pattern`, `adr`, `search`, `migrate`, `export`, `import`) 또는 외부 패키지 없는 순수 JSON-RPC 2.0 stdio MCP 서버(`acm mcp`, `acm mcp --print-config`)를 통해 메모리를 조회·갱신합니다.
+   - `--json` / `--stdin`을 지원하는 `acm` DB CLI(`id`, `task`, `pattern`, `adr`, `search`, `migrate`, `export`, `import`) 또는 외부 패키지 없는 순수 JSON-RPC 2.0 stdio MCP 서버(`acm mcp`, `acm mcp --print-config`)를 통해 메모리를 조회·갱신합니다.
    - 노출된 9개 MCP 도구: `acm_status`, `acm_search`, `acm_task_list`, `acm_task_upsert`, `acm_task_complete`, `acm_pattern_save`, `acm_pattern_get`, `acm_adr_add`, `acm_sync`.
 3. **Git Orphan 브랜치 협업 (`acm sync`)**:
-   - 공유 패턴·ADR·완료 태스크는 순수 Git Plumbing(`GIT_INDEX_FILE`)과 결정적 JSONL, LWW/코드 충돌 자동 재채번 병합을 통해 코드 브랜치를 오염시키지 않고 전용 orphan 브랜치(`acm-memory`)로 동기화됩니다.
+   - 공유 패턴·ADR·완료 태스크는 순수 Git Plumbing(`GIT_INDEX_FILE`)과 결정적 JSONL, LWW/비충돌 단축 ID 해소 병합을 통해 코드 브랜치를 오염시키지 않고 전용 orphan 브랜치(`acm-memory`)로 동기화됩니다.
    - 원격 전송 전 내장 Secret Scrubber가 민감 토큰을 자동 마스킹하며, `audit-push` 게이트는 `.agents/local/*.db*` 및 WAL/SHM 파일의 코드 브랜치 유출을 원천 차단합니다.

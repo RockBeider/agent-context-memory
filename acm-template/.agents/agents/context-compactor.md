@@ -22,14 +22,14 @@ When invoked after completing a milestone, trim bloat from active tasks and cano
    - Find any tasks manually marked `[x]` inside `task.md` that have not yet been archived (never alter the `TSK-SAMPLE` codeblock example).
    - Verify each has a real Git commit SHA (e.g. `Commit: \`8f765f1\``); cross-check `git --no-pager log -n 5` if missing.
 2. **Archive to Cold Storage (`task-completed.md`)**:
-   - Preserve immutable `TSK-{N}` IDs and prepend archived blocks under the matching top date section in `.agents/task/task-completed.md`.
-   - Sync the top metadata line (`Latest Done`, `Active`, `Next`) to match the updated numbers.
+   - Preserve immutable `TSK-XXXXXX` (or legacy `TSK-{N}`) IDs and prepend archived blocks under the matching top date section in `.agents/task/task-completed.md`.
+   - Sync the top metadata line (`Latest Done`, `Active`) to match the updated state.
 3. **Maintain Lightweight Working Memory**:
    - Keep ONLY Todo (`[ ]`), `[In Progress]`, and `[Ready]` items in `task.md` under the **5KB cap** (temporary overflow allowed only for queued `[Ready]` tasks).
 
 ### B. Knowledge Base Shards & Index Hygiene (`.agents/memory/`)
 1. **Verify Shard Integrity & 5-Line Format**:
-   - Ensure 1:1 parity between `patterns-index.md` table rows and `.agents/memory/patterns/P-XX-*.md` files (`P-00` sample may remain untouched or be cleaned up once real patterns exist).
+   - Ensure 1:1 parity between `patterns-index.md` table rows and `.agents/memory/patterns/P-*-*.md` files (`P-00` sample may remain untouched or be cleaned up once real patterns exist).
    - Check that each shard follows the 5-line format (`Date`, `Category`, `Symptom & Root Cause`, `Solution Pattern`, `Related Files`).
 2. **Archive Obsolete Patterns**:
    - Move retired patterns caused by framework/architecture replacements into `archive/` and remove them from the active index.

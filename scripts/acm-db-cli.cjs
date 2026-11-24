@@ -15,7 +15,7 @@ const {
   saveConfig,
 } = require('./storage/config.cjs');
 const { createMemoryStore } = require('./storage/memory-store.cjs');
-const { toDisplayStatus } = require('./storage/id-utils.cjs');
+const { generateShortCode, toDisplayStatus } = require('./storage/id-utils.cjs');
 const {
   importMarkdownToStore,
   exportStoreToMarkdown,
@@ -61,6 +61,7 @@ const VALUE_FLAGS = new Set([
   'out',
   'strategy',
   'remote',
+  'count',
 ]);
 
 const ARRAY_PUSH_FLAGS = new Set(['result', 'target', 'file', 'tag']);
@@ -297,6 +298,7 @@ function handleTaskCommand(rootDir, positionals, flags, lang, tr) {
       emitOutput(flags, task, [
         `${task.code}: ${task.title} [${toDisplayStatus(task.status, lang)}]`,
         `  UID       : ${task.uid}`,
+        `  Owner     : ${task.owner || '-'}`,
         `  Purpose   : ${task.purpose || '-'}`,
         `  Results   : ${task.results.length ? task.results.join(' | ') : '-'}`,
         `  Targets   : ${task.targets.length ? task.targets.join(', ') : '-'}`,
@@ -520,6 +522,7 @@ function handlePatternCommand(rootDir, positionals, flags, lang, tr) {
       emitOutput(flags, pattern, [
         `${pattern.code} (v${pattern.version}): ${pattern.title}`,
         `  UID       : ${pattern.uid}`,
+        `  Author    : ${pattern.author || '-'}`,
         `  Category  : ${pattern.category || '-'}`,
         `  Summary   : ${pattern.summary || '-'}`,
         `  Symptom   : ${pattern.symptom || '-'}`,
@@ -621,6 +624,7 @@ function handleAdrCommand(rootDir, positionals, flags, lang, tr) {
       emitOutput(flags, adr, [
         `${adr.code} [${adr.date}]: ${adr.title}`,
         `  UID      : ${adr.uid}`,
+        `  Author   : ${adr.author || '-'}`,
         `  Summary  : ${adr.summary || '-'}`,
         `  Area     : ${adr.relatedArea || '-'}`,
         `  Task     : ${adr.relatedTaskCode || '-'} (${adr.branch || 'main'})`,
@@ -1001,6 +1005,77 @@ function handleSyncCommand(rootDir, flags, lang, tr) {
   return 0;
 }
 
+function resolveIdKindAndPrefix(rawKind) {
+  const k = String(rawKind || 'task').trim().toLowerCase();
+  if (k === 'task' || k === 'tsk' || k === 't') return { kind: 'task', prefix: 'TSK' };
+  if (k === 'pattern' || k === 'pat' || k === 'p') return { kind: 'pattern', prefix: 'P' };
+  if (k === 'adr' || k === 'log' || k === 'a') return { kind: 'adr', prefix: 'LOG' };
+  return null;
+}
+
+function loadExistingCodesSet(rootDir, kind) {
+  const codes = new Set();
+  const agentsDir = path.join(rootDir, '.agents');
+  if (!fs.existsSync(agentsDir)) return codes;
+
+  let store = null;
+  try {
+    store = createMemoryStore(rootDir, { skipProjection: true });
+    const items =
+      kind === 'task'
+        ? store.listTasks({ includeDone: true, includeDeleted: true })
+        : kind === 'pattern'
+          ? store.listPatterns({ includeSuperseded: true, includeDeleted: true })
+          : store.listAdrs({ includeDeleted: true });
+    for (const item of items) {
+      if (item && item.code) codes.add(String(item.code).toUpperCase());
+    }
+  } catch (_) {
+    // Fallback safely in uninitialized directories
+  } finally {
+    if (store) store.close();
+  }
+  return codes;
+}
+
+function handleIdCommand(rootDir, positionals, flags, _lang, tr) {
+  if (flags.help) {
+    console.log(tr('dbCli.idHelp'));
+    return 0;
+  }
+
+  const rawKind = positionals[0] || flags.kind || 'task';
+  const resolved = resolveIdKindAndPrefix(rawKind);
+  if (!resolved) {
+    emitError(flags, tr('dbCli.invalidIdKind', { kind: rawKind }));
+    return 1;
+  }
+
+  let count = 1;
+  if (flags.count !== undefined) {
+    const parsedCount = Number(flags.count);
+    if (!Number.isInteger(parsedCount) || parsedCount < 1 || parsedCount > 20) {
+      emitError(flags, tr('dbCli.invalidIdCount', { count: flags.count }));
+      return 1;
+    }
+    count = parsedCount;
+  }
+
+  const usedCodes = loadExistingCodesSet(rootDir, resolved.kind);
+  const codes = [];
+  for (let i = 0; i < count; i++) {
+    let candidate = generateShortCode(resolved.prefix);
+    while (usedCodes.has(candidate.toUpperCase())) {
+      candidate = generateShortCode(resolved.prefix);
+    }
+    usedCodes.add(candidate.toUpperCase());
+    codes.push(candidate);
+  }
+
+  emitOutput(flags, { ok: true, kind: resolved.kind, code: codes[0], codes }, codes);
+  return 0;
+}
+
 /**
  * Executes a DB CLI command and returns a process exit code (0 or 1).
  */
@@ -1030,6 +1105,8 @@ function runDbCli(argv = process.argv.slice(2), rootDirOverride = null) {
 
   try {
     switch (command) {
+      case 'id':
+        return handleIdCommand(rootDir, positionals, flags, lang, tr);
       case 'task':
         return handleTaskCommand(rootDir, positionals, flags, lang, tr);
       case 'pattern':

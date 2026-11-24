@@ -14,12 +14,7 @@ const { checkGitEnvironment } = require('../check-git.cjs');
 const { loadConfig } = require('./config.cjs');
 const { createMemoryStore } = require('./memory-store.cjs');
 const { projectTasksToMarkdown } = require('./markdown-bridge.cjs');
-const {
-  formatTaskCode,
-  formatPatternCode,
-  formatAdrCode,
-  parseCodeNumber,
-} = require('./id-utils.cjs');
+const { generateShortCode } = require('./id-utils.cjs');
 const { scrubRecords } = require('./secret-scrubber.cjs');
 const { t } = require('../i18n.cjs');
 
@@ -270,9 +265,9 @@ function compareTimestamp(a, b) {
 
 /**
  * Merges local and remote record arrays structurally by UID (LWW on updatedAt)
- * and resolves code collisions deterministically by (createdAt ASC, uid ASC).
+ * and resolves rare code collisions deterministically by issuing non-colliding short-ids.
  */
-function mergeRecordSet(localRecords = [], remoteRecords = [], prefix, formatter) {
+function mergeRecordSet(localRecords = [], remoteRecords = [], prefix) {
   const localMap = new Map();
   for (const r of localRecords) {
     if (r && r.uid) localMap.set(r.uid, { ...r });
@@ -323,12 +318,6 @@ function mergeRecordSet(localRecords = [], remoteRecords = [], prefix, formatter
     return String(a.uid).localeCompare(String(b.uid));
   });
 
-  let maxNum = 0;
-  for (const r of merged) {
-    const n = parseCodeNumber(r.code, prefix);
-    if (n !== null && n > maxNum) maxNum = n;
-  }
-
   const usedCodes = new Set();
   const renumberedUids = new Set();
   let conflictsResolved = 0;
@@ -342,11 +331,10 @@ function mergeRecordSet(localRecords = [], remoteRecords = [], prefix, formatter
       usedCodes.add(upperCode);
       resolved.push(rec);
     } else {
-      maxNum += 1;
-      while (usedCodes.has(formatter(maxNum).toUpperCase())) {
-        maxNum += 1;
+      let nextCode = generateShortCode(prefix);
+      while (usedCodes.has(nextCode.toUpperCase())) {
+        nextCode = generateShortCode(prefix);
       }
-      const nextCode = formatter(maxNum);
       usedCodes.add(nextCode.toUpperCase());
       renumberedUids.add(rec.uid);
       conflictsResolved += 1;
@@ -571,9 +559,9 @@ function syncWithGitOrphan(rootDir = process.cwd(), options = {}) {
     const localSharedAdrs = (localSnap.adrs || []).filter((a) => a.scope !== 'local');
     const localAllTasks = localSnap.tasks || [];
 
-    const mergedPatRes = mergeRecordSet(localSharedPatterns, remoteSnap.patterns, 'P', formatPatternCode);
-    const mergedAdrRes = mergeRecordSet(localSharedAdrs, remoteSnap.adrs, 'LOG', formatAdrCode);
-    const mergedTaskRes = mergeRecordSet(localAllTasks, remoteSnap.tasks, 'TSK', formatTaskCode);
+    const mergedPatRes = mergeRecordSet(localSharedPatterns, remoteSnap.patterns, 'P');
+    const mergedAdrRes = mergeRecordSet(localSharedAdrs, remoteSnap.adrs, 'LOG');
+    const mergedTaskRes = mergeRecordSet(localAllTasks, remoteSnap.tasks, 'TSK');
 
     const totalPulled =
       mergedPatRes.pulledCount + mergedAdrRes.pulledCount + mergedTaskRes.pulledCount;

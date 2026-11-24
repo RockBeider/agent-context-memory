@@ -35,6 +35,7 @@ Commands:
   pull [options]              Intelligent 3-Way remote sync & hybrid merge (smart-pull)
   resolve [options]           Resolve remaining 3-Way conflicts and complete merge commit
   audit                       Pre-push hygiene and static audit gate (alias: audit-push)
+  id [task|pattern|adr]       Generate collision-free 6-char short IDs (TSK-XXXXXX / P-XXXXXX / LOG-XXXXXX)
   task [subcommand]           Manage tasks in local storage (list, add, update, complete, show, lease)
   pattern [subcommand]        Manage learned patterns (list, add, show)
   adr [subcommand]            Manage architecture decision records (list, add, show)
@@ -357,7 +358,7 @@ Examples:
     compactRow: '[Group {{idx}}] {{status}} | {{title}} ({{countLabel}}) -> {{header}}',
     errNoMatchingGroup: '[Error] No matching task group found: {{arg}}',
     errNoReadyAll: '  [Aborted] No [Ready] task matched in task.md.',
-    errNoReadyAllHint1: '            First record the task in task.md as "[Ready] TSK-X"',
+    errNoReadyAllHint1: '            First record the task in task.md as "[Ready] TSK-K7M29A"',
     errNoReadyAllHint2: '            with (Purpose / Results / Targets), then run again.',
     allStart: '  [Sequential Atomic Commit Start] {{count}} [Ready] task(s)',
     allStepError: '\n[Aborted] Error occurred while committing task {{idx}}; stopping subsequent tasks.',
@@ -377,7 +378,7 @@ Examples:
     reportSharedTag: '[SHARED]',
     reportCommitMsgLabel: '\n  [Generated Commit Message]:',
     optionsTitle: '  [Execution Options]',
-    optCommitOne: '  - Commit single group : node scripts/group-status.cjs --commit=<num|TSK-X>',
+    optCommitOne: '  - Commit single group : node scripts/group-status.cjs --commit=<num|TSK-XXXXXX|prefix>',
     optCommitAll: '  - Commit all [Ready]  : node scripts/group-status.cjs --all',
     optCompact: '  - Agent compact view  : node scripts/group-status.cjs --compact',
     dryRunDone: '[Dry-Run Complete] Exited without executing commits.',
@@ -527,6 +528,7 @@ Examples:
     invalidTaskNumber: 'Invalid task number: {{num}}',
     invalidPatternNumber: 'Invalid pattern number: {{num}}',
     invalidAdrNumber: 'Invalid ADR number: {{num}}',
+    ambiguousCodePrefix: 'Ambiguous code prefix "{{id}}"; multiple matches found: {{matches}}',
     invalidConfigJson: 'Failed to parse .agents/config.json ({{path}}): {{message}}',
     invalidProviderReg: 'A valid provider name and factory function are required.',
     unknownProvider: '[Config Error] Unregistered storage provider: "{{name}}" (supported: {{supported}})',
@@ -561,6 +563,7 @@ Usage:
   acm <command> [subcommand] [options]
 
 Commands:
+  id [task|pattern|adr] [--count=N]           Generate collision-free short IDs
   task [list|add|update|complete|show|lease]  Manage tasks
   pattern [list|add|show]                     Manage learned patterns
   adr [list|add|show]                         Manage architecture decision records
@@ -600,8 +603,17 @@ Usage: acm adr <subcommand> [options]
 Subcommands:
   list [--limit=20] [--json]
   show <idOrCode> [--json]
-  add [title] [--date=YYYY-MM-DD] [--summary=...] [--area=...] [--task=TSK-X] [--branch=...] [--context=...] [--decision=...] [--impact=...] [--author=...] [--stdin] [--json]
+  add [title] [--date=YYYY-MM-DD] [--summary=...] [--area=...] [--task=TSK-XXXXXX] [--branch=...] [--context=...] [--decision=...] [--impact=...] [--author=...] [--stdin] [--json]
 `,
+    idHelp: `
+Usage: acm id [task|pattern|adr] [options]
+
+Options:
+  --count=<1..20>   Number of collision-free short IDs to generate (default: 1)
+  --json            Output machine-readable JSON
+`,
+    invalidIdKind: '[Error] Invalid ID kind: "{{kind}}". Expected task, pattern, or adr.',
+    invalidIdCount: '[Error] Invalid --count value: "{{count}}". Expected an integer between 1 and 20.',
     searchHelp: `
 Usage: acm search <query> [options]
 

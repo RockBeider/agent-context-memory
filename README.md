@@ -180,9 +180,9 @@ ACM is IDE- and vendor-agnostic. It scans root agent rule files and injects a no
 - **Problem**: Agents frequently declare tasks "done" or commit immediately after writing code without verification or user consent.
 - **Solution**: Requires the `[Ready]` state with all 3 elements (`Purpose`, `Results`, `Targets`) and waits for explicit user commit instruction (`commit` / `apply`) before executing `npm run git:commit`.
 
-### 4) Sample-Only Isolation (Zero Boilerplate Pollution)
-- **Problem**: Template files pre-filled with `TSK-1`, `P-01`, or `LOG-01` trick agents into treating samples as real work.
-- **Solution**: All template examples use `TSK-SAMPLE`, `P-00`, and `LOG-00`, ignored by parsers so every project starts cleanly at `TSK-1`, `P-01`, and `LOG-01`.
+### 4) Sample-Only Isolation & Collision-Free Short IDs (`short-id`)
+- **Problem**: Sequential numbering (`TSK-1`, `P-01`, `LOG-01`) causes ID collisions across developers, worktrees, and parallel agents—and pre-filled numbered examples trick agents into treating boilerplate as real work.
+- **Solution**: All template examples use `TSK-SAMPLE`, `P-00`, and `LOG-00` (ignored by parsers), while all new records issue immutable 6-char Crockford Base32 short IDs (`TSK-K7M29A`, `P-M3N8Q2`, `LOG-R9A4C1`) with zero configuration, prefix lookup (`K7M2`), and 100% backward compatibility for existing legacy sequential IDs.
 
 ### 5) 100% Reversible Uninstall & Non-Git Support
 - Backed by `scripts/acm-manifest.cjs` and Drift Detection across both English and Korean canonical rules, `npx agent-context-memory uninstall` safely restores rule files and removes ACM assets. Non-Git projects fall back cleanly to the Memory Viewer mode.
@@ -196,7 +196,7 @@ ACM runs **Local-First SQLite (`node:sqlite` + FTS5 BM25)** at `.agents/local/me
 | Tier | Markdown View / Canonical Path | SQLite & Search Storage | Governance & Purpose |
 | :--- | :--- | :--- | :--- |
 | **L0 (Rules)** | `AGENTS.md` (guardrails)<br>`.agents/rules/60-task-memory-adr.md`<br>`.agents/MEMORY_GOVERNANCE.md` | `.agents/config.json` | 6 strict core guardrails always injected; detailed ADR/pattern/storage specs loaded on demand. |
-| **L1 (Working Memory)** | `.agents/task/task.md` (**<= 5KB**) | `tasks` table + `memory_fts` | Single source of truth for active tasks (`TSK-{N}`), lease locks, and `[Ready]` 3-element validation. |
+| **L1 (Working Memory)** | `.agents/task/task.md` (**<= 5KB**) | `tasks` table + `memory_fts` | Single source of truth for active tasks (`TSK-XXXXXX` / legacy `TSK-{N}`), lease locks, and `[Ready]` 3-element validation. |
 | **L2 (Long-Term Memory)** | `.agents/memory/patterns-index.md`<br>`.agents/memory/patterns/P-XX-*.md`<br>`.agents/memory/project-changelog.md` | `patterns` + `adrs` tables + FTS5 BM25 | **Zero-Token Lookup**: instant FTS5 BM25 / token-budget search (`acm search` / MCP) + `supersedes` versioning + Grep index fallback. |
 | **L3 (Cold Archive)** | `.agents/task/task-completed.md`<br>`.agents/memory/archive/` | `tasks (status='done')` + `sync_log` | Permanent history of committed tasks with verified commit SHAs and orphan-branch sync records. |
 
@@ -216,7 +216,7 @@ npx agent-context-memory status --compact
 
 # Commit all [Ready] tasks atomically and auto-archive to SQLite & task-completed.md
 npx agent-context-memory commit
-npx agent-context-memory commit --commit=TSK-1
+npx agent-context-memory commit --commit=K7M2   # supports group index, exact ID, or 3-5 char prefix
 
 # Smart 3-Way pull & hybrid conflict resolution (Git only)
 npx agent-context-memory pull
@@ -237,12 +237,17 @@ npx agent-context-memory uninstall [path] [options]
 All DB subcommands support `--json` output and `--stdin` JSON input for zero-quoting script/agent reliability:
 
 ```bash
+# Issue collision-free 6-char short IDs for manual Markdown edits
+npx agent-context-memory id task
+npx agent-context-memory id pattern --count=3
+
 # Tasks, patterns, ADRs, and full-text BM25 search with token budget packing
 npx agent-context-memory task list
 npx agent-context-memory task add "Implement OAuth" --status=in_progress --owner=agent-1
+npx agent-context-memory task show K7M2
 npx agent-context-memory search "atomic commit" --kind=all --budget=1500
-npx agent-context-memory pattern add "Git Pager Fix" --supersedes=P-01
-npx agent-context-memory adr add "Adopt Local SQLite" --task=TSK-18 --area="scripts/storage/"
+npx agent-context-memory pattern add "Git Pager Fix" --supersedes=P-M3N8Q2
+npx agent-context-memory adr add "Adopt Local SQLite" --task=TSK-K7M29A --area="scripts/storage/"
 
 # Switch backends & snapshot portability
 npx agent-context-memory migrate --to=sqlite

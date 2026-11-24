@@ -143,6 +143,7 @@ function printHelp(lang) {
 }
 
 const DB_COMMANDS = new Set([
+  'id',
   'task',
   'pattern',
   'adr',
@@ -340,6 +341,7 @@ async function main() {
       break;
     }
 
+    case 'id':
     case 'task':
     case 'pattern':
     case 'adr':

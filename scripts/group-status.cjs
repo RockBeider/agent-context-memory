@@ -22,8 +22,34 @@ const { execSync, spawnSync } = require('child_process');
 const readline = require('readline');
 const { loadConfig } = require('./storage/config.cjs');
 const { createMemoryStore } = require('./storage/memory-store.cjs');
-const { parseCodeNumber, normalizeTaskStatus, toDisplayStatus } = require('./storage/id-utils.cjs');
+const {
+  TASK_ID_REGEX_SOURCE,
+  PATTERN_ID_REGEX_SOURCE,
+  ADR_ID_REGEX_SOURCE,
+  parseCode,
+  normalizeCodeInput,
+  normalizeTaskStatus,
+  toDisplayStatus,
+} = require('./storage/id-utils.cjs');
 const { parseLangFlag, resolveLanguage, createTranslator } = require('./i18n.cjs');
+
+const BULLET_TASK_HEADER_RE = new RegExp(
+  `^-\\s*\\[([^\\]]*)\\]\\s*\\*\\*(?:(${TASK_ID_REGEX_SOURCE})[\\.:]\\s*)(.+?)\\*\\*`,
+  'i'
+);
+const NUMBERED_SECTION_RE =
+  /^#{2,4}\s*[0-9]+[\.:]\s*(?:Active\s*Tasks?|Notes?|Rules?|Overview|활성\s*(?:작업|태스크)|참고|규칙|개요)/i;
+const MD_PREFIXED_TASK_HEADER_RE = /^#{2,4}\s*(TSK-[A-Z0-9]+)[\.:]\s*(.+)$/i;
+const MD_NUMERIC_TASK_HEADER_RE = /^#{3,4}\s*([0-9]+)[\.:]\s*(.+)$/i;
+const ADR_DETAIL_HEADER_RE = new RegExp(
+  `^(?:(${ADR_ID_REGEX_SOURCE})\\]\\s*\\[)?([0-9]{4}-[0-9]{2}-[0-9]{2})\\]\\s*(.+)$`,
+  'i'
+);
+const PATTERN_INDEX_ROW_RE = new RegExp(
+  `^\\|\\s*(?:\\*\\*)?(${PATTERN_ID_REGEX_SOURCE})(?:\\*\\*)?\\s*\\|\\s*([^|]+)\\|\\s*([^|]+)\\|\\s*([^|]+)\\|`,
+  'i'
+);
+const PATTERN_SHARD_HEADER_RE = new RegExp(`^#\\s*\\[(${PATTERN_ID_REGEX_SOURCE})\\]\\s*(.+)$`, 'im');
 
 const ROOT_DIR = process.env.ACM_ROOT_DIR ? path.resolve(process.env.ACM_ROOT_DIR) : path.resolve(__dirname, '..');
 const ACTIVE_LANG = resolveLanguage(ROOT_DIR, parseLangFlag(process.argv.slice(2)).lang);
@@ -116,17 +142,11 @@ function parseTaskMd() {
       }
       if (inCodeBlock) continue;
 
-      const bulletHeaderMatch = line.match(
-        /^-\s*\[([^\]]*)\]\s*\*\*(?:(TSK-[0-9]+|[0-9]+)[\.:]\s*)(.+?)\*\*/i
-      );
-      const isNumberedSectionTitle =
-        /^#{2,4}\s*[0-9]+[\.:]\s*(?:Active\s*Tasks?|Notes?|Rules?|Overview|활성\s*(?:작업|태스크)|참고|규칙|개요)/i.test(
-          line
-        );
+      const bulletHeaderMatch = line.match(BULLET_TASK_HEADER_RE);
+      const isNumberedSectionTitle = NUMBERED_SECTION_RE.test(line);
       const mdHeaderMatch =
         !bulletHeaderMatch && !isNumberedSectionTitle
-          ? line.match(/^#{2,4}\s*(TSK-[0-9]+)[\.:]\s*(.+)$/i) ||
-            line.match(/^#{3,4}\s*([0-9]+)[\.:]\s*(.+)$/i)
+          ? line.match(MD_PREFIXED_TASK_HEADER_RE) || line.match(MD_NUMERIC_TASK_HEADER_RE)
           : null;
 
       if (!bulletHeaderMatch && !mdHeaderMatch && /^(?:##\s|###\s|---)/.test(line)) {
@@ -146,14 +166,13 @@ function parseTaskMd() {
 
         const rawStatus = bulletHeaderMatch ? bulletHeaderMatch[1].trim() : '';
         const rawId = (bulletHeaderMatch ? bulletHeaderMatch[2] : mdHeaderMatch[1]).trim();
-        const numOnly = rawId.replace(/[^0-9]/g, '');
-        const parsedNum = parseInt(numOnly, 10);
-        if (!parsedNum || parsedNum <= 0) {
+        const parsed = parseCode(rawId, 'TSK');
+        if (!parsed) {
           currentTask = null;
           continue;
         }
 
-        const tskId = `TSK-${parsedNum}`;
+        const tskId = parsed.code;
         let fullTitle = (bulletHeaderMatch ? bulletHeaderMatch[3] : mdHeaderMatch[2]).trim();
 
         let statusRaw = rawStatus;
@@ -167,7 +186,7 @@ function parseTaskMd() {
         currentTask = {
           source: 'task',
           id: `task-${tskId}`,
-          taskNum: String(parsedNum),
+          taskNum: parsed.num !== null ? String(parsed.num) : '',
           tskId,
           title: `[${tskId}] ${fullTitle}`,
           rawTitle: fullTitle,
@@ -289,14 +308,19 @@ function parseChangelog() {
     for (const block of dateBlocks) {
       const firstLineEnd = block.indexOf('\n');
       const headerLine = (firstLineEnd !== -1 ? block.slice(0, firstLineEnd) : block).trim();
-      const headerMatch = headerLine.match(/^(?:(LOG-[A-Za-z0-9]+)\]\s*\[)?([0-9]{4}-[0-9]{2}-[0-9]{2})\]\s*(.+)$/);
+      const headerMatch = headerLine.match(ADR_DETAIL_HEADER_RE);
       if (!headerMatch) continue;
 
-      const logId = headerMatch[1] || '';
+      let logId = '';
+      if (headerMatch[1]) {
+        const parsedLog = parseCode(headerMatch[1], 'LOG');
+        if (!parsedLog) continue;
+        logId = parsedLog.code;
+      }
       const date = headerMatch[2];
       const title = headerMatch[3].trim();
 
-      if (logId.toUpperCase() === 'LOG-00' || /sample|양식\s*샘플|commit/i.test(title)) continue;
+      if (/sample|양식\s*샘플|commit/i.test(title)) continue;
 
       const blockTime = new Date(date).getTime();
       const diffDays = (Date.now() - blockTime) / (1000 * 60 * 60 * 24);
@@ -364,10 +388,11 @@ function parseLearnedPatterns() {
       const indexContent = fs.readFileSync(PATTERNS_INDEX_FILE, 'utf-8');
       const lines = indexContent.split(/\r?\n/);
       for (const line of lines) {
-        const match = line.match(/^\|\s*(?:\*\*)?(P-[0-9]+)(?:\*\*)?\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|/);
+        const match = line.match(PATTERN_INDEX_ROW_RE);
         if (match) {
-          const id = match[1].trim().toUpperCase();
-          if (id === 'P-00' || id === 'P-0') continue;
+          const parsed = parseCode(match[1], 'P');
+          if (!parsed) continue;
+          const id = parsed.code;
           const category = match[2].trim();
           const summary = match[3].trim();
           const linkCol = match[4].trim();
@@ -392,10 +417,11 @@ function parseLearnedPatterns() {
       let category = meta ? meta.category : null;
 
       if (!id || !category) {
-        const headerMatch = content.match(/^#\s*\[(P-[0-9]+)\]\s*(.+)$/m);
+        const headerMatch = content.match(PATTERN_SHARD_HEADER_RE);
         if (!headerMatch) continue;
-        id = headerMatch[1].toUpperCase();
-        if (id === 'P-00' || id === 'P-0') continue;
+        const parsed = parseCode(headerMatch[1], 'P');
+        if (!parsed) continue;
+        id = parsed.code;
         category = headerMatch[2].trim();
       }
 
@@ -542,7 +568,7 @@ function buildCommitMessage(task, files) {
 
   const prefix = scope ? `${type}(${scope})` : type;
   const taskPrefix = task.tskId ? `[${task.tskId}] ` : task.taskNum ? `[Task #${task.taskNum}] ` : '';
-  const cleanTitle = (task.rawTitle || task.title || '').replace(/^\[TSK-[0-9]+\]\s*/i, '');
+  const cleanTitle = (task.rawTitle || task.title || '').replace(/^\[TSK-[A-Z0-9]+\]\s*/i, '');
   const header = `${prefix}: ${taskPrefix}${cleanTitle}`;
 
   const bodyLines = [];
@@ -590,12 +616,12 @@ function loadTasksFromStore() {
         }
       }
       return tasks.map((task) => {
-        const num = parseCodeNumber(task.code, 'TSK');
+        const parsed = parseCode(task.code, 'TSK');
         const canonicalStatus = normalizeTaskStatus(task.status);
         return {
           source: 'sqlite',
           id: `task-${task.code}`,
-          taskNum: num !== null ? String(num) : '',
+          taskNum: parsed && parsed.num !== null ? String(parsed.num) : '',
           tskId: task.code,
           title: `[${task.code}] ${task.title}`,
           rawTitle: task.title,
@@ -838,12 +864,13 @@ function autoCompleteTask(group, sha) {
     const lines = taskRaw.split(/\r?\n/);
 
     const escapedTsk = group.tskId.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const idAlt = group.taskNum ? `(?:${escapedTsk}|${group.taskNum})` : escapedTsk;
     const bulletHeaderRegex = new RegExp(
-      `^-\\s*\\[[^\\]]*\\]\\s*\\*\\*(?:${escapedTsk}|${group.taskNum})[\\.:]\\s*(.+?)\\*\\*`,
+      `^-\\s*\\[[^\\]]*\\]\\s*\\*\\*${idAlt}[\\.:]\\s*(.+?)\\*\\*`,
       'i'
     );
     const mdHeaderRegex = new RegExp(
-      `^#{2,4}\\s*(?:${escapedTsk}|${group.taskNum})[\\.:]\\s*(.+)$`,
+      `^#{2,4}\\s*${idAlt}[\\.:]\\s*(.+)$`,
       'i'
     );
 
@@ -906,7 +933,7 @@ function autoCompleteTask(group, sha) {
     }
 
     const cleanTitle = (group.rawTitle || group.title || '')
-      .replace(/^\[TSK-[0-9]+\]\s*/i, '')
+      .replace(/^\[TSK-[A-Z0-9]+\]\s*/i, '')
       .replace(/\s*\[[^\]]+\]$/, '')
       .trim();
     const subHeaderLine = subHeaderIdx !== -1 ? lines[subHeaderIdx].trim() : null;
@@ -951,13 +978,13 @@ function autoCompleteTask(group, sha) {
 
     const remainingActiveIds = [];
     if (sec1Idx !== -1) {
+      const remBulletRe = new RegExp(`^-\\s*\\[[^\\]]*\\]\\s*\\*\\*(${TASK_ID_REGEX_SOURCE})[\\.:]`, 'i');
+      const remMdRe = new RegExp(`^#{2,4}\\s*(${TASK_ID_REGEX_SOURCE})[\\.:]`, 'i');
       for (let i = sec1Idx + 1; i < sec1EndIdx; i++) {
-        const m =
-          nextLines[i].match(/^-\s*\[[^\]]*\]\s*\*\*(?:(TSK-[0-9]+|[0-9]+)[\.:])/i) ||
-          nextLines[i].match(/^#{2,4}\s*(?:(TSK-[0-9]+|[0-9]+)[\.:])/i);
+        const m = nextLines[i].match(remBulletRe) || nextLines[i].match(remMdRe);
         if (m) {
-          const rawId = m[1].toUpperCase();
-          remainingActiveIds.push(rawId.startsWith('TSK-') ? rawId : `TSK-${rawId}`);
+          const parsedActive = parseCode(m[1], 'TSK');
+          if (parsedActive) remainingActiveIds.push(parsedActive.code);
         }
       }
 
@@ -971,39 +998,49 @@ function autoCompleteTask(group, sha) {
       }
     }
 
-    const committedNum = parseInt(group.taskNum, 10) || 0;
+    const committedParsed = parseCode(group.tskId, 'TSK');
+    const committedNum = committedParsed && committedParsed.num ? committedParsed.num : 0;
+    const resolveLatestDoneCode = (prevDoneToken) => {
+      if (!committedNum) return group.tskId;
+      const prevParsed = parseCode(prevDoneToken, 'TSK');
+      const prevNum = prevParsed && prevParsed.num ? prevParsed.num : 0;
+      return `TSK-${Math.max(prevNum, committedNum)}`;
+    };
+    const maxActiveNum = remainingActiveIds.reduce((acc, id) => {
+      const p = parseCode(id, 'TSK');
+      return Math.max(acc, p && p.num ? p.num : 0);
+    }, 0);
+
     const updateMetaLine = (content) =>
       content
         .replace(
-          /최근 완료:\s*`(?:TSK-([0-9]+)|없음)`([^)\r\n]*?)현재 활성:\s*.*?,\s*차기 예정:\s*`TSK-([0-9]+)`/,
-          (_, prevDone, mid, prevNext) => {
-            const latestDone = Math.max(parseInt(prevDone, 10) || 0, committedNum);
-            const maxActive = remainingActiveIds.reduce(
-              (acc, id) => Math.max(acc, parseInt(id.replace(/[^0-9]/g, ''), 10) || 0),
-              0
-            );
-            const nextNum = Math.max(parseInt(prevNext, 10) || 0, latestDone + 1, maxActive + 1);
+          /최근 완료:\s*`(TSK-[A-Z0-9]+|없음)`([^)\r\n]*?)현재 활성:\s*([^)\r\n]*?)(?:,\s*차기 예정:\s*`TSK-([0-9]+)`)?(?=\)|$|\r|\n)/i,
+          (_, prevDone, mid, _activeOld, prevNext) => {
+            const latestDoneCode = resolveLatestDoneCode(prevDone);
             const activeText =
               remainingActiveIds.length > 0
                 ? remainingActiveIds.map((id) => `\`${id}\``).join(', ')
                 : '`없음`';
-            return `최근 완료: \`TSK-${latestDone}\`${mid}현재 활성: ${activeText}, 차기 예정: \`TSK-${nextNum}\``;
+            if (prevNext !== undefined && committedNum) {
+              const nextNum = Math.max(parseInt(prevNext, 10) || 0, committedNum + 1, maxActiveNum + 1);
+              return `최근 완료: \`${latestDoneCode}\`${mid}현재 활성: ${activeText}, 차기 예정: \`TSK-${nextNum}\``;
+            }
+            return `최근 완료: \`${latestDoneCode}\`${mid}현재 활성: ${activeText}`;
           }
         )
         .replace(
-          /Latest Done:\s*`(?:TSK-([0-9]+)|None)`([^)\r\n]*?)Active:\s*.*?,\s*Next:\s*`TSK-([0-9]+)`/i,
-          (_, prevDone, mid, prevNext) => {
-            const latestDone = Math.max(parseInt(prevDone, 10) || 0, committedNum);
-            const maxActive = remainingActiveIds.reduce(
-              (acc, id) => Math.max(acc, parseInt(id.replace(/[^0-9]/g, ''), 10) || 0),
-              0
-            );
-            const nextNum = Math.max(parseInt(prevNext, 10) || 0, latestDone + 1, maxActive + 1);
+          /Latest Done:\s*`(TSK-[A-Z0-9]+|None)`([^)\r\n]*?)Active:\s*([^)\r\n]*?)(?:,\s*Next:\s*`TSK-([0-9]+)`)?(?=\)|$|\r|\n)/i,
+          (_, prevDone, mid, _activeOld, prevNext) => {
+            const latestDoneCode = resolveLatestDoneCode(prevDone);
             const activeText =
               remainingActiveIds.length > 0
                 ? remainingActiveIds.map((id) => `\`${id}\``).join(', ')
                 : '`None`';
-            return `Latest Done: \`TSK-${latestDone}\`${mid}Active: ${activeText}, Next: \`TSK-${nextNum}\``;
+            if (prevNext !== undefined && committedNum) {
+              const nextNum = Math.max(parseInt(prevNext, 10) || 0, committedNum + 1, maxActiveNum + 1);
+              return `Latest Done: \`${latestDoneCode}\`${mid}Active: ${activeText}, Next: \`TSK-${nextNum}\``;
+            }
+            return `Latest Done: \`${latestDoneCode}\`${mid}Active: ${activeText}`;
           }
         );
 
@@ -1485,17 +1522,37 @@ function main() {
     process.exit(0);
   }
 
-  // 2) --commit=<num|TSK-XX> targeted commit
+  // 2) --commit=<num|TSK-XXXXXX|prefix> targeted commit
   if (commitArg) {
-    const rawVal = commitArg.split('=')[1].trim();
+    const rawVal = commitArg.slice('--commit='.length).trim();
     let targetGroup = null;
 
-    const targetIdx = parseInt(rawVal, 10) - 1;
-    if (!isNaN(targetIdx) && targetIdx >= 0 && targetIdx < groups.length && !rawVal.toUpperCase().startsWith('TSK-')) {
+    const isPureInt = /^[0-9]+$/.test(rawVal);
+    const targetIdx = isPureInt ? parseInt(rawVal, 10) - 1 : -1;
+    if (isPureInt && targetIdx >= 0 && targetIdx < groups.length) {
       targetGroup = groups[targetIdx];
     } else {
-      const normalizedTsk = rawVal.toUpperCase().startsWith('TSK-') ? rawVal.toUpperCase() : `TSK-${rawVal}`;
-      targetGroup = groups.find((g) => g.tskId === normalizedTsk || g.taskNum === rawVal);
+      const { exactCode, prefixQuery } = normalizeCodeInput(rawVal, 'TSK');
+      if (exactCode) {
+        targetGroup = groups.find(
+          (g) => g.tskId && g.tskId.toUpperCase() === exactCode.toUpperCase()
+        );
+      } else if (prefixQuery) {
+        const matches = groups.filter(
+          (g) => g.tskId && g.tskId.toUpperCase().startsWith(prefixQuery)
+        );
+        if (matches.length === 1) {
+          targetGroup = matches[0];
+        } else if (matches.length > 1) {
+          console.error(
+            tr('storage.ambiguousCodePrefix', {
+              id: rawVal,
+              matches: matches.map((m) => m.tskId).join(', '),
+            })
+          );
+          process.exit(1);
+        }
+      }
     }
 
     if (!targetGroup) {

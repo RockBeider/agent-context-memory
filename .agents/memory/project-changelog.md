@@ -10,6 +10,7 @@
 
 | ID | Date | Architectural Decision Summary | Related Area |
 | :--- | :--- | :--- | :--- |
+| **LOG-MJWB4R** | 2026-11-23 | Unify solo/team identifiers into immutable 6-char Crockford Base32 `short-id` (`TSK-XXXXXX`, `P-XXXXXX`, `LOG-XXXXXX`), `acm id` CLI, unambiguous prefix lookup, and explicit-only author metadata with full legacy sequential compatibility | `scripts/storage/`, `scripts/group-status.cjs`, `scripts/acm-db-cli.cjs`, `scripts/mcp-server.cjs`, `.agents/`, `acm-template/` |
 | **LOG-04** | 2026-11-23 | Adopt Local-First SQLite (`node:sqlite` + FTS5) storage engine, DB CLI, Git orphan branch (`acm-memory`) sync with Secret Scrubber, and zero-dependency stdio MCP server | `bin/`, `scripts/storage/`, `scripts/acm-db-cli.cjs`, `scripts/mcp-server.cjs`, `.agents/` |
 | **LOG-03** | 2026-11-23 | Switch ACM default language to English (`en`) with install-time EN/KO i18n, Korean template overlay, and bilingual parsers | `bin/`, `scripts/`, `acm-template/`, `README*.md` |
 | **LOG-02** | 2026-11-09 | Integrate auto-archiving (`autoCompleteTask`), `[Ready]` safety gate, `ADR Index Map`, universal release sentinel, and clean sample isolation | `scripts/group-status.cjs`, `.agents/`, `acm-template/` |
@@ -18,6 +19,21 @@
 ---
 
 ## 2. Architecture Decision Details
+
+### [LOG-MJWB4R] [2026-11-23] Unified Collision-Free Short-ID Architecture & Explicit-Only Author Separation
+
+- **Related Commit/Branch**: `TSK-F6W4AT` / `main`
+- **Context & Goal**:
+  - Eliminate sequential ID collisions across multi-developer teams, multi-PC setups, Git worktrees, and concurrent AI agents—plus permanent Git commit vs. DB archive mismatches caused by post-hoc renumbering—without introducing solo/team mode switches or configuration prompts.
+- **Architectural Decisions**:
+  - Standardized all newly issued IDs on 6-character Crockford Base32 `short-id` tokens starting with an alpha character (`TSK-XXXXXX`, `P-XXXXXX`, `LOG-XXXXXX`; $22 \times 32^5$ space) in `scripts/storage/id-utils.cjs` using unbiased `crypto.randomBytes()`, cleanly separating new codes from legacy numeric IDs and template samples (`TSK-SAMPLE`, `P-00`, `LOG-00`).
+  - Added 3-tier lookup (`uid` -> exact normalized code -> unambiguous 3-5 char prefix with ambiguity guard) and chronological `createdAt` + legacy tiebreak sorting across `SqliteProvider`, `MarkdownProvider`, and `group-status.cjs --commit=<target>`.
+  - Added `acm id [task|pattern|adr] [--count=N]` for manual Markdown workflows and switched `git-orphan-sync.cjs` fallback collision resolution to issue non-colliding `short-id` values.
+  - Separated author metadata from IDs and avoided auto-injecting `git user.name`: `tasks.owner` stays explicit-only (`""` default), and `patterns.author` / `adrs.author` resolve only from explicit input, `ACM_AUTHOR`, or optional `.agents/config.json` `author`.
+- **Expected Impact**:
+  - Zero-config collision-free IDs across all local and collaborative workflows, permanent Git commit/DB parity, and 100% lossless backward compatibility for existing sequential IDs (`TSK-1..24`, `P-01..02`, `LOG-01..04`).
+
+---
 
 ### [LOG-04] [2026-11-23] Local-First SQLite Storage, Git Orphan Sync & Zero-Dependency Stdio MCP Architecture
 

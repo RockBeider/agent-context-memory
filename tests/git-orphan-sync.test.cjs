@@ -119,10 +119,13 @@ function runCli(args, cwd, env = {}) {
     const devAMainBefore = execSync('git rev-parse HEAD', { cwd: devADir, encoding: 'utf-8' }).trim();
     fs.writeFileSync(path.join(devADir, 'dirty-work.txt'), 'uncommitted dev A work\n');
 
-    // Dev A registers P-01 (with secret), LOG-01, TSK-1 (done), and TSK-2 (in_progress local only)
+    // Dev A registers P-XXXXXX (with secret), LOG-XXXXXX, TSK-XXXXXX (done), and local WIP task
     const storeA = createMemoryStore(devADir, { skipProjection: true });
+    let patA;
+    let adrA;
+    let doneTaskA;
     try {
-      storeA.upsertPattern({
+      patA = storeA.upsertPattern({
         category: 'Auth',
         title: 'API Token Configuration',
         summary: 'Store tokens in env only',
@@ -132,7 +135,7 @@ function runCli(args, cwd, env = {}) {
         createdAt: '2026-11-23T01:00:00.000Z',
         updatedAt: '2026-11-23T01:00:00.000Z',
       });
-      storeA.upsertAdr({
+      adrA = storeA.upsertAdr({
         date: '2026-11-23',
         title: 'Adopt Orphan Branch Sync',
         summary: 'Sync shared memories via acm-memory branch',
@@ -143,7 +146,7 @@ function runCli(args, cwd, env = {}) {
         createdAt: '2026-11-23T01:05:00.000Z',
         updatedAt: '2026-11-23T01:05:00.000Z',
       });
-      storeA.upsertTask({
+      doneTaskA = storeA.upsertTask({
         title: 'Completed shared baseline task',
         status: 'done',
         commitSha: '111aaaa',
@@ -202,10 +205,13 @@ function runCli(args, cwd, env = {}) {
     const revParts = parentCheck.stdout.trim().split(/\s+/);
     assert.strictEqual(revParts.length, 1, `First acm-memory commit must be true orphan (0 parents), got: ${parentCheck.stdout}`);
 
-    // Dev B independently creates conflicting P-01, LOG-01, and TSK-1 (in_progress) BEFORE pulling Dev A
+    // Dev B independently creates pattern, ADR, and active task with short-id BEFORE pulling Dev A (0 collisions!)
     const storeB = createMemoryStore(devBDir, { skipProjection: true });
+    let patB;
+    let adrB;
+    let wipTaskB;
     try {
-      storeB.upsertPattern({
+      patB = storeB.upsertPattern({
         category: 'Database',
         title: 'WAL Checkpoint Tuning',
         summary: 'Prevent WAL bloat on Windows',
@@ -215,7 +221,7 @@ function runCli(args, cwd, env = {}) {
         createdAt: '2026-11-23T02:00:00.000Z',
         updatedAt: '2026-11-23T02:00:00.000Z',
       });
-      storeB.upsertAdr({
+      adrB = storeB.upsertAdr({
         date: '2026-11-23',
         title: 'CLI JSON Input Mode',
         summary: 'Support --stdin for multiline JSON',
@@ -226,10 +232,10 @@ function runCli(args, cwd, env = {}) {
         createdAt: '2026-11-23T02:05:00.000Z',
         updatedAt: '2026-11-23T02:05:00.000Z',
       });
-      storeB.upsertTask({
-        title: 'Dev B local active task colliding on TSK-1',
+      wipTaskB = storeB.upsertTask({
+        title: 'Dev B local active task preserved without renumbering',
         status: 'in_progress',
-        purpose: 'Verify local TSK-1 collision renumbers safely',
+        purpose: 'Verify short-id prevents sync code collision',
         createdAt: '2026-11-23T02:10:00.000Z',
         updatedAt: '2026-11-23T02:10:00.000Z',
       });
@@ -237,21 +243,26 @@ function runCli(args, cwd, env = {}) {
       storeB.close();
     }
 
-    // Dev B syncs: merges Dev A's records + renumbers Dev B's conflicting codes cleanly + pushes
+    // Dev B syncs: merges Dev A's records with ZERO code collisions and preserves all original codes
     const syncBRes = runCli(['sync', '--json'], devBDir);
     assert.strictEqual(syncBRes.status, 0, `Dev B sync failed: ${syncBRes.stderr || syncBRes.stdout}`);
     const syncBOut = JSON.parse(syncBRes.stdout);
     assert.ok(syncBOut.pulled >= 3, `Expected Dev B to pull >= 3 records, got ${syncBOut.pulled}`);
-    assert.strictEqual(syncBOut.conflictsResolved, 3, `Expected 3 code collisions resolved, got ${syncBOut.conflictsResolved}`);
+    assert.strictEqual(syncBOut.conflictsResolved, 0, `Expected 0 code collisions with short-id, got ${syncBOut.conflictsResolved}`);
 
     const devBPatterns = JSON.parse(runCli(['pattern', 'list', '--json'], devBDir).stdout).patterns;
     assert.strictEqual(devBPatterns.length, 2);
-    assert.strictEqual(devBPatterns.find((p) => p.code === 'P-01').title, 'API Token Configuration');
-    assert.strictEqual(devBPatterns.find((p) => p.code === 'P-02').title, 'WAL Checkpoint Tuning');
+    assert.strictEqual(devBPatterns.find((p) => p.code === patA.code).title, 'API Token Configuration');
+    assert.strictEqual(devBPatterns.find((p) => p.code === patB.code).title, 'WAL Checkpoint Tuning');
+
+    const devBAdrs = JSON.parse(runCli(['adr', 'list', '--json'], devBDir).stdout).adrs;
+    assert.strictEqual(devBAdrs.length, 2);
+    assert.strictEqual(devBAdrs.find((a) => a.code === adrA.code).title, 'Adopt Orphan Branch Sync');
+    assert.strictEqual(devBAdrs.find((a) => a.code === adrB.code).title, 'CLI JSON Input Mode');
 
     const devBTasksAll = JSON.parse(runCli(['task', 'list', '--all', '--json'], devBDir).stdout).tasks;
-    assert.strictEqual(devBTasksAll.find((t) => t.code === 'TSK-1').status, 'done');
-    assert.strictEqual(devBTasksAll.find((t) => t.code === 'TSK-2').status, 'in_progress');
+    assert.strictEqual(devBTasksAll.find((t) => t.code === doneTaskA.code).status, 'done');
+    assert.strictEqual(devBTasksAll.find((t) => t.code === wipTaskB.code).status, 'in_progress');
 
     // Dev A pulls Dev B's updates
     const dryPullRes = runCli(['sync', '--pull', '--dry-run', '--json'], devADir);
@@ -266,6 +277,51 @@ function runCli(args, cwd, env = {}) {
     const devAAdrs = JSON.parse(runCli(['adr', 'list', '--json'], devADir).stdout).adrs;
     assert.strictEqual(devAPatterns.length, 2);
     assert.strictEqual(devAAdrs.length, 2);
+
+    // 2-B. Fallback collision resolution when two clones explicitly inject colliding legacy P-01 codes
+    const colStoreA = createMemoryStore(devADir, { skipProjection: true });
+    try {
+      colStoreA.upsertPattern({
+        code: 'P-01',
+        category: 'Legacy',
+        title: 'Legacy Earlier P-01',
+        summary: 'Earlier colliding legacy pattern',
+        createdAt: '2026-11-23T03:00:00.000Z',
+        updatedAt: '2026-11-23T03:00:00.000Z',
+      });
+    } finally {
+      colStoreA.close();
+    }
+    assert.strictEqual(runCli(['sync', '--push'], devADir).status, 0);
+
+    const colStoreB = createMemoryStore(devBDir, { skipProjection: true });
+    let colPatB;
+    try {
+      colPatB = colStoreB.upsertPattern({
+        code: 'P-01',
+        category: 'Legacy',
+        title: 'Legacy Later P-01',
+        summary: 'Later colliding legacy pattern',
+        createdAt: '2026-11-23T03:05:00.000Z',
+        updatedAt: '2026-11-23T03:05:00.000Z',
+      });
+    } finally {
+      colStoreB.close();
+    }
+
+    const colSyncB = runCli(['sync', '--json'], devBDir);
+    assert.strictEqual(colSyncB.status, 0, colSyncB.stderr);
+    const colSyncOut = JSON.parse(colSyncB.stdout);
+    assert.strictEqual(colSyncOut.conflictsResolved, 1, 'Expected explicit legacy P-01 collision to resolve');
+
+    const devBPatternsAfterCol = JSON.parse(runCli(['pattern', 'list', '--json'], devBDir).stdout).patterns;
+    const keptLegacy = devBPatternsAfterCol.find((p) => p.code === 'P-01');
+    const reissued = devBPatternsAfterCol.find((p) => p.uid === colPatB.uid);
+    assert.strictEqual(keptLegacy.title, 'Legacy Earlier P-01');
+    assert.ok(
+      /^P-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/.test(reissued.code),
+      `Expected colliding later record to be reissued as short-id, got: ${reissued.code}`
+    );
 
     // Status command verification
     const statusRes = runCli(['sync', '--status', '--json'], devADir);

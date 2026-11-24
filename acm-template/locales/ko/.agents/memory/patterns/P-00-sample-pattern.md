@@ -1,8 +1,8 @@
 # [P-00] Sample Pattern Template (양식 샘플 - 실제 패턴 아님)
 
 > [!NOTE]
-> 본 파일은 `P-XX` 지식 패턴 작성 양식 및 `group-status.cjs` 파서 호환 규격을 안내하기 위한 샘플입니다.
-> 프로젝트에서 첫 번째 실제 기술 난제를 해결할 때 `P-01-{영문-슬러그}.md`부터 생성하십시오.
+> 본 파일은 `P-XXXXXX`(또는 기존 `P-XX`) 지식 패턴 작성 양식 및 `group-status.cjs` 파서 호환 규격을 안내하기 위한 샘플입니다.
+> 프로젝트에서 재사용 가능한 기술 해법을 증류할 때 `acm pattern add` / `acm id pattern` / MCP로 발급한 `P-XXXXXX-{영문-슬러그}.md`로 생성하십시오.
 
 - **일자**: YYYY-MM-DD
 - **도메인 분류**: (예: Git / 빌드 / 상태관리 / UI / 인증 등)

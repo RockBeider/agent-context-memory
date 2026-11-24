@@ -124,6 +124,19 @@ try {
   assert.ok(koCompactRes.stdout.includes('[비-Git 환경]'), 'Korean compact header missing');
   console.log('[PASS] Korean Non-Git viewer verified.');
 
+  // 7.5 acm id command in Non-Git directory
+  console.log('[Step 7.5] Running acm id in Non-Git directory');
+  const idRes = spawnSync(process.execPath, [CLI_PATH, 'id', 'pattern', '--count=2', '--json'], {
+    cwd: tempDir,
+    encoding: 'utf-8',
+  });
+  assert.strictEqual(idRes.status, 0, `acm id failed in Non-Git directory: ${idRes.stderr || idRes.stdout}`);
+  const idOut = JSON.parse(idRes.stdout);
+  assert.strictEqual(idOut.ok, true);
+  assert.strictEqual(idOut.codes.length, 2);
+  assert.ok(idOut.codes.every((c) => /^P-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/.test(c)));
+  console.log('[PASS] acm id Non-Git verified.');
+
   // 8. uninstall --force rollback
   console.log('[Step 8] Running uninstall (rollback verification)');
   const uninstallRes = spawnSync(process.execPath, [CLI_PATH, 'uninstall', '--force', '--no-backup'], {

@@ -34,10 +34,10 @@ commandExecutionPolicy: request-review
 ### C. 작업 단위 커밋 및 태스크 무인 완료 이관 검증
 1. **커밋 실행 위임 및 원스톱 자동 이관 확인**:
    - 커밋 전 `.agents/task/task.md`에 `[커밋 대기]` 상태와 3요소(`목적`, `수행결과`, `대상영역`)가 빠짐없이 기록되었는지 확인.
-   - 원칙적으로 `npm run git:commit` (`node scripts/group-status.cjs --all`) 또는 특정 작업 지정 `node scripts/group-status.cjs --commit=<TSK-번호>`를 활용하여 분할 커밋.
+   - 원칙적으로 `npm run git:commit` (`node scripts/group-status.cjs --all`) 또는 특정 작업 지정 `node scripts/group-status.cjs --commit=<번호|TSK-XXXXXX|접두사>`를 활용하여 분할 커밋.
    - 커밋 완료 후 실제 커밋 해시(Commit SHA) 확보 및 `.agents/task/task-completed.md`로의 자동 완료 이관 여부 확인.
 2. **태스크 거버넌스 및 로컬 문서 격리 검증**:
-   - `TSK-{자연수}` 불변 번호 체계 유지 확인 (`TSK-SAMPLE`, `P-00`, `LOG-00` 샘플 오염 여부 점검).
+   - `TSK-XXXXXX`(또는 기존 `TSK-{자연수}`) 불변 ID 체계 유지 확인 (`TSK-SAMPLE`, `P-00`, `LOG-00` 샘플 오염 여부 점검).
    - 커밋 완료 전 `[커밋 대기]` 상태를 임의로 `[x]`로 변경하거나 조기 이관하지 않았는지 확인 (Negative Rule 준수).
    - `.gitignore`로 격리된 `.agents/` 로컬 문서를 2차로 Git 커밋하려는 시도를 차단.
 

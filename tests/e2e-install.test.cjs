@@ -299,12 +299,44 @@ async function runTests() {
     const afterCompletedMd = fs.readFileSync(path.join(tempDir, '.agents', 'task', 'task-completed.md'), 'utf-8');
     assert.ok(afterTaskMd.includes('(No active tasks)'), 'TSK-1 was not removed from task.md after commit');
     assert.ok(afterTaskMd.includes('Latest Done: `TSK-1`'), 'task.md Latest Done meta not updated');
-    assert.ok(afterTaskMd.includes('Next: `TSK-2`'), 'task.md Next meta not updated');
+    assert.ok(afterTaskMd.includes('Active: `None`'), 'task.md Active meta not updated');
     assert.ok(
       afterCompletedMd.includes('- [x] **TSK-1. Initial ACM onboarding and governance scripts** (Commit: `'),
       'TSK-1 and commit SHA were not archived into task-completed.md'
     );
-    console.log('[PASS] Atomic commit, clean tree, and autoCompleteTask English archival verified.');
+    console.log('[PASS] Legacy sequential atomic commit, clean tree, and autoCompleteTask English archival verified.');
+
+    // 4-6b. Short-ID task commit via --commit=<prefix> and autoCompleteTask archival
+    console.log('[Stage 4-3] Register TSK-K7M29A [Ready], commit via --commit=K7M2 prefix, and verify archival');
+    fs.writeFileSync(path.join(tempDir, 'shortid-feature.txt'), 'short-id commit test\n', 'utf-8');
+    const shortIdTaskMd = afterTaskMd.replace(
+      '(No active tasks)',
+      [
+        '- [Ready] **TSK-K7M29A. Short-ID prefix targeted commit verification**',
+        '  - **Purpose**: Verify short-id commit header and prefix selection in group-status.cjs.',
+        '  - **Results**:',
+        '    - `shortid-feature.txt`: Added test artifact for short-id commit',
+        '  - **Targets**: `shortid-feature.txt`',
+      ].join('\n')
+    );
+    fs.writeFileSync(path.join(tempDir, '.agents', 'task', 'task.md'), shortIdTaskMd, 'utf-8');
+
+    const shortCommitRes = spawnSync(process.execPath, [CLI_PATH, 'commit', '--commit=K7M2'], {
+      cwd: tempDir,
+      encoding: 'utf-8',
+    });
+    assert.strictEqual(shortCommitRes.status, 0, `short-id prefix commit failed: ${shortCommitRes.stderr || shortCommitRes.stdout}`);
+    assert.ok(shortCommitRes.stdout.includes('[TSK-K7M29A]'), 'Commit header missing [TSK-K7M29A]');
+    assert.strictEqual(execSync('git status --porcelain', { cwd: tempDir, encoding: 'utf-8' }).trim(), '');
+
+    const afterShortTaskMd = fs.readFileSync(path.join(tempDir, '.agents', 'task', 'task.md'), 'utf-8');
+    const afterShortCompMd = fs.readFileSync(path.join(tempDir, '.agents', 'task', 'task-completed.md'), 'utf-8');
+    assert.ok(afterShortTaskMd.includes('Latest Done: `TSK-K7M29A`'), 'task.md Latest Done not updated to TSK-K7M29A');
+    assert.ok(
+      afterShortCompMd.includes('- [x] **TSK-K7M29A. Short-ID prefix targeted commit verification** (Commit: `'),
+      'TSK-K7M29A archive entry missing from task-completed.md'
+    );
+    console.log('[PASS] Short-ID atomic commit (--commit=K7M2) and autoCompleteTask archival verified.');
 
     // 4-7. Uninstall --force verification
     console.log('[Stage 5] uninstall --force rollback verification');

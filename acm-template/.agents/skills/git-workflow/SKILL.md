@@ -53,10 +53,10 @@ Verify proportional to change impact:
 Never run bulk `git add .` across unrelated files. Follow **"Document `[Ready]` + 3 elements in `task.md` -> Run `npm run git:commit` ONCE after explicit user approval"**:
 
 1. **Update `task.md` to `[Ready]` with 3 Required Elements**:
-   - Register or update the task in `.agents/task/task.md` with status `[Ready]` and all 3 elements (`Purpose`, `Results`, `Targets`) so `group-status.cjs` can build the commit message and auto-archive:
+   - Register or update the task in `.agents/task/task.md` (via `acm task add` / `acm id` / MCP) with status `[Ready]` and all 3 elements (`Purpose`, `Results`, `Targets`) so `group-status.cjs` can build the commit message and auto-archive:
      ```markdown
      ### [Task Group Title]
-     - [Ready] **TSK-X. Concise task summary title**
+     - [Ready] **TSK-XXXXXX. Concise task summary title**
        - **Registered**: YYYY-MM-DD
        - **Purpose**: One-line summary of background and goal
        - **Results**:
@@ -74,7 +74,7 @@ Never run bulk `git add .` across unrelated files. Follow **"Document `[Ready]` 
    - **Additional CLI Options**:
      - Preview groupings & commit messages without committing: `npm run git:status` (`node scripts/group-status.cjs --dry-run`)
      - Compact 1-line summary for low-token checks: `npm run git:summary` (`node scripts/group-status.cjs --compact`)
-     - Commit a single task only: `node scripts/group-status.cjs --commit=<num|TSK-X>`
+     - Commit a single task only: `node scripts/group-status.cjs --commit=<num|TSK-XXXXXX|prefix>`
 3. **Never Attempt Secondary `.agents/` Commits (Host Projects)**:
    - In host projects where `.agents/` is excluded via `.gitignore`, never attempt follow-up Git commits for `.agents/` files.
 

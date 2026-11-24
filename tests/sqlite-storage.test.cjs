@@ -13,10 +13,20 @@ const { execSync, spawnSync } = require('child_process');
 
 const {
   generateUlid,
+  generateShortToken,
+  generateShortCode,
+  generateTaskCode,
+  generatePatternCode,
+  generateAdrCode,
   formatTaskCode,
   formatPatternCode,
   formatAdrCode,
   parseCodeNumber,
+  isSampleCode,
+  isShortIdSuffix,
+  parseCode,
+  normalizeCodeInput,
+  compareRecordsByTimeAndCode,
   normalizeTaskStatus,
   toDisplayStatus,
   toMarkdownCheckbox,
@@ -60,6 +70,43 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
   assert.strictEqual(parseCodeNumber('P-00', 'P'), null);
   assert.strictEqual(parseCodeNumber('LOG-00', 'LOG'), null);
   assert.strictEqual(parseCodeNumber('P-02', 'TSK'), null);
+
+  // Short-ID generation, unbiased alpha-first format, bidirectional parseCode & normalizeCodeInput
+  const shortRe = /^[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/;
+  for (let i = 0; i < 40; i++) {
+    const tCode = generateTaskCode();
+    const pCode = generatePatternCode();
+    const aCode = generateAdrCode();
+    assert.ok(/^TSK-[A-Z0-9]{6}$/.test(tCode) && shortRe.test(tCode.slice(4)), `Invalid task short-id: ${tCode}`);
+    assert.ok(/^P-[A-Z0-9]{6}$/.test(pCode) && shortRe.test(pCode.slice(2)), `Invalid pattern short-id: ${pCode}`);
+    assert.ok(/^LOG-[A-Z0-9]{6}$/.test(aCode) && shortRe.test(aCode.slice(4)), `Invalid adr short-id: ${aCode}`);
+    assert.ok(!/[ILOU]/.test(generateShortToken()), 'Short token must exclude I, L, O, U');
+  }
+  assert.strictEqual(isSampleCode('TSK-SAMPLE'), true);
+  assert.strictEqual(isSampleCode('P-00'), true);
+  assert.strictEqual(isSampleCode('LOG-00'), true);
+  assert.strictEqual(isShortIdSuffix('K7M29A'), true);
+  assert.strictEqual(isShortIdSuffix('123456'), false);
+  assert.strictEqual(parseCode('tsk-k7m29a', 'TSK').code, 'TSK-K7M29A');
+  assert.strictEqual(parseCode('k7m29a', 'TSK').code, 'TSK-K7M29A');
+  assert.strictEqual(parseCode('TSK-18', 'TSK').code, 'TSK-18');
+  assert.strictEqual(parseCode('1', 'P').code, 'P-01');
+  assert.strictEqual(parseCode('TSK-SAMPLE', 'TSK'), null);
+  assert.strictEqual(parseCode('P-02', 'TSK'), null);
+  assert.deepStrictEqual(normalizeCodeInput('K7M2', 'TSK'), {
+    exactCode: null,
+    prefixQuery: 'TSK-K7M2',
+    parsed: null,
+  });
+  assert.strictEqual(normalizeCodeInput('24', 'TSK').exactCode, 'TSK-24');
+  assert.strictEqual(
+    compareRecordsByTimeAndCode(
+      { code: 'TSK-2', createdAt: '2026-11-23T00:00:00.000Z', uid: '01A' },
+      { code: 'TSK-10', createdAt: '2026-11-23T00:00:00.000Z', uid: '01B' },
+      'TSK'
+    ) < 0,
+    true
+  );
 
   // English variants
   assert.strictEqual(normalizeTaskStatus('Todo'), 'todo');
@@ -109,16 +156,22 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
       'Transitioning to [Ready] without all 3 elements must throw'
     );
 
-    // 2-2. Task creation and sequential ID allocation (TSK-1, TSK-2)
+    // 2-2. Task creation with short-id allocation & empty default owner (no git user.name leak)
+    const tskShortRe = /^TSK-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/;
+    const patShortRe = /^P-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/;
+    const adrShortRe = /^LOG-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/;
+
     const t1 = store.upsertTask({
       title: 'Build SQLite FTS5 index',
       status: 'in_progress',
       purpose: 'Improve local memory search latency.',
       results: ['scripts/storage/sqlite-provider.cjs: Created FTS5 virtual table'],
       targets: ['scripts/storage/sqlite-provider.cjs'],
+      createdAt: '2026-11-23T01:00:00.000Z',
     });
-    assert.strictEqual(t1.code, 'TSK-1');
+    assert.ok(tskShortRe.test(t1.code), `Expected short-id task code, got: ${t1.code}`);
     assert.strictEqual(t1.status, 'in_progress');
+    assert.strictEqual(t1.owner, '', 'tasks.owner must stay empty unless explicitly provided');
 
     const t2 = store.upsertTask({
       title: 'Integrate group-status.cjs atomic commit',
@@ -126,25 +179,40 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
       purpose: 'Enable SQLite atomic commit and auto-archiving.',
       results: ['scripts/group-status.cjs: Added DB store integration'],
       targets: ['scripts/group-status.cjs'],
+      createdAt: '2026-11-23T01:01:00.000Z',
     });
-    assert.strictEqual(t2.code, 'TSK-2');
+    assert.ok(tskShortRe.test(t2.code), `Expected short-id task code, got: ${t2.code}`);
+    assert.notStrictEqual(t2.code, t1.code);
     assert.strictEqual(t2.status, 'ready');
 
-    // 2-3. ADR creation (LOG-01)
+    // Unambiguous prefix lookup & ambiguity rejection
+    assert.strictEqual(store.getTask(t1.code.slice(4, 8)).uid, t1.uid, 'Short-id 4-char prefix lookup failed');
+    store.upsertTask({ code: 'TSK-K7M111', title: 'Prefix collision A', status: 'todo' });
+    store.upsertTask({ code: 'TSK-K7M222', title: 'Prefix collision B', status: 'todo' });
+    assert.throws(
+      () => store.getTask('K7M'),
+      /Ambiguous code prefix/i,
+      'Ambiguous 3-char prefix lookup must throw'
+    );
+
+    // 2-3. ADR creation (short-id) & empty default author
     const adr1 = store.upsertAdr({
       date: '2026-11-23',
       title: 'Switch to local SQLite-first storage',
       summary: 'Adopt node:sqlite and FTS5 as the default local store',
       relatedArea: 'scripts/storage/, scripts/group-status.cjs',
-      relatedTaskCode: 'TSK-18',
+      relatedTaskCode: t1.code,
       branch: 'main',
       context: 'Resolve Markdown parser coupling and collaboration conflicts',
       decision: 'Introduce SQLite canonical store and StorageProvider abstraction',
       impact: 'Faster search and conflict-free collaboration',
+      createdAt: '2026-11-23T01:02:00.000Z',
     });
-    assert.strictEqual(adr1.code, 'LOG-01');
+    assert.ok(adrShortRe.test(adr1.code), `Expected short-id ADR code, got: ${adr1.code}`);
+    assert.strictEqual(adr1.author, '', 'adrs.author must stay empty by default');
+    assert.strictEqual(store.getAdr(adr1.code.slice(4, 8)).uid, adr1.uid);
 
-    // 3. Pattern v1 and superseded v2 chain
+    // 3. Pattern v1 and superseded v2 chain + selective ACM_AUTHOR / config.author opt-in
     const p1 = store.upsertPattern({
       category: 'Git/Tooling',
       title: 'Prevent Git Pager Freezes v1',
@@ -153,23 +221,39 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
       solution: 'Inject GIT_PAGER=cat environment variable',
       relatedFiles: ['scripts/group-status.cjs'],
       tags: ['git', 'pager'],
+      createdAt: '2026-11-23T01:03:00.000Z',
     });
-    assert.strictEqual(p1.code, 'P-01');
+    assert.ok(patShortRe.test(p1.code), `Expected short-id pattern code, got: ${p1.code}`);
     assert.strictEqual(p1.version, 1);
+    assert.strictEqual(p1.author, '', 'patterns.author must stay empty by default');
 
-    const p2 = store.upsertPattern({
-      supersedesUid: p1.uid,
-      category: 'Git/Tooling',
-      title: 'Prevent Git Pager Freezes v2 (Extended)',
-      summary: 'Enforce GIT_PAGER=cat and --no-pager together',
-      symptom: 'Remaining pager subprocess deadlocks on Windows',
-      solution: 'Apply GIT_PAGER=cat, PAGER=cat, and --no-pager on all spawns',
-      relatedFiles: ['scripts/group-status.cjs', 'scripts/smart-pull.cjs'],
-      tags: ['git', 'pager', 'windows'],
-    });
-    assert.strictEqual(p2.code, 'P-02');
+    const prevEnvAuthor = process.env.ACM_AUTHOR;
+    process.env.ACM_AUTHOR = 'opt-in-author';
+    let p2;
+    try {
+      p2 = store.upsertPattern({
+        supersedesUid: p1.uid,
+        category: 'Git/Tooling',
+        title: 'Prevent Git Pager Freezes v2 (Extended)',
+        summary: 'Enforce GIT_PAGER=cat and --no-pager together',
+        symptom: 'Remaining pager subprocess deadlocks on Windows',
+        solution: 'Apply GIT_PAGER=cat, PAGER=cat, and --no-pager on all spawns',
+        relatedFiles: ['scripts/group-status.cjs', 'scripts/smart-pull.cjs'],
+        tags: ['git', 'pager', 'windows'],
+        createdAt: '2026-11-23T01:04:00.000Z',
+      });
+      const tOptInCheck = store.upsertTask({ title: 'Owner stays empty with ACM_AUTHOR' });
+      assert.strictEqual(tOptInCheck.owner, '', 'ACM_AUTHOR must never populate tasks.owner');
+    } finally {
+      if (prevEnvAuthor === undefined) delete process.env.ACM_AUTHOR;
+      else process.env.ACM_AUTHOR = prevEnvAuthor;
+    }
+    assert.ok(patShortRe.test(p2.code), `Expected short-id pattern code, got: ${p2.code}`);
+    assert.notStrictEqual(p2.code, p1.code);
     assert.strictEqual(p2.version, 2);
     assert.strictEqual(p2.supersedesUid, p1.uid);
+    assert.strictEqual(p2.author, 'opt-in-author', 'patterns.author should accept ACM_AUTHOR opt-in');
+    assert.strictEqual(store.getPattern(p2.code.slice(2, 6)).uid, p2.uid);
 
     const activePatterns = store.listPatterns();
     assert.strictEqual(activePatterns.length, 1, 'Superseded v1 pattern should be excluded by default');
@@ -183,37 +267,37 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
     assert.strictEqual(pagerHits.length, 1, 'FTS5 search must exclude superseded v1 and return v2 only');
     assert.strictEqual(pagerHits[0].uid, p2.uid);
 
-    const specialCharHits1 = store.search('TSK-1');
-    assert.ok(specialCharHits1.some((h) => h.code === 'TSK-1'), 'Hyphenated code search failed');
+    const specialCharHits1 = store.search(t1.code);
+    assert.ok(specialCharHits1.some((h) => h.code === t1.code), 'Hyphenated code search failed');
 
     const specialCharHits2 = store.search('scripts/group-status.cjs');
     assert.ok(specialCharHits2.length >= 2, 'File path FTS5 search failed');
 
-    const specialCharHits3 = store.search('P-02');
-    assert.ok(specialCharHits3.some((h) => h.code === 'P-02'), 'P-02 code search failed');
+    const specialCharHits3 = store.search(p2.code);
+    assert.ok(specialCharHits3.some((h) => h.code === p2.code), 'Pattern code search failed');
 
     const commitHits = store.search('atomic commit');
-    assert.ok(commitHits.some((h) => h.code === 'TSK-2'), 'Keyword phrase search failed');
+    assert.ok(commitHits.some((h) => h.code === t2.code), 'Keyword phrase search failed');
 
     const budgetHits = store.search('scripts/group-status.cjs', { tokenBudget: 120 });
     const totalPackedTokens = budgetHits.reduce((acc, h) => acc + h.estimatedTokens, 0);
     assert.ok(totalPackedTokens <= 120, `Token budget exceeded: ${totalPackedTokens} > 120`);
 
-    // 5. Lease acquire / conflict / release
-    const lease1 = store.acquireLease('TSK-1', 'agent-alpha', 300);
+    // 5. Lease acquire / conflict / release (including prefix lookup)
+    const lease1 = store.acquireLease(t1.code.slice(4, 8), 'agent-alpha', 300);
     assert.strictEqual(lease1.acquired, true);
 
-    const leaseConflict = store.acquireLease('TSK-1', 'agent-beta', 300);
+    const leaseConflict = store.acquireLease(t1.code, 'agent-beta', 300);
     assert.strictEqual(leaseConflict.acquired, false);
     assert.strictEqual(leaseConflict.holder, 'agent-alpha');
 
-    const badRelease = store.releaseLease('TSK-1', 'agent-beta');
+    const badRelease = store.releaseLease(t1.code, 'agent-beta');
     assert.strictEqual(badRelease.released, false);
 
-    const goodRelease = store.releaseLease('TSK-1', 'agent-alpha');
+    const goodRelease = store.releaseLease(t1.code, 'agent-alpha');
     assert.strictEqual(goodRelease.released, true);
 
-    const leaseAfterRelease = store.acquireLease('TSK-1', 'agent-beta', 300);
+    const leaseAfterRelease = store.acquireLease(t1.code, 'agent-beta', 300);
     assert.strictEqual(leaseAfterRelease.acquired, true);
 
     console.log('[PASS] 2~5. CRUD, 3-element validation, pattern chain, FTS5 search, and Lease verified.');
@@ -255,6 +339,11 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
       '  - **Results**:',
       '    - `src/roundtrip.cjs`: bidirectional conversion verified',
       '  - **Targets**: `src/roundtrip.cjs`',
+      '- [Ready] **TSK-K7M29A. Short-ID mixed roundtrip active task**',
+      '  - **Purpose**: Verify legacy sequential and short-id tasks coexist seamlessly',
+      '  - **Results**:',
+      '    - `src/shortid.cjs`: mixed roundtrip verified',
+      '  - **Targets**: `src/shortid.cjs`',
     ].join('\n');
     fs.writeFileSync(taskMdPath, augmentedTaskMd, 'utf-8');
     fs.copyFileSync(
@@ -295,6 +384,7 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
     assert.strictEqual(storeB.listPatterns().length, patternsA.length);
     assert.strictEqual(storeB.listAdrs().length, adrsA.length);
     assert.strictEqual(storeB.getTask('TSK-17').commitSha, storeA.getTask('TSK-17').commitSha);
+    assert.strictEqual(storeB.getTask('K7M2').code, 'TSK-K7M29A');
     assert.strictEqual(storeB.getPattern('P-01').title, storeA.getPattern('P-01').title);
     assert.strictEqual(storeB.getAdr('LOG-02').title, storeA.getAdr('LOG-02').title);
 
@@ -403,13 +493,15 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
     assert.strictEqual(loadedCfg.storage.provider, 'sqlite');
 
     store = createMemoryStore(gitDir);
-    store.upsertTask({
+    const createdGitTask = store.upsertTask({
       title: 'Commit SQLite integrated feature',
       status: 'ready',
       purpose: 'Verify group-status.cjs reads tasks from SQLite DB and records commit SHA.',
       results: ['src/feature.js: Added feature module and verified tests'],
       targets: ['src/feature.js'],
     });
+    const gitTaskCode = createdGitTask.code;
+    assert.ok(/^TSK-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/.test(gitTaskCode));
     store.close();
     store = null;
 
@@ -423,7 +515,7 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
       encoding: 'utf-8',
     });
     assert.strictEqual(compactRes.status, 0, `group-status --compact failed: ${compactRes.stderr || compactRes.stdout}`);
-    assert.ok(compactRes.stdout.includes('TSK-1'), 'SQLite TSK-1 missing from compact output');
+    assert.ok(compactRes.stdout.includes(gitTaskCode), `SQLite ${gitTaskCode} missing from compact output`);
 
     const commitRes = spawnSync(process.execPath, [groupStatusPath, '--all'], {
       cwd: gitDir,
@@ -437,7 +529,7 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
     const headSha = execSync('git rev-parse --short HEAD', { cwd: gitDir, encoding: 'utf-8' }).trim();
 
     verifyStore = createMemoryStore(gitDir, { skipProjection: true });
-    const doneTask = verifyStore.getTask('TSK-1');
+    const doneTask = verifyStore.getTask(gitTaskCode);
     assert.strictEqual(doneTask.status, 'done', 'SQLite task status should be done after commit');
     assert.strictEqual(doneTask.commitSha, headSha, 'SQLite commitSha mismatch with HEAD SHA');
     assert.ok(doneTask.completedAt, 'completedAt missing');
@@ -447,9 +539,9 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
     const projectedTaskMd = fs.readFileSync(path.join(gitDir, '.agents', 'task', 'task.md'), 'utf-8');
     const projectedCompMd = fs.readFileSync(path.join(gitDir, '.agents', 'task', 'task-completed.md'), 'utf-8');
     assert.ok(projectedTaskMd.includes('(No active tasks)'), 'Projected task.md did not clear active task');
-    assert.ok(projectedTaskMd.includes('Latest Done: `TSK-1`'), 'Projected task.md Latest Done meta not updated');
+    assert.ok(projectedTaskMd.includes(`Latest Done: \`${gitTaskCode}\``), 'Projected task.md Latest Done meta not updated');
     assert.ok(
-      projectedCompMd.includes(`- [x] **TSK-1. Commit SQLite integrated feature** (Commit: \`${headSha}\`)`),
+      projectedCompMd.includes(`- [x] **${gitTaskCode}. Commit SQLite integrated feature** (Commit: \`${headSha}\`)`),
       'Projected task-completed.md commit SHA missing'
     );
 

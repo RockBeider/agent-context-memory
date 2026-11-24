@@ -252,6 +252,10 @@ async function runTests() {
     assert.strictEqual(invalidReadyResp.result.isError, true, 'Missing 3 elements should yield isError: true');
 
     // 3-5. acm_task_upsert valid create (with Korean text, quotes, backticks)
+    const tskShortRe = /^TSK-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/;
+    const patShortRe = /^P-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/;
+    const adrShortRe = /^LOG-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/;
+
     const upsertCreatePayload = parseToolPayload(
       await client.sendRequest(
         'tools/call',
@@ -270,31 +274,33 @@ async function runTests() {
       )
     );
     assert.strictEqual(upsertCreatePayload.action, 'created');
-    assert.strictEqual(upsertCreatePayload.task.code, 'TSK-1');
+    const taskCode = upsertCreatePayload.task.code;
+    assert.ok(tskShortRe.test(taskCode), `Expected short-id task code, got: ${taskCode}`);
     assert.strictEqual(upsertCreatePayload.task.status, 'ready');
     const projectedTaskMd = fs.readFileSync(path.join(repoDir, '.agents', 'task', 'task.md'), 'utf-8');
-    assert.ok(projectedTaskMd.includes('TSK-1.'), 'TSK-1 was not projected to .agents/task/task.md');
+    assert.ok(projectedTaskMd.includes(`${taskCode}.`), `${taskCode} was not projected to .agents/task/task.md`);
 
     // 3-6. acm_task_list
     const taskListPayload = parseToolPayload(
       await client.sendRequest('tools/call', { name: 'acm_task_list', arguments: { status: 'ready' } }, 7)
     );
     assert.strictEqual(taskListPayload.count, 1);
-    assert.strictEqual(taskListPayload.tasks[0].code, 'TSK-1');
+    assert.strictEqual(taskListPayload.tasks[0].code, taskCode);
 
-    // 3-7. acm_task_complete
+    // 3-7. acm_task_complete (via 4-char short-id prefix)
     const completePayload = parseToolPayload(
       await client.sendRequest(
         'tools/call',
-        { name: 'acm_task_complete', arguments: { idOrCode: 'TSK-1', commitSha: 'deadbeef' } },
+        { name: 'acm_task_complete', arguments: { idOrCode: taskCode.slice(4, 8), commitSha: 'deadbeef' } },
         8
       )
     );
     assert.strictEqual(completePayload.completed, true);
+    assert.strictEqual(completePayload.task.code, taskCode);
     assert.strictEqual(completePayload.task.status, 'done');
     assert.strictEqual(completePayload.task.commitSha, 'deadbeef');
 
-    // 3-8. acm_pattern_save v1 + v2 supersedes + acm_pattern_get
+    // 3-8. acm_pattern_save v1 + v2 supersedes + acm_pattern_get (via prefix)
     const pat1Payload = parseToolPayload(
       await client.sendRequest(
         'tools/call',
@@ -314,7 +320,7 @@ async function runTests() {
       )
     );
     assert.strictEqual(pat1Payload.saved, true);
-    assert.strictEqual(pat1Payload.pattern.code, 'P-01');
+    assert.ok(patShortRe.test(pat1Payload.pattern.code), `Expected short-id pattern code, got: ${pat1Payload.pattern.code}`);
     assert.strictEqual(pat1Payload.pattern.version, 1);
 
     const pat2Payload = parseToolPayload(
@@ -327,20 +333,21 @@ async function runTests() {
             category: 'MCP',
             summary: 'Always close sqlite connection in finally and log to stderr',
             solution: 'Wrap executeToolCall in try/finally with store.close()',
-            supersedesCode: 'P-01',
+            supersedesCode: pat1Payload.pattern.code,
             tags: ['mcp', 'sqlite'],
           },
         },
         10
       )
     );
+    assert.ok(patShortRe.test(pat2Payload.pattern.code));
     assert.strictEqual(pat2Payload.pattern.version, 2);
     assert.strictEqual(pat2Payload.pattern.supersedesUid, pat1Payload.pattern.uid);
 
     const patGetPayload = parseToolPayload(
       await client.sendRequest(
         'tools/call',
-        { name: 'acm_pattern_get', arguments: { idOrCode: pat2Payload.pattern.code } },
+        { name: 'acm_pattern_get', arguments: { idOrCode: pat2Payload.pattern.code.slice(2, 6) } },
         11
       )
     );
@@ -363,7 +370,7 @@ async function runTests() {
             title: 'Zero-dependency stdio MCP transport',
             summary: 'Use Node built-in readline for newline-delimited MCP JSON-RPC',
             relatedArea: 'scripts/mcp-server.cjs',
-            relatedTaskCode: 'TSK-1',
+            relatedTaskCode: taskCode,
             branch: 'main',
           },
         },
@@ -371,7 +378,7 @@ async function runTests() {
       )
     );
     assert.strictEqual(adrPayload.saved, true);
-    assert.strictEqual(adrPayload.adr.code, 'LOG-01');
+    assert.ok(adrShortRe.test(adrPayload.adr.code), `Expected short-id ADR code, got: ${adrPayload.adr.code}`);
 
     // 3-10. acm_search (FTS5 BM25 + tokenBudget)
     const searchPayload = parseToolPayload(

@@ -8,13 +8,14 @@ const fs = require('fs');
 const path = require('path');
 const {
   generateUlid,
-  formatTaskCode,
-  formatPatternCode,
-  formatAdrCode,
+  generateShortCode,
+  parseCode,
+  normalizeCodeInput,
+  compareRecordsByTimeAndCode,
   parseCodeNumber,
   normalizeTaskStatus,
 } = require('./id-utils.cjs');
-const { isNodeSqliteAvailable, loadConfig, resolveDbPath } = require('./config.cjs');
+const { isNodeSqliteAvailable, loadConfig, resolveDbPath, resolveDefaultAuthor } = require('./config.cjs');
 const { t, DEFAULT_LANGUAGE } = require('../i18n.cjs');
 
 const SCHEMA_VERSION = '1';
@@ -89,25 +90,23 @@ function normalizeSearchKind(kind) {
   return 'all';
 }
 
-function canonicalTaskCodeInput(rawCode) {
+function canonicalCodeInput(rawCode, prefix) {
   if (!rawCode) return null;
-  const num = parseCodeNumber(rawCode, 'TSK');
-  if (num !== null) return formatTaskCode(num);
+  const parsed = parseCode(rawCode, prefix);
+  if (parsed) return parsed.code;
   return String(rawCode).trim().toUpperCase();
+}
+
+function canonicalTaskCodeInput(rawCode) {
+  return canonicalCodeInput(rawCode, 'TSK');
 }
 
 function canonicalPatternCodeInput(rawCode) {
-  if (!rawCode) return null;
-  const num = parseCodeNumber(rawCode, 'P');
-  if (num !== null) return formatPatternCode(num);
-  return String(rawCode).trim().toUpperCase();
+  return canonicalCodeInput(rawCode, 'P');
 }
 
 function canonicalAdrCodeInput(rawCode) {
-  if (!rawCode) return null;
-  const num = parseCodeNumber(rawCode, 'LOG');
-  if (num !== null) return formatAdrCode(num);
-  return String(rawCode).trim().toUpperCase();
+  return canonicalCodeInput(rawCode, 'LOG');
 }
 
 /**
@@ -407,16 +406,15 @@ class SqliteProvider {
     }
   }
 
-  _allocateCode(metaKey, tableName, prefix, formatter) {
-    let seq = parseInt(this._getMeta(metaKey, '1'), 10);
-    if (!Number.isFinite(seq) || seq <= 0) seq = 1;
-
-    const checkStmt = this.db.prepare(`SELECT 1 FROM ${tableName} WHERE code = ?`);
-    while (checkStmt.get(formatter(seq))) {
-      seq += 1;
+  _allocateCode(tableName, prefix) {
+    const checkStmt = this.db.prepare(`SELECT 1 FROM ${tableName} WHERE UPPER(code) = ?`);
+    for (let attempt = 0; attempt < 64; attempt++) {
+      const candidate = generateShortCode(prefix);
+      if (!checkStmt.get(candidate.toUpperCase())) {
+        return candidate;
+      }
     }
-    this._setMeta(metaKey, String(seq + 1));
-    return formatter(seq);
+    throw new Error(`Failed to allocate unique ${prefix} short code after 64 attempts`);
   }
 
   _bumpSeqIfNeeded(metaKey, code, prefix) {
@@ -426,6 +424,50 @@ class SqliteProvider {
     if (num >= curr) {
       this._setMeta(metaKey, String(num + 1));
     }
+  }
+
+  _findByIdOrCode(tableName, prefix, idOrCode, hydrateFn) {
+    if (!idOrCode) return null;
+    this.open();
+    const raw = String(idOrCode).trim();
+    if (!raw) return null;
+
+    const byUid = this.db.prepare(`SELECT * FROM ${tableName} WHERE uid = ?`).get(raw);
+    if (byUid) return hydrateFn(byUid);
+
+    const { exactCode, prefixQuery } = normalizeCodeInput(raw, prefix);
+    if (exactCode) {
+      const byCode = this.db
+        .prepare(`SELECT * FROM ${tableName} WHERE UPPER(code) = ?`)
+        .get(exactCode.toUpperCase());
+      return hydrateFn(byCode);
+    }
+
+    if (prefixQuery) {
+      const excludeVersionedClause = tableName === 'patterns' ? " AND INSTR(code, '@') = 0" : '';
+      const rows = this.db
+        .prepare(
+          `SELECT * FROM ${tableName} WHERE deleted_at IS NULL${excludeVersionedClause} AND UPPER(code) LIKE ?`
+        )
+        .all(`${prefixQuery}%`);
+      if (rows.length === 1) {
+        return hydrateFn(rows[0]);
+      }
+      if (rows.length > 1) {
+        throw new Error(
+          t('storage.ambiguousCodePrefix', {
+            id: raw,
+            matches: rows.map((r) => r.code).join(', '),
+          })
+        );
+      }
+      return null;
+    }
+
+    const byRawCode = this.db
+      .prepare(`SELECT * FROM ${tableName} WHERE UPPER(code) = ?`)
+      .get(raw.toUpperCase());
+    return hydrateFn(byRawCode);
   }
 
   // =========================================================================
@@ -449,25 +491,11 @@ class SqliteProvider {
 
     const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const rows = this.db.prepare(`SELECT * FROM tasks ${whereSql}`).all(...params);
-    return rows.map(hydrateTask).sort((a, b) => {
-      const na = parseCodeNumber(a.code, 'TSK') || 0;
-      const nb = parseCodeNumber(b.code, 'TSK') || 0;
-      if (na !== nb) return na - nb;
-      return a.createdAt.localeCompare(b.createdAt);
-    });
+    return rows.map(hydrateTask).sort((a, b) => compareRecordsByTimeAndCode(a, b, 'TSK', false));
   }
 
   getTask(idOrCode) {
-    if (!idOrCode) return null;
-    this.open();
-    const raw = String(idOrCode).trim();
-    const byUid = this.db.prepare('SELECT * FROM tasks WHERE uid = ?').get(raw);
-    if (byUid) return hydrateTask(byUid);
-
-    const code = canonicalTaskCodeInput(raw);
-    if (!code) return null;
-    const byCode = this.db.prepare('SELECT * FROM tasks WHERE UPPER(code) = ?').get(code.toUpperCase());
-    return hydrateTask(byCode);
+    return this._findByIdOrCode('tasks', 'TSK', idOrCode, hydrateTask);
   }
 
   upsertTask(input, options = {}) {
@@ -531,7 +559,7 @@ class SqliteProvider {
       } else if (input.code) {
         code = canonicalTaskCodeInput(input.code);
       } else {
-        code = this._allocateCode('next_seq_tsk', 'tasks', 'TSK', formatTaskCode);
+        code = this._allocateCode('tasks', 'TSK');
       }
       this._bumpSeqIfNeeded('next_seq_tsk', code, 'TSK');
 
@@ -751,27 +779,11 @@ class SqliteProvider {
 
     const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     const rows = this.db.prepare(`SELECT * FROM patterns ${whereSql}`).all(...params);
-    return rows.map(hydratePattern).sort((a, b) => {
-      const na = parseCodeNumber(a.code, 'P') || 0;
-      const nb = parseCodeNumber(b.code, 'P') || 0;
-      if (na !== nb) return na - nb;
-      return a.createdAt.localeCompare(b.createdAt);
-    });
+    return rows.map(hydratePattern).sort((a, b) => compareRecordsByTimeAndCode(a, b, 'P', false));
   }
 
   getPattern(idOrCode) {
-    if (!idOrCode) return null;
-    this.open();
-    const raw = String(idOrCode).trim();
-    const byUid = this.db.prepare('SELECT * FROM patterns WHERE uid = ?').get(raw);
-    if (byUid) return hydratePattern(byUid);
-
-    const code = canonicalPatternCodeInput(raw);
-    if (!code) return null;
-    const byCode = this.db
-      .prepare('SELECT * FROM patterns WHERE UPPER(code) = ?')
-      .get(code.toUpperCase());
-    return hydratePattern(byCode);
+    return this._findByIdOrCode('patterns', 'P', idOrCode, hydratePattern);
   }
 
   upsertPattern(input) {
@@ -875,13 +887,17 @@ class SqliteProvider {
           this.db.prepare('UPDATE patterns SET code = ? WHERE uid = ?').run(archivedCode, prevPattern.uid);
         }
       } else {
-        code = this._allocateCode('next_seq_pat', 'patterns', 'P', formatPatternCode);
+        code = this._allocateCode('patterns', 'P');
       }
       this._bumpSeqIfNeeded('next_seq_pat', code, 'P');
 
       const scope = input.scope || (existing ? existing.scope : 'shared');
       const author =
-        input.author !== undefined ? String(input.author).trim() : existing ? existing.author : '';
+        input.author !== undefined
+          ? String(input.author).trim()
+          : existing
+            ? existing.author
+            : resolveDefaultAuthor(this.config);
       const provenance = input.provenance || (existing ? existing.provenance : 'user');
       const createdAt = input.createdAt || (existing ? existing.createdAt : now);
       const updatedAt = input.updatedAt || now;
@@ -938,7 +954,7 @@ class SqliteProvider {
           .get(uid)
       );
       const ftsBody = [category, summary, symptom, solution, ...relatedFiles].filter(Boolean).join('\n');
-      const ftsTags = [category, ...tags, ...relatedFiles].filter(Boolean).join(' ');
+      const ftsTags = [category, author, ...tags, ...relatedFiles].filter(Boolean).join(' ');
       this._syncFts(uid, 'pattern', code, title, ftsBody, ftsTags, Boolean(deletedAt) || isSuperseded);
 
       return this.getPattern(uid);
@@ -955,24 +971,13 @@ class SqliteProvider {
     const rows = this.db.prepare(`SELECT * FROM adrs ${whereSql}`).all();
     const sorted = rows.map(hydrateAdr).sort((a, b) => {
       if (a.date !== b.date) return b.date.localeCompare(a.date);
-      const na = parseCodeNumber(a.code, 'LOG') || 0;
-      const nb = parseCodeNumber(b.code, 'LOG') || 0;
-      return nb - na;
+      return compareRecordsByTimeAndCode(a, b, 'LOG', true);
     });
     return limit > 0 ? sorted.slice(0, limit) : sorted;
   }
 
   getAdr(idOrCode) {
-    if (!idOrCode) return null;
-    this.open();
-    const raw = String(idOrCode).trim();
-    const byUid = this.db.prepare('SELECT * FROM adrs WHERE uid = ?').get(raw);
-    if (byUid) return hydrateAdr(byUid);
-
-    const code = canonicalAdrCodeInput(raw);
-    if (!code) return null;
-    const byCode = this.db.prepare('SELECT * FROM adrs WHERE UPPER(code) = ?').get(code.toUpperCase());
-    return hydrateAdr(byCode);
+    return this._findByIdOrCode('adrs', 'LOG', idOrCode, hydrateAdr);
   }
 
   upsertAdr(input) {
@@ -1044,13 +1049,17 @@ class SqliteProvider {
       } else if (input.code) {
         code = canonicalAdrCodeInput(input.code);
       } else {
-        code = this._allocateCode('next_seq_log', 'adrs', 'LOG', formatAdrCode);
+        code = this._allocateCode('adrs', 'LOG');
       }
       this._bumpSeqIfNeeded('next_seq_log', code, 'LOG');
 
       const scope = input.scope || (existing ? existing.scope : 'shared');
       const author =
-        input.author !== undefined ? String(input.author).trim() : existing ? existing.author : '';
+        input.author !== undefined
+          ? String(input.author).trim()
+          : existing
+            ? existing.author
+            : resolveDefaultAuthor(this.config);
       const provenance = input.provenance || (existing ? existing.provenance : 'user');
       const createdAt = input.createdAt || (existing ? existing.createdAt : now);
       const updatedAt = input.updatedAt || now;
@@ -1102,7 +1111,7 @@ class SqliteProvider {
         );
 
       const ftsBody = [summary, relatedArea, context, decision, impact].filter(Boolean).join('\n');
-      const ftsTags = [date, relatedTaskCode, branch, relatedArea].filter(Boolean).join(' ');
+      const ftsTags = [date, relatedTaskCode, branch, relatedArea, author].filter(Boolean).join(' ');
       this._syncFts(uid, 'adr', code, title, ftsBody, ftsTags, Boolean(deletedAt));
 
       return this.getAdr(uid);
@@ -1235,6 +1244,7 @@ class SqliteProvider {
 
     return {
       provider: 'sqlite',
+      idFormat: 'short-id',
       dbPath: this.dbPath,
       schemaVersion: meta.schema_version || SCHEMA_VERSION,
       workspaceId: meta.workspace_id || '',

@@ -131,14 +131,36 @@ async function runTests() {
     assert.strictEqual(taskHelpRes.status, 0);
     assert.ok(taskHelpRes.stdout.includes('acm task'), 'task --help should print task subcommand help');
 
+    // 2.5 acm id command validation
+    const idTskRes = runCli(['id', '--json'], workDir);
+    assert.strictEqual(idTskRes.status, 0, idTskRes.stderr);
+    const idTskOut = JSON.parse(idTskRes.stdout);
+    assert.ok(/^TSK-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/.test(idTskOut.code));
+
+    const idPatRes = runCli(['id', 'pattern', '--count=3', '--json'], workDir);
+    assert.strictEqual(idPatRes.status, 0, idPatRes.stderr);
+    const idPatOut = JSON.parse(idPatRes.stdout);
+    assert.strictEqual(idPatOut.codes.length, 3);
+    assert.strictEqual(new Set(idPatOut.codes).size, 3);
+    assert.ok(idPatOut.codes.every((c) => /^P-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/.test(c)));
+
+    const idAdrRes = runCli(['id', 'adr', '--json'], workDir);
+    assert.strictEqual(idAdrRes.status, 0, idAdrRes.stderr);
+    assert.ok(/^LOG-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/.test(JSON.parse(idAdrRes.stdout).code));
+
+    assert.strictEqual(runCli(['id', 'unknown'], workDir).status, 1, 'Invalid id kind should fail');
+    assert.strictEqual(runCli(['id', 'task', '--count=99'], workDir).status, 1, 'Out-of-range --count should fail');
+
     // 3. task add / list / show / update (--stdin multiline quotes/backticks/Korean) / lease / complete
     const addTaskRes = runCli(['task', 'add', 'Implement DB CLI', '--purpose', 'Build CLI entrypoints', '--json'], workDir);
     assert.strictEqual(addTaskRes.status, 0, addTaskRes.stderr);
     const addedTask = JSON.parse(addTaskRes.stdout).task;
-    assert.strictEqual(addedTask.code, 'TSK-1');
+    const taskCode = addedTask.code;
+    assert.ok(/^TSK-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/.test(taskCode));
+    assert.strictEqual(addedTask.owner, '', 'Default task owner should be empty');
 
     // Ready without 3 elements must fail
-    const badReadyRes = runCli(['task', 'update', 'TSK-1', '--status=ready'], workDir);
+    const badReadyRes = runCli(['task', 'update', taskCode, '--status=ready'], workDir);
     assert.strictEqual(badReadyRes.status, 1, 'task update --status=ready without results/targets should fail');
 
     // --stdin JSON update with quotes, newlines, backticks, Korean
@@ -151,7 +173,7 @@ async function runTests() {
       ],
       targets: ['scripts/acm-db-cli.cjs', 'tests/cli-db-commands.test.cjs'],
     });
-    const stdinUpdateRes = runCli(['task', 'update', 'TSK-1', '--stdin', '--json'], workDir, {
+    const stdinUpdateRes = runCli(['task', 'update', taskCode, '--stdin', '--json'], workDir, {
       input: stdinPayload,
     });
     assert.strictEqual(stdinUpdateRes.status, 0, stdinUpdateRes.stderr);
@@ -160,34 +182,35 @@ async function runTests() {
     assert.ok(updatedTask.purpose.includes('`백틱`'), 'Backtick/Korean stdin preservation failed');
     assert.strictEqual(updatedTask.results.length, 2);
 
-    const showTaskRes = runCli(['task', 'show', 'TSK-1', '--json'], workDir);
-    assert.strictEqual(showTaskRes.status, 0);
-    assert.strictEqual(JSON.parse(showTaskRes.stdout).code, 'TSK-1');
+    // Exact code and 4-char prefix lookup in task show
+    const showTaskRes = runCli(['task', 'show', taskCode.slice(4, 8), '--json'], workDir);
+    assert.strictEqual(showTaskRes.status, 0, showTaskRes.stderr);
+    assert.strictEqual(JSON.parse(showTaskRes.stdout).code, taskCode);
 
     // Lease acquire / contention / release
-    const leaseOk = runCli(['task', 'lease', 'TSK-1', '--owner=agent-a', '--json'], workDir);
+    const leaseOk = runCli(['task', 'lease', taskCode, '--owner=agent-a', '--json'], workDir);
     assert.strictEqual(leaseOk.status, 0, leaseOk.stderr);
     assert.strictEqual(JSON.parse(leaseOk.stdout).acquired, true);
 
-    const leaseBusy = runCli(['task', 'lease', 'TSK-1', '--owner=agent-b', '--json'], workDir);
+    const leaseBusy = runCli(['task', 'lease', taskCode, '--owner=agent-b', '--json'], workDir);
     assert.strictEqual(leaseBusy.status, 1, 'Contended lease should exit with code 1');
     assert.strictEqual(JSON.parse(leaseBusy.stdout).acquired, false);
     assert.strictEqual(JSON.parse(leaseBusy.stdout).holder, 'agent-a');
 
-    const leaseRel = runCli(['task', 'lease', 'TSK-1', '--owner=agent-a', '--release', '--json'], workDir);
+    const leaseRel = runCli(['task', 'lease', taskCode, '--owner=agent-a', '--release', '--json'], workDir);
     assert.strictEqual(leaseRel.status, 0);
     assert.strictEqual(JSON.parse(leaseRel.stdout).released, true);
 
     // Complete task
-    const completeRes = runCli(['task', 'complete', 'TSK-1', '--sha=deadbeef', '--json'], workDir);
+    const completeRes = runCli(['task', 'complete', taskCode, '--sha=deadbeef', '--json'], workDir);
     assert.strictEqual(completeRes.status, 0, completeRes.stderr);
     const completedTask = JSON.parse(completeRes.stdout).task;
     assert.strictEqual(completedTask.status, 'done');
     assert.strictEqual(completedTask.commitSha, 'deadbeef');
 
-    // Projected task-completed.md should contain TSK-1
+    // Projected task-completed.md should contain taskCode
     const projectedDone = fs.readFileSync(path.join(workDir, '.agents', 'task', 'task-completed.md'), 'utf-8');
-    assert.ok(projectedDone.includes('TSK-1') && projectedDone.includes('deadbeef'), 'task-completed.md projection missing');
+    assert.ok(projectedDone.includes(taskCode) && projectedDone.includes('deadbeef'), 'task-completed.md projection missing');
 
     // 4. pattern add / list / show / supersedes
     const pat1Res = runCli(
@@ -208,14 +231,15 @@ async function runTests() {
     );
     assert.strictEqual(pat1Res.status, 0, pat1Res.stderr);
     const pat1 = JSON.parse(pat1Res.stdout).pattern;
-    assert.strictEqual(pat1.code, 'P-01');
+    assert.ok(/^P-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/.test(pat1.code));
+    assert.strictEqual(pat1.author, '', 'Default pattern author should be empty');
 
     const pat2Res = runCli(
       [
         'pattern',
         'add',
         'PowerShell Escaping Guard v2',
-        '--supersedes=P-01',
+        `--supersedes=${pat1.code}`,
         '--summary=Use --stdin JSON or MCP tool calls',
         '--solution=Prefer --stdin or stdio MCP for multiline text',
         '--file=scripts/acm-db-cli.cjs',
@@ -230,8 +254,8 @@ async function runTests() {
     const patListRes = runCli(['pattern', 'list', '--json'], workDir);
     assert.strictEqual(JSON.parse(patListRes.stdout).count, 1, 'Superseded pattern should be hidden by default');
 
-    const patShowRes = runCli(['pattern', 'show', pat2.code, '--json'], workDir);
-    assert.strictEqual(patShowRes.status, 0);
+    const patShowRes = runCli(['pattern', 'show', pat2.code.slice(2, 6), '--json'], workDir);
+    assert.strictEqual(patShowRes.status, 0, patShowRes.stderr);
     assert.strictEqual(JSON.parse(patShowRes.stdout).version, 2);
 
     // 5. adr add / list / show
@@ -243,7 +267,7 @@ async function runTests() {
         '--date=2026-11-23',
         '--summary=Add acm-db-cli over MemoryStore',
         '--area=scripts/acm-db-cli.cjs',
-        '--task=TSK-21',
+        `--task=${taskCode}`,
         '--context=Agents need structured DB access',
         '--decision=Expose task/pattern/adr/search/migrate CLI',
         '--impact=Safe cross-platform mutations',
@@ -253,11 +277,11 @@ async function runTests() {
     );
     assert.strictEqual(adrAddRes.status, 0, adrAddRes.stderr);
     const adr1 = JSON.parse(adrAddRes.stdout).adr;
-    assert.strictEqual(adr1.code, 'LOG-01');
+    assert.ok(/^LOG-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/.test(adr1.code));
 
     const adrListRes = runCli(['adr', 'list', '--json'], workDir);
     assert.strictEqual(JSON.parse(adrListRes.stdout).count, 1);
-    const adrShowRes = runCli(['adr', 'show', 'LOG-01', '--json'], workDir);
+    const adrShowRes = runCli(['adr', 'show', adr1.code, '--json'], workDir);
     assert.strictEqual(JSON.parse(adrShowRes.stdout).title, 'Adopt CLI DB Interface');
 
     // 6. search
@@ -302,7 +326,8 @@ async function runTests() {
     // Verify Markdown provider works via CLI (task add + import skip/replace)
     const mdAddRes = runCli(['task', 'add', 'Markdown mode task', '--json'], workDir);
     assert.strictEqual(mdAddRes.status, 0, mdAddRes.stderr);
-    assert.strictEqual(JSON.parse(mdAddRes.stdout).task.code, 'TSK-2');
+    const mdTaskCode = JSON.parse(mdAddRes.stdout).task.code;
+    assert.ok(/^TSK-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/.test(mdTaskCode));
 
     const mdImportSkip = runCli(['import', snapshotFile, '--strategy=skip', '--json'], workDir);
     assert.strictEqual(mdImportSkip.status, 0, mdImportSkip.stderr);
@@ -323,8 +348,8 @@ async function runTests() {
     const postRoundtripList = runCli(['task', 'list', '--all', '--json'], workDir);
     assert.strictEqual(postRoundtripList.status, 0);
     const postTasks = JSON.parse(postRoundtripList.stdout).tasks;
-    assert.ok(postTasks.some((item) => item.code === 'TSK-1' && item.status === 'done'));
-    assert.ok(postTasks.some((item) => item.code === 'TSK-2'));
+    assert.ok(postTasks.some((item) => item.code === taskCode && item.status === 'done'));
+    assert.ok(postTasks.some((item) => item.code === mdTaskCode));
 
     // import --strategy=replace in sqlite mode
     const sqlReplace = runCli(['import', snapshotFile, '--strategy=replace', '--json'], workDir);

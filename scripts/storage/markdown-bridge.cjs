@@ -8,14 +8,42 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  formatTaskCode,
-  formatPatternCode,
-  formatAdrCode,
+  TASK_ID_REGEX_SOURCE,
+  PATTERN_ID_REGEX_SOURCE,
+  ADR_ID_REGEX_SOURCE,
+  parseCode,
   parseCodeNumber,
+  compareRecordsByTimeAndCode,
   normalizeTaskStatus,
   toMarkdownCheckbox,
 } = require('./id-utils.cjs');
 const { resolveLanguage } = require('../i18n.cjs');
+
+const BULLET_TASK_HEADER_RE = new RegExp(
+  `^-\\s*\\[([^\\]]*)\\]\\s*\\*\\*(?:(${TASK_ID_REGEX_SOURCE})[\\.:]\\s*)(.+?)\\*\\*`,
+  'i'
+);
+const NUMBERED_SECTION_RE =
+  /^#{2,4}\s*[0-9]+[\.:]\s*(?:Active\s*Tasks?|Notes?|Rules?|Overview|활성\s*(?:작업|태스크)|참고|규칙|개요)/i;
+const MD_PREFIXED_TASK_HEADER_RE = /^#{2,4}\s*(TSK-[A-Z0-9]+)[\.:]\s*(.+)$/i;
+const MD_NUMERIC_TASK_HEADER_RE = /^#{3,4}\s*([0-9]+)[\.:]\s*(.+)$/i;
+const COMPLETED_TASK_HEADER_RE = new RegExp(
+  `^-\\s*\\[x\\]\\s*\\*\\*(?:(${TASK_ID_REGEX_SOURCE})[\\.:]\\s*)(.+?)\\*\\*(.*)$`,
+  'i'
+);
+const PATTERN_INDEX_ROW_RE = new RegExp(
+  `^\\|\\s*(?:\\*\\*)?(${PATTERN_ID_REGEX_SOURCE})(?:\\*\\*)?\\s*\\|\\s*([^|]+)\\|\\s*([^|]+)\\|\\s*([^|]+)\\|`,
+  'i'
+);
+const PATTERN_SHARD_HEADER_RE = new RegExp(`^#\\s*\\[(${PATTERN_ID_REGEX_SOURCE})\\]\\s*(.+)$`, 'im');
+const ADR_INDEX_ROW_RE = new RegExp(
+  `^\\|\\s*(?:\\*\\*)?(${ADR_ID_REGEX_SOURCE})(?:\\*\\*)?\\s*\\|\\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\\s*\\|\\s*([^|]+)\\|\\s*([^|]+)\\|`,
+  'i'
+);
+const ADR_DETAIL_HEADER_RE = new RegExp(
+  `^(${ADR_ID_REGEX_SOURCE})\\]\\s*\\[([0-9]{4}-[0-9]{2}-[0-9]{2})\\]\\s*(.+)$`,
+  'i'
+);
 
 function getLocalDateString(dateObj = new Date()) {
   const y = dateObj.getFullYear();
@@ -92,17 +120,11 @@ function parseTaskMdFile(filePath) {
     }
     if (inCodeBlock) continue;
 
-    const bulletHeaderMatch = line.match(
-      /^-\s*\[([^\]]*)\]\s*\*\*(?:(TSK-[0-9]+|[0-9]+)[\.:]\s*)(.+?)\*\*/i
-    );
-    const isNumberedSectionTitle =
-      /^#{2,4}\s*[0-9]+[\.:]\s*(?:Active\s*Tasks?|Notes?|Rules?|Overview|활성\s*(?:작업|태스크)|참고|규칙|개요)/i.test(
-        line
-      );
+    const bulletHeaderMatch = line.match(BULLET_TASK_HEADER_RE);
+    const isNumberedSectionTitle = NUMBERED_SECTION_RE.test(line);
     const mdHeaderMatch =
       !bulletHeaderMatch && !isNumberedSectionTitle
-        ? line.match(/^#{2,4}\s*(TSK-[0-9]+)[\.:]\s*(.+)$/i) ||
-          line.match(/^#{3,4}\s*([0-9]+)[\.:]\s*(.+)$/i)
+        ? line.match(MD_PREFIXED_TASK_HEADER_RE) || line.match(MD_NUMERIC_TASK_HEADER_RE)
         : null;
 
     if (!bulletHeaderMatch && !mdHeaderMatch && /^(?:##\s|###\s|---)/.test(line)) {
@@ -121,12 +143,12 @@ function parseTaskMdFile(filePath) {
 
       const rawStatus = bulletHeaderMatch ? bulletHeaderMatch[1].trim() : '';
       const rawId = (bulletHeaderMatch ? bulletHeaderMatch[2] : mdHeaderMatch[1]).trim();
-      const parsedNum = parseCodeNumber(rawId, 'TSK');
-      if (!parsedNum) {
+      const parsed = parseCode(rawId, 'TSK');
+      if (!parsed) {
         continue;
       }
 
-      const code = formatTaskCode(parsedNum);
+      const code = parsed.code;
       let fullTitle = (bulletHeaderMatch ? bulletHeaderMatch[3] : mdHeaderMatch[2]).trim();
       let statusRaw = rawStatus;
       const statusMatch = fullTitle.match(/\[(.*?)\]$/);
@@ -298,13 +320,11 @@ function parseTaskCompletedMdFile(filePath) {
       continue;
     }
 
-    const headerMatch = line.match(
-      /^-\s*\[x\]\s*\*\*(?:(TSK-[0-9]+|[0-9]+)[\.:]\s*)(.+?)\*\*(.*)$/i
-    );
+    const headerMatch = line.match(COMPLETED_TASK_HEADER_RE);
     if (headerMatch) {
       flushTask();
-      const parsedNum = parseCodeNumber(headerMatch[1], 'TSK');
-      if (!parsedNum) continue;
+      const parsed = parseCode(headerMatch[1], 'TSK');
+      if (!parsed) continue;
 
       const suffix = headerMatch[3] || '';
       const commitMatch = suffix.match(/\(Commit:\s*`?([^)`\s]+)`?\)/i);
@@ -312,7 +332,7 @@ function parseTaskCompletedMdFile(filePath) {
       const completedDate = nonGitMatch ? nonGitMatch[1] : currentDate || getLocalDateString();
 
       currentTask = {
-        code: formatTaskCode(parsedNum),
+        code: parsed.code,
         title: headerMatch[2].trim(),
         status: 'done',
         purpose: '',
@@ -401,11 +421,11 @@ function parsePatternsFromMd(rootDir) {
   if (fs.existsSync(patternsIndexFile)) {
     const indexContent = fs.readFileSync(patternsIndexFile, 'utf-8');
     for (const line of indexContent.split(/\r?\n/)) {
-      const match = line.match(/^\|\s*(?:\*\*)?(P-[0-9]+)(?:\*\*)?\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|/);
+      const match = line.match(PATTERN_INDEX_ROW_RE);
       if (!match) continue;
-      const num = parseCodeNumber(match[1], 'P');
-      if (!num) continue;
-      const code = formatPatternCode(num);
+      const parsed = parseCode(match[1], 'P');
+      if (!parsed) continue;
+      const code = parsed.code;
       const linkCol = match[4].trim();
       const linkMatch = linkCol.match(/\(([^)]+)\)/);
       const rawPath = linkMatch ? linkMatch[1] : linkCol;
@@ -428,11 +448,11 @@ function parsePatternsFromMd(rootDir) {
     const content = fs.readFileSync(path.join(patternsDir, file), 'utf-8');
     const meta = indexMetaMap.get(file);
 
-    const headerMatch = content.match(/^#\s*\[(P-[0-9]+)\]\s*(.+)$/m);
-    const num = parseCodeNumber((meta && meta.code) || (headerMatch && headerMatch[1]), 'P');
-    if (!num) continue;
+    const headerMatch = content.match(PATTERN_SHARD_HEADER_RE);
+    const parsed = parseCode((meta && meta.code) || (headerMatch && headerMatch[1]), 'P');
+    if (!parsed) continue;
 
-    const code = formatPatternCode(num);
+    const code = parsed.code;
     const title = headerMatch ? headerMatch[2].trim() : (meta && meta.summary) || code;
     const dateMatch = content.match(/\*\*(?:Date|Registered|일자|등록일)\*\*:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i);
     const catMatch = content.match(/\*\*(?:Category|Domain(?:\s*Category)?|도메인\s*분류)\*\*:\s*([^\r\n]+)/i);
@@ -474,7 +494,7 @@ function parsePatternsFromMd(rootDir) {
     });
   }
 
-  return patterns.sort((a, b) => (parseCodeNumber(a.code, 'P') || 0) - (parseCodeNumber(b.code, 'P') || 0));
+  return patterns.sort((a, b) => compareRecordsByTimeAndCode(a, b, 'P', false));
 }
 
 /**
@@ -488,13 +508,11 @@ function parseAdrsFromMd(rootDir) {
   const indexMap = new Map();
 
   for (const line of content.split(/\r?\n/)) {
-    const rowMatch = line.match(
-      /^\|\s*(?:\*\*)?(LOG-[0-9]+)(?:\*\*)?\s*\|\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\s*\|\s*([^|]+)\|\s*([^|]+)\|/
-    );
+    const rowMatch = line.match(ADR_INDEX_ROW_RE);
     if (!rowMatch) continue;
-    const num = parseCodeNumber(rowMatch[1], 'LOG');
-    if (!num) continue;
-    indexMap.set(formatAdrCode(num), {
+    const parsed = parseCode(rowMatch[1], 'LOG');
+    if (!parsed) continue;
+    indexMap.set(parsed.code, {
       date: rowMatch[2].trim(),
       summary: rowMatch[3].trim(),
       relatedArea: rowMatch[4]
@@ -508,12 +526,12 @@ function parseAdrsFromMd(rootDir) {
   for (const block of blocks) {
     const firstNewline = block.indexOf('\n');
     const headerLine = (firstNewline !== -1 ? block.slice(0, firstNewline) : block).trim();
-    const headerMatch = headerLine.match(/^(LOG-[0-9]+)\]\s*\[([0-9]{4}-[0-9]{2}-[0-9]{2})\]\s*(.+)$/i);
+    const headerMatch = headerLine.match(ADR_DETAIL_HEADER_RE);
     if (!headerMatch) continue;
 
-    const num = parseCodeNumber(headerMatch[1], 'LOG');
-    if (!num) continue;
-    const code = formatAdrCode(num);
+    const parsed = parseCode(headerMatch[1], 'LOG');
+    if (!parsed) continue;
+    const code = parsed.code;
     const date = headerMatch[2].trim();
     const title = headerMatch[3].trim();
     const body = firstNewline !== -1 ? block.slice(firstNewline + 1) : '';
@@ -629,23 +647,14 @@ function projectTasksToMarkdown(rootDir, store, options = {}) {
       const da = (a.completedAt || a.updatedAt || '').slice(0, 10);
       const db = (b.completedAt || b.updatedAt || '').slice(0, 10);
       if (da !== db) return db.localeCompare(da);
-      return (parseCodeNumber(b.code, 'TSK') || 0) - (parseCodeNumber(a.code, 'TSK') || 0);
+      const ta = Date.parse(a.completedAt || a.updatedAt || '') || 0;
+      const tb = Date.parse(b.completedAt || b.updatedAt || '') || 0;
+      if (ta !== tb) return tb - ta;
+      return compareRecordsByTimeAndCode(a, b, 'TSK', true);
     });
 
-  const maxDoneNum = doneTasks.reduce(
-    (acc, t) => Math.max(acc, parseCodeNumber(t.code, 'TSK') || 0),
-    0
-  );
-  const maxActiveNum = activeTasks.reduce(
-    (acc, t) => Math.max(acc, parseCodeNumber(t.code, 'TSK') || 0),
-    0
-  );
-  const stats = typeof store.getStats === 'function' ? store.getStats() : null;
-  const seqNext = stats && stats.sequences ? stats.sequences.tsk : 1;
-  const nextNum = Math.max(seqNext, maxDoneNum + 1, maxActiveNum + 1);
-
   const noneToken = isKo ? '`없음`' : '`None`';
-  const recentDoneLabel = maxDoneNum > 0 ? `\`TSK-${maxDoneNum}\`` : noneToken;
+  const recentDoneLabel = doneTasks.length > 0 ? `\`${doneTasks[0].code}\`` : noneToken;
   const activeLabels =
     activeTasks.length > 0 ? activeTasks.map((t) => `\`${t.code}\``).join(', ') : noneToken;
 
@@ -653,7 +662,7 @@ function projectTasksToMarkdown(rootDir, store, options = {}) {
     ? [
         '# Agent Context Memory Task Master (작업 단일 정본)',
         '',
-        `- **식별자 규칙**: 전역 순차 자연수(\`TSK-1\`...) 불변 부여. (최근 완료: ${recentDoneLabel}, 현재 활성: ${activeLabels}, 차기 예정: \`TSK-${nextNum}\`)`,
+        `- **식별자 규칙**: 영구 불변 6자리 단축 ID(\`TSK-XXXXXX\`, \`acm task add\` / \`acm id\` / MCP 발급, 기존 \`TSK-{N}\` 호환). (최근 완료: ${recentDoneLabel}, 현재 활성: ${activeLabels})`,
         '- **완료 보관소**: [task-completed.md](./task-completed.md)',
         '- **상태 전이**: `[ ]` -> `[진행 중]` -> `[커밋 대기]`(3요소 필수) -> `[x]`(커밋·자동 이관)',
         '',
@@ -664,7 +673,7 @@ function projectTasksToMarkdown(rootDir, store, options = {}) {
     : [
         '# Agent Context Memory Task Master (Single Source of Truth)',
         '',
-        `- **ID Rule**: Global sequential natural numbers (\`TSK-1\`...), immutable. (Latest Done: ${recentDoneLabel}, Active: ${activeLabels}, Next: \`TSK-${nextNum}\`)`,
+        `- **ID Rule**: Immutable 6-char short ID (\`TSK-XXXXXX\`, via \`acm task add\` / \`acm id\` / MCP; legacy \`TSK-{N}\` supported). (Latest Done: ${recentDoneLabel}, Active: ${activeLabels})`,
         '- **Completed Archive**: [task-completed.md](./task-completed.md)',
         '- **Status Flow**: `[ ]` -> `[In Progress]` -> `[Ready]` (3 elements required) -> `[x]` (commit & auto-archive)',
         '',
@@ -712,7 +721,7 @@ function projectTasksToMarkdown(rootDir, store, options = {}) {
         '> 실제 터미널 `git commit` 완료 후 획득한 SHA 해시가 명기된 작업만 보관하는 콜드 아카이브(Cold Archive) 정본입니다.',
         '> 신규 완료 작업은 최상단 일자 섹션에 누적(Prepend)합니다.',
         '',
-        `- **이관 현황**: (최근 완료: ${recentDoneLabel}, 현재 활성: ${activeLabels}, 차기 예정: \`TSK-${nextNum}\`)`,
+        `- **이관 현황**: (최근 완료: ${recentDoneLabel}, 현재 활성: ${activeLabels})`,
         '',
         '---',
       ]
@@ -723,7 +732,7 @@ function projectTasksToMarkdown(rootDir, store, options = {}) {
         '> Cold archive storing only verified tasks with a real commit SHA obtained from `git commit`.',
         '> Newly completed tasks are prepended to the top date section.',
         '',
-        `- **Archive Status**: (Latest Done: ${recentDoneLabel}, Active: ${activeLabels}, Next: \`TSK-${nextNum}\`)`,
+        `- **Archive Status**: (Latest Done: ${recentDoneLabel}, Active: ${activeLabels})`,
         '',
         '---',
       ];
@@ -775,8 +784,8 @@ function projectTasksToMarkdown(rootDir, store, options = {}) {
 }
 
 function buildPatternFileName(pattern) {
-  const num = parseCodeNumber(pattern.code, 'P');
-  const code = num ? formatPatternCode(num) : pattern.code;
+  const parsed = parseCode(pattern.code, 'P');
+  const code = parsed ? parsed.code : pattern.code;
   const slug = String(pattern.title || 'pattern')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -797,8 +806,6 @@ function exportStoreToMarkdown(rootDir, store, options = {}) {
   fs.mkdirSync(patternsDir, { recursive: true });
 
   const patterns = store.listPatterns({ includeSuperseded: false });
-  const stats = typeof store.getStats === 'function' ? store.getStats() : null;
-  const nextPatCode = formatPatternCode((stats && stats.sequences && stats.sequences.pat) || patterns.length + 1);
 
   const indexLines = isKo
     ? [
@@ -808,7 +815,7 @@ function exportStoreToMarkdown(rootDir, store, options = {}) {
         '> **0토큰 온디맨드 검색 원칙 (Just-In-Time Grep)**:',
         '> 1. AI 에이전트는 본 파일이나 하위 패턴 디렉터리를 무조건 전수 통조회하지 않습니다.',
         '> 2. 작업 키워드로 본 파일의 요약 열을 `grep_search`하여 매칭된 샤딩 파일(`patterns/P-XX-*.md`)만 선별 로딩합니다.',
-        `> 3. 신규 솔루션 증류 시 다음 불변 번호(\`${nextPatCode}\`) 샤딩 파일을 생성하고, 본 인덱스에 1행을 추가합니다.`,
+        '> 3. 신규 솔루션 증류 시 영구 불변 단축 ID(`P-XXXXXX`, `acm pattern add` / `acm id pattern` / MCP 발급) 샤딩 파일을 생성하고, 본 인덱스에 1행을 추가합니다.',
         '',
         '| ID | 카테고리 | 핵심 요약 | 파일 링크 |',
         '| :--- | :--- | :--- | :--- |',
@@ -820,7 +827,7 @@ function exportStoreToMarkdown(rootDir, store, options = {}) {
         '> **Zero-Token On-Demand Search Principle (Just-In-Time Grep)**:',
         '> 1. AI agents must never eagerly read this entire file or all files under `patterns/`.',
         '> 2. Run `grep_search` on the Summary column by keyword and load ONLY matched sharded files (`patterns/P-XX-*.md`).',
-        `> 3. When distilling a new reusable solution, create the next immutable \`${nextPatCode}\` sharded file and append 1 row below.`,
+        '> 3. When distilling a new reusable solution, create an immutable `P-XXXXXX` sharded file (via `acm pattern add` / `acm id pattern` / MCP) and append 1 row below.',
         '',
         '| ID | Category | Summary | File Link |',
         '| :--- | :--- | :--- | :--- |',
@@ -873,7 +880,7 @@ function exportStoreToMarkdown(rootDir, store, options = {}) {
         '> [!IMPORTANT]',
         '> **0토큰 온디맨드 및 색인표 우선 조회 원칙**:',
         '> 1. 본 문서는 거시 아키텍처 결정 사항(ADR) 및 시스템 주요 변경만 누적 기록합니다.',
-        '> 2. 신규 결정 사항은 `LOG-{순차증가번호}`를 채번하여 **1) 상단 `ADR Index Map` 표 최상단에 1행 추가**, **2) 하단 `ADR 상세 기록` 최상단에 상세 블록 추가**를 동시 수행합니다.',
+        '> 2. 신규 결정 사항은 단축 ID(`LOG-XXXXXX`, `acm adr add` / `acm id adr` / MCP 발급)를 부여하여 **1) 상단 `ADR Index Map` 표 최상단에 1행 추가**, **2) 하단 `ADR 상세 기록` 최상단에 상세 블록 추가**를 동시 수행합니다.',
         '> 3. AI 에이전트는 평소 본 파일을 전수 조회하지 않으며, 3대 조건부 이벤트 시 **상단 색인표(1~35행)만 먼저 열람하거나 키워드로 `grep_search`한 뒤 필요한 `[LOG-XX]` 섹션만 핀포인트 조회**합니다.',
         '',
         '## 1. ADR Index Map (아키텍처 결정 경량 색인표)',
@@ -887,7 +894,7 @@ function exportStoreToMarkdown(rootDir, store, options = {}) {
         '> [!IMPORTANT]',
         '> **Zero-Token On-Demand & Index-First Principle**:',
         '> 1. This document records macro Architecture Decision Records (ADRs) and major system changes only.',
-        '> 2. For each new decision, assign `LOG-{N}` and simultaneously: **1) prepend 1 row to `ADR Index Map`**, and **2) prepend a detail block under `Architecture Decision Details`**.',
+        '> 2. For each new decision, assign `LOG-XXXXXX` (via `acm adr add` / `acm id adr` / MCP) and simultaneously: **1) prepend 1 row to `ADR Index Map`**, and **2) prepend a detail block under `Architecture Decision Details`**.',
         '> 3. Do not read this file routinely. Only during global infra changes, regression tracing, or large merges, slice-read lines 1-35 or `grep_search` to pinpoint `[LOG-XX]`.',
         '',
         '## 1. ADR Index Map',

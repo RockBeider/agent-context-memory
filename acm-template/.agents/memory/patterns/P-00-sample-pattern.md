@@ -1,8 +1,8 @@
 # [P-00] Sample Pattern Template (Format Sample - NOT a real pattern)
 
 > [!NOTE]
-> Format sample demonstrating the `P-XX` knowledge shard structure compatible with `group-status.cjs` and `markdown-bridge.cjs`.
-> Start real project patterns at `P-01-{english-slug}.md`.
+> Format sample demonstrating the `P-XXXXXX` (or legacy `P-XX`) knowledge shard structure compatible with `group-status.cjs` and `markdown-bridge.cjs`.
+> Issue real project patterns via `acm pattern add` / `acm id pattern` / MCP as `P-XXXXXX-{english-slug}.md`.
 
 - **Date**: YYYY-MM-DD
 - **Category**: (e.g. Git / Build / State / UI / Auth)

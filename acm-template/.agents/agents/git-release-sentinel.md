@@ -34,10 +34,10 @@ Enforce root project rules (`AGENTS.md`, `GEMINI.md`, etc.), [MEMORY_GOVERNANCE.
 ### C. Task-Centric Commit & Auto-Archive Verification
 1. **Commit Delegation & Auto-Archive Check**:
    - Confirm `.agents/task/task.md` has `[Ready]` status and all 3 elements (`Purpose`, `Results`, `Targets`) before committing.
-   - Commit via `npm run git:commit` (`node scripts/group-status.cjs --all`) or `node scripts/group-status.cjs --commit=<TSK-X>`.
+   - Commit via `npm run git:commit` (`node scripts/group-status.cjs --all`) or `node scripts/group-status.cjs --commit=<num|TSK-XXXXXX|prefix>`.
    - Verify a real Commit SHA was captured and the task was auto-archived into `.agents/task/task-completed.md`.
 2. **Governance & Local Isolation Check**:
-   - Verify immutable `TSK-{N}` numbering (no `TSK-SAMPLE`, `P-00`, or `LOG-00` sample leakage).
+   - Verify immutable `TSK-XXXXXX` (or legacy `TSK-{N}`) IDs (no `TSK-SAMPLE`, `P-00`, or `LOG-00` sample leakage).
    - Ensure `[Ready]` tasks are never manually marked `[x]` or prematurely archived before obtaining a commit SHA (Negative Rule).
    - Block any secondary Git commit attempt for `.gitignore`-excluded `.agents/` files in host projects.
 
