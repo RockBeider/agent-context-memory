@@ -190,7 +190,7 @@ node scripts/acm/install-template.cjs /path/to/my-project --lang=ko --rule-file=
 
 ### 5) 기존 설정을 건드리지 않고 깔끔하게 지울 수 있습니다
 - 설치할 때 ACM이 만든 파일 목록을 `.agents/acm/meta.json`(v2)과 `scripts/acm/acm-manifest.cjs`에 기록해 둡니다.
-- 나중에 `npx agent-context-memory uninstall`을 실행하면 `.agents/acm`을 프로젝트 루트의 `.acm-backup-*`에 먼저 백업한 뒤, 원래 있던 `.agents/`, `scripts/`, 커스텀 훅은 그대로 두고 ACM 파일만 깔끔하게 지워줍니다. Git이 없는 폴더에서도 `scripts/acm/check-git.cjs`가 환경을 확인해 메모리 뷰어 모드로 문제없이 동작합니다.
+- 나중에 `npx agent-context-memory uninstall`을 실행하면 먼저 백업 여부와 저장 위치(`Local` `.acm-backup-*.zip` 기본값, `--backup-format=zip|tar.gz|dir`, 또는 격리 Git 브랜치 `acm-backups` 선택 `--backup-target=local|git|both`)를 선택한 뒤, 원래 있던 `.agents/`, `scripts/`, 커스텀 훅은 그대로 두고 ACM 파일만 깔끔하게 지워줍니다. 재설치(`init`) 시에는 로컬과 Git의 기존 백업을 자동 인식해 복원(`--restore-backup`)하거나 새로 시작할 수 있으며, Git이 없는 폴더에서도 메모리 뷰어 모드로 문제없이 동작합니다.
 
 ---
 

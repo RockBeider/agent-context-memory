@@ -191,7 +191,7 @@ ACM works with any IDE or agent. It finds your root rule files and inserts its o
 
 ### 5) Safe Uninstall & Non-Git Support
 - ACM tracks everything it installs in `.agents/acm/meta.json` (v2) and `scripts/acm/acm-manifest.cjs`.
-- Running `npx agent-context-memory uninstall` backs up `.agents/acm` to `.acm-backup-*` first, then removes only ACM files while leaving your own `.agents/`, `scripts/`, and custom hooks untouched. Outside Git repositories, `scripts/acm/check-git.cjs` switches cleanly to Memory Viewer mode.
+- Running `npx agent-context-memory uninstall` lets you choose whether to back up `.agents/acm` and where to store it (`Local` `.acm-backup-*.zip` by default, `--backup-format=zip|tar.gz|dir`, or isolated Git orphan branch `acm-backups` via `--backup-target=local|git|both`), then removes only ACM files while leaving your own `.agents/`, `scripts/`, and custom hooks untouched. On re-install, `init` automatically detects local and Git backups so you can restore (`--restore-backup`) or start fresh. Outside Git repositories, `scripts/acm/check-git.cjs` switches cleanly to Memory Viewer mode.
 
 ---
 

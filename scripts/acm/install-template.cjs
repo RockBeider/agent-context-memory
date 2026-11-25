@@ -40,6 +40,23 @@ const {
   createTranslator,
   t,
 } = require('./i18n.cjs');
+const {
+  detectBackupFormatFromPath,
+  formatBytes,
+  parseBackupTimestamp,
+  discoverLocalBackups,
+  readBackupEntriesFromPath,
+  readBackupEntriesFromBuffer,
+  inspectBackupEntries,
+  restoreBackupEntriesToProject,
+} = require('./backup-archive.cjs');
+const {
+  DEFAULT_BACKUP_BRANCH,
+  DEFAULT_BACKUP_REMOTE,
+  isValidRefName,
+  discoverGitBackups,
+  readGitBackupBuffer,
+} = require('./backup-git.cjs');
 
 const ROOT_DIR = path.resolve(__dirname, '..', '..');
 const TEMPLATE_DIR = path.join(ROOT_DIR, 'acm-template');
@@ -176,6 +193,230 @@ async function promptStorageProvider(options = {}) {
     return null;
   }
   return normalizeStorageProvider(selected) || 'sqlite';
+}
+
+function formatBackupSourceLabel(backup, tr) {
+  if (backup && backup.source === 'git') {
+    return tr('install.backupSourceGit', { branch: backup.branch || DEFAULT_BACKUP_BRANCH });
+  }
+  return tr('install.backupSourceLocal');
+}
+
+function formatBackupDate(createdAt) {
+  if (!createdAt) return '';
+  return String(createdAt).slice(0, 19).replace('T', ' ');
+}
+
+function discoverAllBackups(targetDir, options = {}) {
+  const backupBranch = options.backupBranch || DEFAULT_BACKUP_BRANCH;
+  const backupRemote = options.backupRemote || DEFAULT_BACKUP_REMOTE;
+  const localBackups = discoverLocalBackups(targetDir);
+  const gitBackups = discoverGitBackups(targetDir, {
+    branch: backupBranch,
+    remote: backupRemote,
+    fetchRemote: Boolean(options.fetchRemote),
+  });
+
+  const combined = [...localBackups, ...gitBackups];
+  combined.sort((a, b) => {
+    const ta = parseBackupTimestamp(a.name) || a.mtimeMs || 0;
+    const tb = parseBackupTimestamp(b.name) || b.mtimeMs || 0;
+    if (tb !== ta) return tb - ta;
+    if (a.source !== b.source) return a.source === 'local' ? -1 : 1;
+    return String(b.name || '').localeCompare(String(a.name || ''));
+  });
+  return combined;
+}
+
+function loadBackupForRestore(targetDir, descriptor, lang = DEFAULT_LANGUAGE) {
+  const tr = createTranslator(lang);
+  try {
+    let entries;
+    if (descriptor.source === 'git') {
+      const buf = readGitBackupBuffer(targetDir, descriptor);
+      entries = readBackupEntriesFromBuffer(buf, descriptor.format);
+    } else {
+      entries = readBackupEntriesFromPath(descriptor.fullPath, descriptor.format);
+    }
+    const inspected = inspectBackupEntries(entries);
+    return { descriptor, entries, inspected };
+  } catch (err) {
+    throw new Error(tr('install.backupInvalid', { name: descriptor.name, detail: err.message }));
+  }
+}
+
+function resolveRestoreSelection(targetDir, restoreSpec, options = {}) {
+  const lang = options.lang || DEFAULT_LANGUAGE;
+  const tr = createTranslator(lang);
+  const backupBranch = options.backupBranch || DEFAULT_BACKUP_BRANCH;
+  const backupRemote = options.backupRemote || DEFAULT_BACKUP_REMOTE;
+
+  if (restoreSpec === true || String(restoreSpec).trim().toLowerCase() === 'latest') {
+    const all = discoverAllBackups(targetDir, { backupBranch, backupRemote, fetchRemote: true });
+    if (all.length === 0) {
+      throw new Error(
+        tr('install.backupNotFound', { spec: restoreSpec === true ? 'latest' : String(restoreSpec) })
+      );
+    }
+    return loadBackupForRestore(targetDir, all[0], lang);
+  }
+
+  const specStr = String(restoreSpec || '').trim();
+  const lowerSpec = specStr.toLowerCase();
+
+  if (lowerSpec === 'local') {
+    const locals = discoverLocalBackups(targetDir);
+    if (locals.length === 0) {
+      throw new Error(tr('install.backupNotFound', { spec: specStr }));
+    }
+    return loadBackupForRestore(targetDir, locals[0], lang);
+  }
+
+  if (lowerSpec === 'git') {
+    const gitList = discoverGitBackups(targetDir, {
+      branch: backupBranch,
+      remote: backupRemote,
+      fetchRemote: true,
+    });
+    if (gitList.length === 0) {
+      throw new Error(tr('install.backupNotFound', { spec: specStr }));
+    }
+    return loadBackupForRestore(targetDir, gitList[0], lang);
+  }
+
+  const candidatePaths = path.isAbsolute(specStr)
+    ? [specStr]
+    : [path.resolve(targetDir, specStr), path.resolve(process.cwd(), specStr)];
+
+  for (const candidate of candidatePaths) {
+    if (fs.existsSync(candidate)) {
+      const fmt = detectBackupFormatFromPath(candidate);
+      if (!fmt) {
+        throw new Error(
+          tr('install.backupInvalid', { name: specStr, detail: 'Unsupported backup format' })
+        );
+      }
+      const stat = fs.statSync(candidate);
+      return loadBackupForRestore(
+        targetDir,
+        {
+          source: 'local',
+          name: path.basename(candidate),
+          fullPath: candidate,
+          format: fmt,
+          sizeBytes: stat.isDirectory() ? 0 : stat.size,
+          mtimeMs: stat.mtimeMs,
+        },
+        lang
+      );
+    }
+  }
+
+  const all = discoverAllBackups(targetDir, { backupBranch, backupRemote, fetchRemote: true });
+  const matched = all.find((b) => {
+    const noExt = b.name.replace(/(\.tar\.gz|\.tgz|\.zip)$/i, '');
+    return b.name === specStr || noExt === specStr;
+  });
+  if (!matched) {
+    throw new Error(tr('install.backupNotFound', { spec: specStr }));
+  }
+  return loadBackupForRestore(targetDir, matched, lang);
+}
+
+function promptBackupRestoreFallback(backups, options = {}) {
+  const lang = options.lang || DEFAULT_LANGUAGE;
+  const tr = createTranslator(lang);
+  const listLines = backups
+    .map((b, idx) => {
+      const src = formatBackupSourceLabel(b, tr);
+      const dt = formatBackupDate(b.createdAt);
+      return `    ${idx + 1}: ${b.name} (${src}, ${b.format}, ${formatBytes(b.sizeBytes)}${dt ? `, ${dt}` : ''})`;
+    })
+    .join('\n');
+
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: options.input || process.stdin,
+      output: options.output || process.stdout,
+    });
+    let answered = false;
+    rl.on('SIGINT', () => {
+      answered = true;
+      rl.close();
+      resolve(null);
+    });
+    rl.question(tr('install.backupPromptFallback', { list: listLines, count: backups.length }), (answer) => {
+      answered = true;
+      rl.close();
+      const trimmed = String(answer || '').trim();
+      if (!trimmed || trimmed === '1') {
+        return resolve(backups[0]);
+      }
+      if (trimmed === '0') {
+        return resolve(false);
+      }
+      const num = Number(trimmed);
+      if (Number.isInteger(num) && num >= 1 && num <= backups.length) {
+        return resolve(backups[num - 1]);
+      }
+      resolve(false);
+    });
+    rl.on('close', () => {
+      if (!answered) resolve(null);
+    });
+  });
+}
+
+/**
+ * Prompts the user to restore an existing backup or start fresh.
+ * Returns selected backup descriptor, false for fresh install, or null on cancel.
+ */
+async function promptBackupRestore(backups = [], options = {}) {
+  if (!Array.isArray(backups) || backups.length === 0) {
+    return false;
+  }
+  const lang = options.lang || DEFAULT_LANGUAGE;
+  const tr = createTranslator(lang);
+  const clack = options.useClack === false ? null : await loadClack();
+  if (!clack) {
+    return promptBackupRestoreFallback(backups, options);
+  }
+
+  const ioOpts = {};
+  if (options.input) ioOpts.input = options.input;
+  if (options.output) ioOpts.output = options.output;
+
+  const selectOptions = backups.map((b, idx) => ({
+    value: String(idx),
+    label: tr('install.backupOptionRestoreLabel', { name: b.name }),
+    hint: tr('install.backupOptionRestoreHint', {
+      source: formatBackupSourceLabel(b, tr),
+      format: b.format,
+      size: formatBytes(b.sizeBytes),
+      date: formatBackupDate(b.createdAt) || '-',
+    }),
+  }));
+  selectOptions.push({
+    value: '__fresh__',
+    label: tr('install.backupOptionFreshLabel'),
+    hint: tr('install.backupOptionFreshHint'),
+  });
+
+  const selected = await clack.select({
+    message: tr('install.backupPromptMessage'),
+    options: selectOptions,
+    initialValue: '0',
+    ...ioOpts,
+  });
+
+  if (clack.isCancel(selected)) {
+    return null;
+  }
+  if (selected === '__fresh__') {
+    return false;
+  }
+  const idx = Number(selected);
+  return backups[idx] || false;
 }
 
 function toPosixRel(targetRoot, fullPath) {
@@ -613,20 +854,44 @@ function executeInstallSteps(targetDir, targetRuleFiles, hasGit, force, silent, 
     console.log(tr('install.gitignoreNoGit'));
   }
 
+  let restoreResult = null;
+  if (options.restorePlan && Array.isArray(options.restorePlan.entries)) {
+    restoreResult = restoreBackupEntriesToProject(targetDir, options.restorePlan.entries);
+    if (!silent) {
+      const d = options.restorePlan.descriptor;
+      console.log(
+        tr('install.backupRestored', {
+          count: restoreResult.restoredCount,
+          name: d.name,
+          source: formatBackupSourceLabel(d, tr),
+        })
+      );
+    }
+  }
+
+  const restoredCfg = restoreResult && restoreResult.restoredConfig ? restoreResult.restoredConfig : null;
+  const configBase = restoredCfg ? { ...restoredCfg, ...(baseExisting || {}) } : baseExisting;
+  const effectiveProjectionSetting =
+    typeof options.markdownProjection === 'boolean'
+      ? options.markdownProjection
+      : restoredCfg && restoredCfg.storage && typeof restoredCfg.storage.markdownProjection === 'boolean'
+        ? restoredCfg.storage.markdownProjection
+        : targetMarkdownProjection;
+
   let effectiveConfig;
-  if (preserveExistingConfig) {
+  if (preserveExistingConfig && !restoreResult) {
     effectiveConfig = baseExisting;
   } else {
     effectiveConfig = saveConfig(targetDir, {
-      ...(baseExisting || {}),
+      ...(configBase || {}),
       language: lang,
       storage: {
-        ...((baseExisting && baseExisting.storage) || {}),
+        ...((configBase && configBase.storage) || {}),
         provider: targetStorage,
         dbPath:
-          (baseExisting && baseExisting.storage && baseExisting.storage.dbPath) ||
+          (configBase && configBase.storage && configBase.storage.dbPath) ||
           '.agents/acm/local/memory.db',
-        markdownProjection: targetMarkdownProjection,
+        markdownProjection: effectiveProjectionSetting,
       },
     });
   }
@@ -723,6 +988,16 @@ function executeInstallSteps(targetDir, targetRuleFiles, hasGit, force, silent, 
           },
           gitignoreEntries: mergedGitignoreEntries,
           packageScripts: mergedPackageScripts,
+          ...(options.restorePlan
+            ? {
+                restoredFromBackup: {
+                  source: options.restorePlan.descriptor.source,
+                  name: options.restorePlan.descriptor.name,
+                  format: options.restorePlan.descriptor.format,
+                  restoredCount: restoreResult ? restoreResult.restoredCount : 0,
+                },
+              }
+            : {}),
         },
         null,
         2
@@ -740,6 +1015,7 @@ function executeInstallSteps(targetDir, targetRuleFiles, hasGit, force, silent, 
     storageProvider: effectiveStorage,
     markdownProjection: effectiveMarkdownProjection,
     migratedCounts,
+    restoreResult,
   };
 }
 
@@ -811,6 +1087,27 @@ async function install(targetPath = '.', options = {}) {
     process.exit(1);
   }
 
+  const backupBranch = options.backupBranch
+    ? String(options.backupBranch).trim()
+    : DEFAULT_BACKUP_BRANCH;
+  const backupRemote = options.backupRemote
+    ? String(options.backupRemote).trim()
+    : DEFAULT_BACKUP_REMOTE;
+  if (!isValidRefName(backupBranch)) {
+    throw new Error(
+      t('uninstall.invalidBackupRef', { ref: backupBranch }, normalizeLanguage(options.lang) || DEFAULT_LANGUAGE)
+    );
+  }
+  if (!isValidRefName(backupRemote)) {
+    throw new Error(
+      t('uninstall.invalidBackupRef', { ref: backupRemote }, normalizeLanguage(options.lang) || DEFAULT_LANGUAGE)
+    );
+  }
+
+  const isAlreadyInstalled =
+    fs.existsSync(path.join(targetDir, '.agents', 'acm', 'ACM_GOVERNANCE.md')) ||
+    fs.existsSync(path.join(targetDir, '.agents', 'acm', 'meta.json'));
+
   const isInteractive =
     Boolean(options.forceInteractive || (process.stdin.isTTY && process.stdout.isTTY)) &&
     !options.nonInteractive;
@@ -831,6 +1128,8 @@ async function install(targetPath = '.', options = {}) {
     }
   }
 
+  let restorePlan = null;
+
   if (clack) {
     const ioOpts = {};
     if (options.input) ioOpts.input = options.input;
@@ -847,6 +1146,52 @@ async function install(targetPath = '.', options = {}) {
     }
 
     const tr = createTranslator(lang);
+
+    if (options.restoreBackup && !options.noRestoreBackup) {
+      restorePlan = resolveRestoreSelection(targetDir, options.restoreBackup, {
+        lang,
+        backupBranch,
+        backupRemote,
+      });
+      clack.log.info(
+        tr('install.backupSelected', {
+          name: restorePlan.descriptor.name,
+          source: formatBackupSourceLabel(restorePlan.descriptor, tr),
+        }),
+        ioOpts
+      );
+    } else if (!options.noRestoreBackup && !isAlreadyInstalled) {
+      const detectedBackups = discoverAllBackups(targetDir, {
+        backupBranch,
+        backupRemote,
+        fetchRemote: true,
+      });
+      if (detectedBackups.length > 0) {
+        const chosenBackup = await promptBackupRestore(detectedBackups, {
+          ...options,
+          ...ioOpts,
+          lang,
+          useClack: true,
+        });
+        if (chosenBackup === null) {
+          clack.cancel(tr('install.cancelled'), ioOpts);
+          return { success: false, cancelled: true };
+        }
+        if (chosenBackup) {
+          restorePlan = loadBackupForRestore(targetDir, chosenBackup, lang);
+        }
+      }
+    }
+
+    if (!storageProvider && restorePlan && restorePlan.inspected && restorePlan.inspected.storageProvider) {
+      const inferred = normalizeStorageProvider(restorePlan.inspected.storageProvider);
+      if (inferred === 'sqlite' && !isNodeSqliteAvailable()) {
+        clack.log.warn(tr('install.storageFallbackMarkdownWarn', { version: process.version }), ioOpts);
+        storageProvider = 'markdown';
+      } else if (inferred) {
+        storageProvider = inferred;
+      }
+    }
 
     if (!storageProvider) {
       if (isNodeSqliteAvailable()) {
@@ -906,11 +1251,13 @@ async function install(targetPath = '.', options = {}) {
       storageProvider: finalStorage,
       markdownProjection: finalProjection,
       migratedCounts,
+      restoreResult,
     } = executeInstallSteps(targetDir, targetRuleFiles, hasGit, force, true, {
       ...options,
       lang,
       storageProvider,
       explicitStorage: Boolean(explicitStorage),
+      restorePlan,
     });
     spin.stop(tr('install.spinnerStop'));
 
@@ -923,6 +1270,15 @@ async function install(targetPath = '.', options = {}) {
       clack.log.info(tr('install.storageMigrated', migratedCounts).trim(), ioOpts);
     }
 
+    const restoreSummaryLine =
+      restorePlan && restoreResult
+        ? `\n${tr('install.summaryBackupRestored', {
+            name: restorePlan.descriptor.name,
+            source: formatBackupSourceLabel(restorePlan.descriptor, tr),
+            count: restoreResult.restoredCount,
+          })}`
+        : '';
+
     clack.log.step(
       tr('install.summary', {
         created: stats.created,
@@ -930,7 +1286,9 @@ async function install(targetPath = '.', options = {}) {
         skipped: stats.skipped,
         files: targetRuleFiles.join(', '),
         addedCount: pkgResult.addedCount,
-      }) + `\n${tr('install.summaryStorage', { storage: finalStorage })}`,
+      }) +
+        `\n${tr('install.summaryStorage', { storage: finalStorage })}` +
+        restoreSummaryLine,
       ioOpts
     );
 
@@ -948,6 +1306,7 @@ async function install(targetPath = '.', options = {}) {
       stats,
       gitAvailable: hasGit,
       ruleFiles: targetRuleFiles,
+      restoredFromBackup: restorePlan ? restorePlan.descriptor : null,
     };
   }
 
@@ -963,6 +1322,58 @@ async function install(targetPath = '.', options = {}) {
   }
 
   const tr = createTranslator(lang);
+
+  let detectedBackupHintMsg = null;
+  if (options.restoreBackup && !options.noRestoreBackup) {
+    restorePlan = resolveRestoreSelection(targetDir, options.restoreBackup, {
+      lang,
+      backupBranch,
+      backupRemote,
+    });
+  } else if (isInteractive && !options.noRestoreBackup && !isAlreadyInstalled) {
+    const detectedBackups = discoverAllBackups(targetDir, {
+      backupBranch,
+      backupRemote,
+      fetchRemote: true,
+    });
+    if (detectedBackups.length > 0) {
+      const chosenBackup = await promptBackupRestore(detectedBackups, {
+        ...options,
+        lang,
+        useClack: false,
+      });
+      if (chosenBackup === null) {
+        return { success: false, cancelled: true };
+      }
+      if (chosenBackup) {
+        restorePlan = loadBackupForRestore(targetDir, chosenBackup, lang);
+      }
+    }
+  } else if (!isInteractive && !options.noRestoreBackup && !isAlreadyInstalled && !options.skipPackageJsonUpdate) {
+    const detectedBackups = discoverAllBackups(targetDir, {
+      backupBranch,
+      backupRemote,
+      fetchRemote: false,
+    });
+    if (detectedBackups.length > 0) {
+      const latest = detectedBackups[0];
+      detectedBackupHintMsg = tr('install.backupDetectedHint', {
+        count: detectedBackups.length,
+        name: latest.name,
+        source: formatBackupSourceLabel(latest, tr),
+      });
+    }
+  }
+
+  if (!storageProvider && restorePlan && restorePlan.inspected && restorePlan.inspected.storageProvider) {
+    const inferred = normalizeStorageProvider(restorePlan.inspected.storageProvider);
+    if (inferred === 'sqlite' && !isNodeSqliteAvailable()) {
+      console.warn(tr('install.storageFallbackMarkdownWarn', { version: process.version }));
+      storageProvider = 'markdown';
+    } else if (inferred) {
+      storageProvider = inferred;
+    }
+  }
 
   if (!storageProvider) {
     if (isInteractive && isNodeSqliteAvailable()) {
@@ -987,6 +1398,17 @@ async function install(targetPath = '.', options = {}) {
   }
   console.log('=======================================================\n');
 
+  if (restorePlan) {
+    console.log(
+      tr('install.backupSelected', {
+        name: restorePlan.descriptor.name,
+        source: formatBackupSourceLabel(restorePlan.descriptor, tr),
+      })
+    );
+  } else if (detectedBackupHintMsg) {
+    console.log(detectedBackupHintMsg);
+  }
+
   const gitStatus = checkGitEnvironment(targetDir);
   const hasGit = printGitNotice(gitStatus, lang);
 
@@ -1008,6 +1430,7 @@ async function install(targetPath = '.', options = {}) {
       lang,
       storageProvider,
       explicitStorage: Boolean(explicitStorage),
+      restorePlan,
     }
   );
 
@@ -1027,6 +1450,7 @@ async function install(targetPath = '.', options = {}) {
     stats,
     gitAvailable: hasGit,
     ruleFiles: targetRuleFiles,
+    restoredFromBackup: restorePlan ? restorePlan.descriptor : null,
   };
 }
 
@@ -1113,6 +1537,10 @@ function parseInstallCliArgs(args = []) {
   let ruleFile = null;
   let storage = null;
   let markdownProjection;
+  let restoreBackup = null;
+  let noRestoreBackup = false;
+  let backupBranch = null;
+  let backupRemote = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = String(args[i] || '');
@@ -1120,6 +1548,47 @@ function parseInstallCliArgs(args = []) {
       force = true;
     } else if (arg === '--non-interactive') {
       nonInteractive = true;
+    } else if (arg === '--no-restore-backup') {
+      noRestoreBackup = true;
+    } else if (arg.startsWith('--restore-backup=')) {
+      const val = arg.slice('--restore-backup='.length);
+      restoreBackup = val || true;
+    } else if (arg === '--restore-backup') {
+      const next = args[i + 1] ? String(args[i + 1]) : '';
+      if (
+        next &&
+        !next.startsWith('-') &&
+        (next === 'latest' ||
+          next === 'local' ||
+          next === 'git' ||
+          next.startsWith('.acm-backup-') ||
+          next.endsWith('.zip') ||
+          next.endsWith('.tar.gz') ||
+          next.endsWith('.tgz'))
+      ) {
+        restoreBackup = next;
+        i += 1;
+      } else {
+        restoreBackup = true;
+      }
+    } else if (arg.startsWith('--backup-branch=')) {
+      backupBranch = arg.slice('--backup-branch='.length);
+    } else if (arg === '--backup-branch') {
+      if (args[i + 1] && !String(args[i + 1]).startsWith('-')) {
+        backupBranch = String(args[i + 1]);
+        i += 1;
+      } else {
+        backupBranch = '';
+      }
+    } else if (arg.startsWith('--backup-remote=')) {
+      backupRemote = arg.slice('--backup-remote='.length);
+    } else if (arg === '--backup-remote') {
+      if (args[i + 1] && !String(args[i + 1]).startsWith('-')) {
+        backupRemote = String(args[i + 1]);
+        i += 1;
+      } else {
+        backupRemote = '';
+      }
     } else if (arg === '--markdown-projection') {
       markdownProjection = true;
     } else if (arg === '--no-markdown-projection') {
@@ -1157,6 +1626,10 @@ function parseInstallCliArgs(args = []) {
     ruleFile,
     storage,
     markdownProjection,
+    restoreBackup,
+    noRestoreBackup,
+    backupBranch,
+    backupRemote,
     targetArg: positionals[0] || '.',
   };
 }
@@ -1180,10 +1653,32 @@ async function main() {
     process.exit(0);
   }
 
-  const { force, nonInteractive, ruleFile, storage, markdownProjection, targetArg } = parseInstallCliArgs(args);
+  const {
+    force,
+    nonInteractive,
+    ruleFile,
+    storage,
+    markdownProjection,
+    restoreBackup,
+    noRestoreBackup,
+    backupBranch,
+    backupRemote,
+    targetArg,
+  } = parseInstallCliArgs(args);
 
   try {
-    await install(targetArg, { force, ruleFile, storage, markdownProjection, nonInteractive, lang: parsedLang });
+    await install(targetArg, {
+      force,
+      ruleFile,
+      storage,
+      markdownProjection,
+      restoreBackup,
+      noRestoreBackup,
+      backupBranch,
+      backupRemote,
+      nonInteractive,
+      lang: parsedLang,
+    });
   } catch (err) {
     console.error(t('cli.installException', {}, parsedLang || DEFAULT_LANGUAGE), err.message);
     process.exit(1);
@@ -1200,6 +1695,8 @@ module.exports = {
   normalizeStorageProvider,
   getStorageOptions,
   promptStorageProvider,
+  discoverAllBackups,
+  promptBackupRestore,
   install,
   runPostInstall,
   syncHooksJson,

@@ -16,6 +16,8 @@ module.exports = {
     uninstallException: '[오류] 제거 중 예외가 발생했습니다:',
     unknownCommand: '[오류] 알 수 없는 명령어: "{{command}}"\n',
     unsupportedStorage: '[오류] 지원하지 않는 저장소 방식입니다: "{{storage}}". 지원 방식: sqlite, markdown',
+    unsupportedBackupFormat: '[오류] 지원하지 않는 백업 포맷입니다: "{{format}}". 지원 포맷: zip, tar.gz, dir',
+    unsupportedBackupTarget: '[오류] 지원하지 않는 백업 저장 위치입니다: "{{target}}". 지원 위치: local, git, both',
     help: `
 Agent Context Memory CLI (v{{version}})
 Three-Tier Context Memory Governance & Task-Centric Engine
@@ -59,7 +61,13 @@ Three-Tier Context Memory Governance & Task-Centric Engine
   --markdown-projection       SQLite 모드에서 .agents/acm/task/*.md 자동 투영 활성화 (기본값: 비활성)
   --non-interactive           대화형 프롬프트 생략 (미감지 시 en, sqlite, AGENTS.md 자동 폴백)
   --dry-run                   실제 조작 없이 결과 미리보기
-  --no-backup                 (uninstall 전용) .acm-backup-* 백업 디렉터리 생성 생략
+  --no-backup                 (uninstall 전용) .acm-backup-* 백업 생성 생략
+  --backup-format=<포맷>      (uninstall 전용) 백업 포맷: zip(기본값), tar.gz, dir
+  --backup-target=<위치>      (uninstall 전용) 백업 저장 위치: local(기본값), git, both
+  --backup-branch=<브랜치>    (init/uninstall) 백업용 Git orphan 브랜치 지정 (기본값: acm-backups)
+  --backup-remote=<원격>      (init/uninstall) 백업 브랜치 Git 원격 지정 (기본값: origin)
+  --restore-backup[=<대상>]   (init 전용) 기존 백업 복원 (latest, local, git, 파일명 또는 경로)
+  --no-restore-backup         (init 전용) 백업 탐색 및 복원 프롬프트 생략
   --rule-file=<파일명>        규칙 파일 직접 지정 (쉼표 구분 다중 지정 가능)
   -r <파일명>                 --rule-file 의 축약형
 
@@ -94,6 +102,10 @@ Three-Tier Context Memory Governance & Task-Centric Engine
   --storage=<sqlite|markdown> : 저장소 백엔드 선택 (Node >= 22.13 기본값: sqlite)
   --markdown-projection       : SQLite 모드에서 .agents/acm/task/*.md 자동 투영 활성화 (기본값: 비활성)
   --non-interactive           : 대화형 프롬프트 생략 (기본값: en, sqlite, AGENTS.md)
+  --restore-backup[=<대상>]   : 기존 백업에서 복원 (latest, local, git, 파일명 또는 경로)
+  --no-restore-backup         : 백업 자동 탐색 및 복원 프롬프트 건너뛰기
+  --backup-branch=<이름>      : 백업용 Git orphan 브랜치 이름 재정의 (기본값: acm-backups)
+  --backup-remote=<이름>      : 백업용 Git 원격 저장소 재정의 (기본값: origin)
   --rule-file=<파일명>        : 규칙을 적용할 대상 파일 직접 지정 (쉼표 구분 다중 지정 가능)
   -r <파일명>                 : --rule-file 의 축약형
 
@@ -122,6 +134,20 @@ Three-Tier Context Memory Governance & Task-Centric Engine
     storageSelected: '선택된 저장소: {{label}}',
     storageFallbackMarkdownWarn: '  [안내] 내장 node:sqlite는 Node.js >= 22.13.0이 필요합니다(현재: {{version}}). markdown 모드로 폴백합니다.',
     storageMigrated: '  [이관] 기존 Markdown 데이터를 SQLite DB로 자동 적재했습니다 (태스크: {{tasks}}, 완료: {{completedTasks}}, 패턴: {{patterns}}, ADR: {{adrs}}).',
+    backupPromptMessage: '기존 ACM 백업이 감지되었습니다. 복원하시겠습니까?',
+    backupOptionRestoreLabel: '{{name}} 복원',
+    backupOptionRestoreHint: '{{source}} | {{format}} | {{size}} | {{date}}',
+    backupOptionFreshLabel: '신규 설치 (백업 무시)',
+    backupOptionFreshHint: '이전 메모리를 복원하지 않고 새 템플릿으로 설치합니다',
+    backupPromptFallback: '  기존 백업이 발견되었습니다:\n{{list}}\n  복원할 백업을 선택하세요 [1-{{count}}] (신규 설치: 0, 기본값: 1): ',
+    backupSourceLocal: '로컬',
+    backupSourceGit: 'Git: {{branch}}',
+    backupSelected: '선택된 복원 백업: {{name}} ({{source}})',
+    backupRestored: '  [복원] {{name}} ({{source}})에서 {{count}}개 파일을 복원했습니다.',
+    backupDetectedHint: '  [안내] ACM 백업 {{count}}건이 감지되었습니다 (최신: {{name}}, {{source}}). 복원하려면 --restore-backup 옵션을 함께 실행하세요.',
+    backupNotFound: '지정한 복원 대상 백업을 찾을 수 없습니다: "{{spec}}"',
+    backupInvalid: '유효하지 않거나 손상된 백업 "{{name}}": {{detail}}',
+    summaryBackupRestored: '백업 복원 완료: {{name}} ({{source}}, {{count}}개 파일)',
     targetAndMode: '대상 경로: {{targetDir}}\n모드: {{mode}}',
     modeForce: '강제 덮어쓰기 (--force)',
     modeSafe: '안전 보존 모드',
@@ -189,17 +215,22 @@ Three-Tier Context Memory Governance & Task-Centric Engine
   node scripts/acm/uninstall-template.cjs [target-directory] [옵션]
 
 옵션:
-  --dry-run               : 실제 삭제 없이 제거 대상 시뮬레이션 출력
-  --force, -f             : 대화형 확인 프롬프트 건너뛰기
-  --no-backup             : .acm-backup-* 백업 디렉터리 생성 건너뛰기
-  --lang=<en|ko>, -l      : 출력 언어 지정
-  --rule-file=<파일명>    : 규칙을 제거할 대상 파일 직접 지정 (쉼표 구분 다중 지정 가능)
-  -r <파일명>             : --rule-file 의 축약형
+  --dry-run                : 실제 삭제 없이 제거 대상 시뮬레이션 출력
+  --force, -f              : 대화형 확인 프롬프트 건너뛰기
+  --no-backup              : .acm-backup-* 백업 생성 건너뛰기
+  --backup-format=<포맷>   : 백업 포맷: zip(기본값), tar.gz, dir
+  --backup-target=<위치>   : 백업 저장 위치: local(기본값), git, both
+  --backup-branch=<이름>   : 백업용 Git orphan 브랜치 이름 (기본값: acm-backups)
+  --backup-remote=<이름>   : 백업 브랜치 푸시용 원격 저장소 이름 (기본값: origin)
+  --lang=<en|ko>, -l       : 출력 언어 지정
+  --rule-file=<파일명>     : 규칙을 제거할 대상 파일 직접 지정 (쉼표 구분 다중 지정 가능)
+  -r <파일명>              : --rule-file 의 축약형
 
 예시:
   node scripts/acm/uninstall-template.cjs .
   node scripts/acm/uninstall-template.cjs ./my-app --dry-run
   node scripts/acm/uninstall-template.cjs ./my-app --force
+  node scripts/acm/uninstall-template.cjs ./my-app --force --backup-target=both --backup-format=tar.gz
 `,
     bannerTitle: '  Agent Context Memory 제거(Uninstall) 및 롤백 시작',
     bannerTarget: '  대상 경로 : {{dir}}',
@@ -209,12 +240,30 @@ Three-Tier Context Memory Governance & Task-Centric Engine
     bannerBackup: '  백업 정책 : {{backup}}',
     backupSkip: '백업 생략 (--no-backup)',
     backupActive: '안전 백업 활성화',
+    backupActiveFormat: '활성화 (포맷={{format}}, 위치={{target}})',
     confirmPrompt: '\n정말 대상 프로젝트에서 Agent Context Memory를 제거하시겠습니까? (y/N): ',
+    backupConfirmPrompt: '제거 전 ACM 데이터(.agents/acm)를 백업하시겠습니까?',
+    backupConfirmFallback: '제거 전 ACM 데이터를 백업하시겠습니까? (Y/n): ',
+    backupTargetPrompt: '백업을 저장할 위치를 선택하세요:',
+    backupTargetLocalLabel: '로컬 프로젝트 아카이브 (.acm-backup-*)',
+    backupTargetLocalHint: '프로젝트 루트에 압축 아카이브 파일로 백업',
+    backupTargetGitLabel: 'Git orphan 브랜치 ({{branch}})',
+    backupTargetGitHint: '격리 브랜치 {{branch}}에 스냅샷 커밋 저장 (원격 존재 시 자동 푸시)',
+    backupTargetBothLabel: '둘 다 (Local + Git {{branch}})',
+    backupTargetBothHint: '로컬 아카이브 생성과 Git 브랜치 {{branch}} 업로드를 함께 수행',
+    backupTargetFallback: '백업 저장 위치 선택 [1: Local (기본값), 2: Git ({{branch}}), 3: Both]: ',
+    gitBackupRequiresRepo: 'Git 백업(--backup-target=git|both)은 초기화된 Git 저장소에서만 사용할 수 있습니다.',
+    invalidBackupRef: '유효하지 않은 Git 브랜치 또는 원격 이름입니다: "{{ref}}"',
     cancelled: '\n[취소] 사용자에 의해 제거 작업이 중단되었습니다.\n',
     step1: '\n[1/5] ACM 소유 디렉터리 검사 및 제거 중...',
     dirMissing: '  [미존재 건너뜀] {{path}}',
     dryBackup: '  [미리보기] 백업 디렉터리 생성 예정: {{backupDir}}',
+    dryBackupArchive: '  [미리보기] 백업 아카이브({{format}}) 생성 예정: {{backupFile}}',
+    dryBackupGit: '  [미리보기] Git 브랜치 {{branch}}(원격: {{remote}})에 백업 아카이브({{format}}) 저장 예정: {{backupFile}}',
     backupDone: '  [백업 완료] {{src}} -> {{dest}}',
+    backupArchiveDone: '  [백업 완료] {{format}} 아카이브 생성: {{file}} ({{size}})',
+    backupGitDone: '  [Git 백업 완료] {{branch}} 브랜치에 {{file}} 저장 (커밋: {{sha}})',
+    backupGitPushWarn: '  [경고] 로컬 Git 백업 커밋은 완료되었으나 원격 "{{remote}}" 푸시에 실패했습니다: {{detail}}',
     dryDirDelete: '  [미리보기] 디렉터리 전체 삭제 예정: {{path}}',
     dirDeleted: '  [디렉터리 삭제] {{path}}',
     step2: '\n[2/5] ACM 배포 개별 파일 선별 삭제 중...',

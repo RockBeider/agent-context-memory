@@ -16,6 +16,8 @@ module.exports = {
     uninstallException: '[Error] Exception during uninstallation:',
     unknownCommand: '[Error] Unknown command: "{{command}}"\n',
     unsupportedStorage: '[Error] Unsupported storage provider: "{{storage}}". Supported providers: sqlite, markdown',
+    unsupportedBackupFormat: '[Error] Unsupported backup format: "{{format}}". Supported formats: zip, tar.gz, dir',
+    unsupportedBackupTarget: '[Error] Unsupported backup target: "{{target}}". Supported targets: local, git, both',
     help: `
 Agent Context Memory CLI (v{{version}})
 Three-Tier Context Memory Governance & Task-Centric Engine
@@ -59,7 +61,13 @@ Options:
   --markdown-projection       Enable .agents/acm/task/*.md projection in SQLite mode (default: disabled)
   --non-interactive           Skip interactive prompts (auto-defaults to en, sqlite, AGENTS.md)
   --dry-run                   Preview actions without modifying files
-  --no-backup                 (uninstall only) Skip creating .acm-backup-* backup directory
+  --no-backup                 (uninstall only) Skip creating .acm-backup-* backup
+  --backup-format=<fmt>       (uninstall only) Backup format: zip (default), tar.gz, dir
+  --backup-target=<target>    (uninstall only) Backup destination: local (default), git, both
+  --backup-branch=<branch>    (init/uninstall) Git orphan branch for backups (default: acm-backups)
+  --backup-remote=<remote>    (init/uninstall) Git remote for backup branch (default: origin)
+  --restore-backup[=<ref>]    (init only) Restore from existing backup (latest, local, git, name, path)
+  --no-restore-backup         (init only) Skip backup discovery/restore prompts
   --rule-file=<files>         Explicitly specify rule file(s) (comma-separated)
   -r <files>                  Shorthand for --rule-file
 
@@ -94,6 +102,10 @@ Options:
   --storage=<sqlite|markdown> : Select storage backend (default: sqlite on Node >= 22.13)
   --markdown-projection       : Enable .agents/acm/task/*.md projection in SQLite mode (default: disabled)
   --non-interactive           : Skip interactive prompts (default: en, sqlite, AGENTS.md)
+  --restore-backup[=<ref>]    : Restore existing backup (latest, local, git, filename, or path)
+  --no-restore-backup         : Skip backup detection and restore prompts
+  --backup-branch=<name>      : Override Git backup orphan branch (default: acm-backups)
+  --backup-remote=<name>      : Override Git remote for backup branch (default: origin)
   --rule-file=<files>         : Explicitly specify target rule file(s) (comma-separated)
   -r <files>                  : Shorthand for --rule-file
 
@@ -122,6 +134,20 @@ Examples:
     storageSelected: 'Storage backend: {{label}}',
     storageFallbackMarkdownWarn: '  [Notice] Built-in node:sqlite requires Node.js >= 22.13.0 (current: {{version}}); falling back to markdown.',
     storageMigrated: '  [Migrate] Imported existing Markdown records into SQLite (tasks: {{tasks}}, completed: {{completedTasks}}, patterns: {{patterns}}, adrs: {{adrs}}).',
+    backupPromptMessage: 'Existing ACM backup(s) detected. Restore one?',
+    backupOptionRestoreLabel: 'Restore {{name}}',
+    backupOptionRestoreHint: '{{source}} | {{format}} | {{size}} | {{date}}',
+    backupOptionFreshLabel: 'Start fresh (ignore backups)',
+    backupOptionFreshHint: 'Install clean ACM templates without restoring previous memory',
+    backupPromptFallback: '  Existing backup(s) found:\n{{list}}\n  Select backup to restore [1-{{count}}] or 0 for fresh install (default: 1): ',
+    backupSourceLocal: 'Local',
+    backupSourceGit: 'Git: {{branch}}',
+    backupSelected: 'Backup restore selected: {{name}} ({{source}})',
+    backupRestored: '  [Restore] Restored {{count}} file(s) from {{name}} ({{source}}).',
+    backupDetectedHint: '  [Notice] {{count}} ACM backup(s) found (latest: {{name}}, {{source}}). Re-run with --restore-backup to restore.',
+    backupNotFound: 'Backup not found for restore specification: "{{spec}}"',
+    backupInvalid: 'Invalid or corrupted backup "{{name}}": {{detail}}',
+    summaryBackupRestored: 'Restored backup: {{name}} ({{source}}, {{count}} file(s))',
     targetAndMode: 'Target path: {{targetDir}}\nMode: {{mode}}',
     modeForce: 'Force overwrite (--force)',
     modeSafe: 'Safe preserve mode',
@@ -189,17 +215,22 @@ Usage:
   node scripts/acm/uninstall-template.cjs [target-directory] [options]
 
 Options:
-  --dry-run               : Simulate removal without deleting or modifying files
-  --force, -f             : Skip interactive confirmation prompts
-  --no-backup             : Skip creating .acm-backup-* backup directory
-  --lang=<en|ko>, -l      : Set output language
-  --rule-file=<files>     : Explicitly specify rule file(s) to clean (comma-separated)
-  -r <files>              : Shorthand for --rule-file
+  --dry-run                : Simulate removal without deleting or modifying files
+  --force, -f              : Skip interactive confirmation prompts
+  --no-backup              : Skip creating .acm-backup-* backup
+  --backup-format=<fmt>    : Backup format: zip (default), tar.gz, dir
+  --backup-target=<target> : Backup destination: local (default), git, both
+  --backup-branch=<name>   : Git backup orphan branch name (default: acm-backups)
+  --backup-remote=<name>   : Git remote name for backup push (default: origin)
+  --lang=<en|ko>, -l       : Set output language
+  --rule-file=<files>      : Explicitly specify rule file(s) to clean (comma-separated)
+  -r <files>               : Shorthand for --rule-file
 
 Examples:
   node scripts/acm/uninstall-template.cjs .
   node scripts/acm/uninstall-template.cjs ./my-app --dry-run
   node scripts/acm/uninstall-template.cjs ./my-app --force
+  node scripts/acm/uninstall-template.cjs ./my-app --force --backup-target=both --backup-format=tar.gz
 `,
     bannerTitle: '  Agent Context Memory Uninstall & Rollback',
     bannerTarget: '  Target : {{dir}}',
@@ -209,12 +240,30 @@ Examples:
     bannerBackup: '  Backup : {{backup}}',
     backupSkip: 'Skip backup (--no-backup)',
     backupActive: 'Safe backup enabled',
+    backupActiveFormat: 'Enabled (format={{format}}, target={{target}})',
     confirmPrompt: '\nAre you sure you want to remove Agent Context Memory from the target project? (y/N): ',
+    backupConfirmPrompt: 'Back up ACM data (.agents/acm) before removal?',
+    backupConfirmFallback: 'Back up ACM data before removal? (Y/n): ',
+    backupTargetPrompt: 'Choose backup storage destination:',
+    backupTargetLocalLabel: 'Local project archive (.acm-backup-*)',
+    backupTargetLocalHint: 'Save compressed backup in project root',
+    backupTargetGitLabel: 'Git orphan branch ({{branch}})',
+    backupTargetGitHint: 'Commit isolated backup snapshot to {{branch}} (and push if remote exists)',
+    backupTargetBothLabel: 'Both (Local + Git {{branch}})',
+    backupTargetBothHint: 'Save locally and push isolated snapshot to Git branch {{branch}}',
+    backupTargetFallback: 'Select backup destination [1: Local (default), 2: Git ({{branch}}), 3: Both]: ',
+    gitBackupRequiresRepo: 'Git backup (--backup-target=git|both) requires an initialized Git repository.',
+    invalidBackupRef: 'Invalid Git branch or remote reference name: "{{ref}}"',
     cancelled: '\n[Cancelled] Uninstallation aborted by user.\n',
     step1: '\n[1/5] Inspecting and removing ACM-owned directories...',
     dirMissing: '  [SKIP] {{path}} (not found)',
     dryBackup: '  [DRY-RUN] Would create backup directory: {{backupDir}}',
+    dryBackupArchive: '  [DRY-RUN] Would create backup archive ({{format}}): {{backupFile}}',
+    dryBackupGit: '  [DRY-RUN] Would push backup archive ({{format}}) to Git branch {{branch}} (remote: {{remote}}): {{backupFile}}',
     backupDone: '  [BACKUP] {{src}} -> {{dest}}',
+    backupArchiveDone: '  [BACKUP] Created {{format}} archive: {{file}} ({{size}})',
+    backupGitDone: '  [BACKUP GIT] Stored {{file}} on branch {{branch}} (commit: {{sha}})',
+    backupGitPushWarn: '  [Warn] Saved backup commit locally, but pushing to remote "{{remote}}" failed: {{detail}}',
     dryDirDelete: '  [DRY-RUN] Would delete directory: {{path}}',
     dirDeleted: '  [REMOVED DIR] {{path}}',
     step2: '\n[2/5] Removing ACM-owned individual files...',

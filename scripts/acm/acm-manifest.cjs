@@ -71,6 +71,8 @@ const ACM_MANIFEST = {
     { path: 'scripts/acm/smart-pull.cjs', parentDirCleanup: true },
     { path: 'scripts/acm/sync-agent-rules.cjs', parentDirCleanup: true },
     { path: 'scripts/acm/acm-manifest.cjs', parentDirCleanup: true },
+    { path: 'scripts/acm/backup-archive.cjs', parentDirCleanup: true },
+    { path: 'scripts/acm/backup-git.cjs', parentDirCleanup: true },
     { path: 'scripts/acm/uninstall-template.cjs', parentDirCleanup: true },
     { path: 'scripts/acm/acm-db-cli.cjs', parentDirCleanup: true },
     { path: 'scripts/acm/mcp-server.cjs', parentDirCleanup: true },
@@ -108,10 +110,10 @@ const ACM_MANIFEST = {
       '/.agents/agents/acm-context-compactor.md',
       '/.agents/agents/acm-git-release-sentinel.md',
       '/.agents/skills/acm-git-workflow/',
-      '/.acm-backup-*/',
+      '/.acm-backup-*',
     ],
     hooksEntry: '/.agents/hooks.json',
-    legacyEntries: ['/.agents/', '/.agent/', '/.agents_backup_*/'],
+    legacyEntries: ['/.agents/', '/.agent/', '/.agents_backup_*/', '/.acm-backup-*/'],
     template:
       '# Agent Context Memory Ignored Entries\n' +
       '/.agents/acm/\n' +
@@ -119,7 +121,7 @@ const ACM_MANIFEST = {
       '/.agents/agents/acm-context-compactor.md\n' +
       '/.agents/agents/acm-git-release-sentinel.md\n' +
       '/.agents/skills/acm-git-workflow/\n' +
-      '/.acm-backup-*/\n',
+      '/.acm-backup-*\n',
   },
 
   // 4. AI agent rule file injection and drift detection spec
@@ -208,7 +210,7 @@ function getGitignoreEntries({ includeHooks = false } = {}) {
   if (!includeHooks || !hooksEntry) {
     return base;
   }
-  const backupIdx = base.indexOf('/.acm-backup-*/');
+  const backupIdx = base.indexOf('/.acm-backup-*');
   if (backupIdx === -1) {
     return [...base, hooksEntry];
   }

@@ -12,6 +12,7 @@ const { install } = require('../scripts/acm/install-template.cjs');
 const { uninstall } = require('../scripts/acm/uninstall-template.cjs');
 const { checkGitEnvironment, printGitNotice } = require('../scripts/acm/check-git.cjs');
 const { normalizeStorageProvider } = require('../scripts/acm/storage/config.cjs');
+const { normalizeBackupFormat, normalizeBackupTarget } = require('../scripts/acm/backup-archive.cjs');
 const {
   normalizeLanguage,
   parseLangFlag,
@@ -37,6 +38,12 @@ function parseCliArgs(argv = []) {
   let nonInteractive = false;
   let dryRun = false;
   let noBackup = false;
+  let backupFormat = null;
+  let backupTarget = null;
+  let backupBranch = null;
+  let backupRemote = null;
+  let restoreBackup = null;
+  let noRestoreBackup = false;
   let ruleFile = null;
   let storage = null;
   let markdownProjection;
@@ -51,6 +58,65 @@ function parseCliArgs(argv = []) {
       dryRun = true;
     } else if (arg === '--no-backup') {
       noBackup = true;
+    } else if (arg === '--no-restore-backup') {
+      noRestoreBackup = true;
+    } else if (arg.startsWith('--restore-backup=')) {
+      const val = arg.slice('--restore-backup='.length);
+      restoreBackup = val || true;
+    } else if (arg === '--restore-backup') {
+      const next = argv[i + 1] ? String(argv[i + 1]) : '';
+      if (
+        next &&
+        !next.startsWith('-') &&
+        (next === 'latest' ||
+          next === 'local' ||
+          next === 'git' ||
+          next.startsWith('.acm-backup-') ||
+          next.endsWith('.zip') ||
+          next.endsWith('.tar.gz') ||
+          next.endsWith('.tgz'))
+      ) {
+        restoreBackup = next;
+        i += 1;
+      } else {
+        restoreBackup = true;
+      }
+    } else if (arg.startsWith('--backup-format=')) {
+      backupFormat = arg.slice('--backup-format='.length);
+    } else if (arg === '--backup-format') {
+      if (argv[i + 1] && !String(argv[i + 1]).startsWith('-')) {
+        backupFormat = String(argv[i + 1]);
+        i += 1;
+      } else {
+        backupFormat = '';
+      }
+    } else if (arg.startsWith('--backup-target=')) {
+      backupTarget = arg.slice('--backup-target='.length);
+    } else if (arg === '--backup-target') {
+      if (argv[i + 1] && !String(argv[i + 1]).startsWith('-')) {
+        backupTarget = String(argv[i + 1]);
+        i += 1;
+      } else {
+        backupTarget = '';
+      }
+    } else if (arg.startsWith('--backup-branch=')) {
+      backupBranch = arg.slice('--backup-branch='.length);
+    } else if (arg === '--backup-branch') {
+      if (argv[i + 1] && !String(argv[i + 1]).startsWith('-')) {
+        backupBranch = String(argv[i + 1]);
+        i += 1;
+      } else {
+        backupBranch = '';
+      }
+    } else if (arg.startsWith('--backup-remote=')) {
+      backupRemote = arg.slice('--backup-remote='.length);
+    } else if (arg === '--backup-remote') {
+      if (argv[i + 1] && !String(argv[i + 1]).startsWith('-')) {
+        backupRemote = String(argv[i + 1]);
+        i += 1;
+      } else {
+        backupRemote = '';
+      }
     } else if (arg === '--markdown-projection') {
       markdownProjection = true;
     } else if (arg === '--no-markdown-projection') {
@@ -87,6 +153,12 @@ function parseCliArgs(argv = []) {
     nonInteractive,
     dryRun,
     noBackup,
+    backupFormat,
+    backupTarget,
+    backupBranch,
+    backupRemote,
+    restoreBackup,
+    noRestoreBackup,
     ruleFile,
     storage,
     markdownProjection,
@@ -200,8 +272,15 @@ function isImplicitInitInvocation(firstArg) {
     firstArg === '--markdown-projection' ||
     firstArg === '--no-markdown-projection' ||
     firstArg === '--non-interactive' ||
+    firstArg === '--restore-backup' ||
+    firstArg === '--no-restore-backup' ||
+    firstArg === '--backup-branch' ||
+    firstArg === '--backup-remote' ||
     firstArg.startsWith('--rule-file=') ||
     firstArg.startsWith('--storage=') ||
+    firstArg.startsWith('--restore-backup=') ||
+    firstArg.startsWith('--backup-branch=') ||
+    firstArg.startsWith('--backup-remote=') ||
     firstArg.startsWith('--lang=') ||
     firstArg.startsWith('-l=')
   ) {
@@ -278,6 +357,10 @@ async function main() {
           lang: effectiveLang,
           storage,
           markdownProjection: parsed.markdownProjection,
+          restoreBackup: parsed.restoreBackup,
+          noRestoreBackup: parsed.noRestoreBackup,
+          backupBranch: parsed.backupBranch,
+          backupRemote: parsed.backupRemote,
         });
         if (result && result.cancelled) {
           process.exit(0);
@@ -293,14 +376,37 @@ async function main() {
     case 'uninstall':
     case 'remove': {
       const parsed = parseCliArgs(args.slice(1));
+      if (parsed.backupFormat !== null) {
+        const normFmt = normalizeBackupFormat(parsed.backupFormat);
+        if (!normFmt) {
+          const tr = createTranslator(resolveLanguage(parsed.targetDir, effectiveLang));
+          console.error(tr('cli.unsupportedBackupFormat', { format: parsed.backupFormat }));
+          process.exit(1);
+        }
+      }
+      if (parsed.backupTarget !== null) {
+        const normTgt = normalizeBackupTarget(parsed.backupTarget);
+        if (!normTgt) {
+          const tr = createTranslator(resolveLanguage(parsed.targetDir, effectiveLang));
+          console.error(tr('cli.unsupportedBackupTarget', { target: parsed.backupTarget }));
+          process.exit(1);
+        }
+      }
       try {
-        await uninstall(parsed.targetDir, {
+        const result = await uninstall(parsed.targetDir, {
           force: parsed.force,
           dryRun: parsed.dryRun,
           noBackup: parsed.noBackup,
+          backupFormat: parsed.backupFormat,
+          backupTarget: parsed.backupTarget,
+          backupBranch: parsed.backupBranch,
+          backupRemote: parsed.backupRemote,
           ruleFile: parsed.ruleFile,
           lang: effectiveLang,
         });
+        if (result && result.cancelled) {
+          process.exit(0);
+        }
       } catch (err) {
         const tr = createTranslator(resolveLanguage(process.cwd(), effectiveLang));
         console.error(tr('cli.uninstallException'), err.message);

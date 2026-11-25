@@ -30,6 +30,8 @@ const requiredFiles = [
   'scripts/acm/install-template.cjs',
   'scripts/acm/uninstall-template.cjs',
   'scripts/acm/acm-manifest.cjs',
+  'scripts/acm/backup-archive.cjs',
+  'scripts/acm/backup-git.cjs',
   'scripts/acm/acm-db-cli.cjs',
   'scripts/acm/mcp-server.cjs',
   'scripts/acm/group-status.cjs',
@@ -238,7 +240,8 @@ async function runTests() {
     assert.ok(gitignoreContent.includes('/.agents/acm/'), '/.agents/acm/ missing in .gitignore');
     assert.ok(gitignoreContent.includes('/.agents/rules/acm-task-memory-adr.md'), 'IDE rule entry missing in .gitignore');
     assert.ok(gitignoreContent.includes('/.agents/hooks.json'), '/.agents/hooks.json missing when ACM created hooks.json');
-    assert.ok(gitignoreContent.includes('/.acm-backup-*/'), '/.acm-backup-*/ missing in .gitignore');
+    assert.ok(gitignoreContent.includes('/.acm-backup-*'), '/.acm-backup-* missing in .gitignore');
+    assert.ok(!/^\/\.acm-backup-\*\/$/m.test(gitignoreContent), 'Legacy /.acm-backup-*/ should be replaced by /.acm-backup-*');
 
     const injectedPkg = JSON.parse(fs.readFileSync(path.join(tempDir, 'package.json'), 'utf-8'));
     assert.ok(injectedPkg.scripts['acm:status'], 'acm:status script missing');
@@ -370,14 +373,16 @@ async function runTests() {
     assert.ok(!fs.existsSync(path.join(tempDir, '.agents')), '.agents directory was not removed');
     assert.ok(!fs.existsSync(path.join(tempDir, 'scripts')), 'empty scripts directory was not removed');
 
+    const { readZipEntries } = require('../scripts/acm/backup-archive.cjs');
     const files = fs.readdirSync(tempDir);
-    const backupDir = files.find((f) => f.startsWith('.acm-backup-'));
-    assert.ok(backupDir, 'Uninstall .acm-backup-* directory was not created');
+    const backupZip = files.find((f) => f.startsWith('.acm-backup-') && f.endsWith('.zip'));
+    assert.ok(backupZip, 'Uninstall .acm-backup-*.zip archive was not created');
+    const backupEntries = readZipEntries(fs.readFileSync(path.join(tempDir, backupZip)));
     assert.ok(
-      fs.existsSync(path.join(tempDir, backupDir, '.agents', 'acm', 'ACM_GOVERNANCE.md')),
-      'Backup missing .agents/acm/ACM_GOVERNANCE.md'
+      backupEntries.some((e) => e.name === '.agents/acm/ACM_GOVERNANCE.md'),
+      'Backup zip missing .agents/acm/ACM_GOVERNANCE.md'
     );
-    console.log(`[PASS] Uninstall rollback and backup directory (${backupDir}) verified.`);
+    console.log(`[PASS] Uninstall rollback and backup archive (${backupZip}) verified.`);
 
     // 4-8. npm postinstall auto-initialization and 4 safety guards
     console.log('[Stage 6] npm postinstall hook and safety guards verification');
@@ -519,7 +524,80 @@ async function runTests() {
     } finally {
       fs.rmSync(emptyDir, { recursive: true, force: true });
     }
-    console.log('[PASS] @clack/prompts rule multiselect, cancel, and fallback verified.');
+
+    // Mock TTY tests for backup confirm, target select, and restore select prompts
+    const { promptBackupConfirm, promptBackupTarget } = require('../scripts/acm/uninstall-template.cjs');
+    const { promptBackupRestore } = require('../scripts/acm/install-template.cjs');
+
+    {
+      const { input, output } = createMockTTY();
+      const p = promptBackupConfirm({ input, output, lang: 'en' });
+      setTimeout(() => input.write('\r'), 40);
+      assert.strictEqual(await p, true, 'promptBackupConfirm default Enter did not select true');
+    }
+    {
+      const { input, output } = createMockTTY();
+      const p = promptBackupConfirm({ input, output, lang: 'en' });
+      setTimeout(() => input.write('n\r'), 40);
+      assert.strictEqual(await p, false, 'promptBackupConfirm n did not select false');
+    }
+    {
+      const { input, output } = createMockTTY();
+      const p = promptBackupConfirm({ input, output, lang: 'en' });
+      setTimeout(() => input.write('\x03'), 40);
+      assert.strictEqual(await p, null, 'promptBackupConfirm Ctrl+C did not return null');
+    }
+    {
+      const { input, output } = createMockTTY();
+      const p = promptBackupTarget({ input, output, lang: 'en', branch: 'acm-backups' });
+      setTimeout(() => input.write('\r'), 40);
+      assert.strictEqual(await p, 'local', 'promptBackupTarget default Enter did not select local');
+    }
+    {
+      const { input, output } = createMockTTY();
+      const p = promptBackupTarget({ input, output, lang: 'en', branch: 'acm-backups' });
+      setTimeout(() => input.write('\x1b[B'), 40);
+      setTimeout(() => input.write('\r'), 80);
+      assert.strictEqual(await p, 'git', 'promptBackupTarget Down+Enter did not select git');
+    }
+    {
+      const { input, output } = createMockTTY();
+      const p = promptBackupTarget({ input, output, lang: 'en', branch: 'acm-backups' });
+      setTimeout(() => input.write('\x03'), 40);
+      assert.strictEqual(await p, null, 'promptBackupTarget Ctrl+C did not return null');
+    }
+
+    const sampleBackups = [
+      {
+        source: 'local',
+        name: '.acm-backup-20261125_120000.zip',
+        format: 'zip',
+        sizeBytes: 2048,
+        createdAt: '2026-11-25T12:00:00.000Z',
+      },
+    ];
+    {
+      const { input, output } = createMockTTY();
+      const p = promptBackupRestore(sampleBackups, { input, output, lang: 'en' });
+      setTimeout(() => input.write('\r'), 40);
+      const selected = await p;
+      assert.strictEqual(selected && selected.name, sampleBackups[0].name, 'promptBackupRestore default Enter failed');
+    }
+    {
+      const { input, output } = createMockTTY();
+      const p = promptBackupRestore(sampleBackups, { input, output, lang: 'en' });
+      setTimeout(() => input.write('\x1b[B'), 40);
+      setTimeout(() => input.write('\r'), 80);
+      assert.strictEqual(await p, false, 'promptBackupRestore fresh option did not return false');
+    }
+    {
+      const { input, output } = createMockTTY();
+      const p = promptBackupRestore(sampleBackups, { input, output, lang: 'en' });
+      setTimeout(() => input.write('\x03'), 40);
+      assert.strictEqual(await p, null, 'promptBackupRestore Ctrl+C did not return null');
+    }
+
+    console.log('[PASS] @clack/prompts rule multiselect, backup prompts, cancel, and fallback verified.');
 
     // 4-10. Custom rule file rollback (.acm-meta.json) and shared/directory matching commits
     console.log('[Stage 8] Custom rule rollback and shared/root-isolated task commit verification');

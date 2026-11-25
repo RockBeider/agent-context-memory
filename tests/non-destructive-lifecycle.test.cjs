@@ -11,6 +11,16 @@ const path = require('path');
 const os = require('os');
 const assert = require('assert');
 const { spawnSync, execSync } = require('child_process');
+const {
+  readZipEntries,
+  readTarGzEntries,
+  writeZipArchive,
+} = require('../scripts/acm/backup-archive.cjs');
+const {
+  pushBackupToGit,
+  discoverGitBackups,
+  readGitBackupBuffer,
+} = require('../scripts/acm/backup-git.cjs');
 
 console.log('=== Starting Non-Destructive Lifecycle & Collision Protection Tests ===');
 
@@ -107,9 +117,10 @@ function initGitRepo(dir) {
     const unRes = runCli(['uninstall', '--force'], dir);
     assert.strictEqual(unRes.status, 0, `Coexist uninstall failed: ${unRes.stderr || unRes.stdout}`);
 
-    const backupDir = fs.readdirSync(dir).find((f) => f.startsWith('.acm-backup-'));
-    assert.ok(backupDir, 'Root .acm-backup-* directory missing');
-    assert.ok(fs.existsSync(path.join(dir, backupDir, '.agents', 'acm', 'ACM_GOVERNANCE.md')));
+    const backupZip = fs.readdirSync(dir).find((f) => f.startsWith('.acm-backup-') && f.endsWith('.zip'));
+    assert.ok(backupZip, 'Root .acm-backup-*.zip archive missing');
+    const zipEntries = readZipEntries(fs.readFileSync(path.join(dir, backupZip)));
+    assert.ok(zipEntries.some((e) => e.name === '.agents/acm/ACM_GOVERNANCE.md'));
 
     assert.ok(!fs.existsSync(path.join(dir, '.agents', 'acm')), '.agents/acm should be deleted');
     assert.ok(!fs.existsSync(path.join(dir, '.agents', 'rules', 'acm-task-memory-adr.md')));
@@ -252,7 +263,7 @@ function initGitRepo(dir) {
     assert.ok(fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8').includes('/.agents/hooks.json'));
 
     assert.strictEqual(runCli(['uninstall', '--force'], dir).status, 0);
-    assert.ok(fs.readdirSync(dir).some((f) => f.startsWith('.acm-backup-')));
+    assert.ok(fs.readdirSync(dir).some((f) => f.startsWith('.acm-backup-') && f.endsWith('.zip')));
     assert.ok(!fs.existsSync(path.join(dir, '.agents')), 'Empty .agents directory remained');
     assert.ok(!fs.existsSync(path.join(dir, 'scripts')), 'Empty scripts directory remained');
     assert.ok(!fs.existsSync(path.join(dir, '.gitignore')), 'ACM-created .gitignore remained');
@@ -328,10 +339,11 @@ function initGitRepo(dir) {
     const unRes = runCli(['uninstall', '--force'], dir);
     assert.strictEqual(unRes.status, 0, `Legacy v1 uninstall failed: ${unRes.stderr || unRes.stdout}`);
 
-    const backupDir = fs.readdirSync(dir).find((f) => f.startsWith('.acm-backup-'));
-    assert.ok(backupDir, 'Legacy uninstall did not create .acm-backup-*');
-    assert.ok(fs.existsSync(path.join(dir, backupDir, '.agents', 'task', 'task.md')));
-    assert.ok(fs.existsSync(path.join(dir, backupDir, '.agents', 'MEMORY_GOVERNANCE.md')));
+    const backupZip = fs.readdirSync(dir).find((f) => f.startsWith('.acm-backup-') && f.endsWith('.zip'));
+    assert.ok(backupZip, 'Legacy uninstall did not create .acm-backup-*.zip');
+    const legacyZipEntries = readZipEntries(fs.readFileSync(path.join(dir, backupZip)));
+    assert.ok(legacyZipEntries.some((e) => e.name === '.agents/task/task.md'));
+    assert.ok(legacyZipEntries.some((e) => e.name === '.agents/MEMORY_GOVERNANCE.md'));
 
     // Legacy ACM assets removed
     assert.ok(!fs.existsSync(path.join(dir, '.agents', 'task')));
@@ -361,6 +373,283 @@ function initGitRepo(dir) {
     console.log('[PASS] 6. Legacy v1 non-destructive uninstall verified.');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 7. Compressed backups (zip, tar.gz, dir), SQLite WAL/SHM, UTF-8/long paths, Git orphan backups
+// ---------------------------------------------------------------------------
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-nd-archive-'));
+  const remoteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-nd-remote-'));
+  try {
+    // 7a. Default .zip backup with SQLite WAL/SHM, UTF-8 Korean path, and empty dir
+    assert.strictEqual(runCli(['init', '--non-interactive'], dir).status, 0);
+    const localDir = path.join(dir, '.agents', 'acm', 'local');
+    const dbBytes = fs.readFileSync(path.join(localDir, 'memory.db'));
+    const walBytes = Buffer.from('WAL-SIDECAR-BYTES-\x00\xff-한글', 'utf-8');
+    const shmBytes = Buffer.from('SHM-SIDECAR-BYTES-\x01\xfe', 'utf-8');
+    fs.writeFileSync(path.join(localDir, 'memory.db-wal'), walBytes);
+    fs.writeFileSync(path.join(localDir, 'memory.db-shm'), shmBytes);
+
+    const utf8Rel = '.agents/acm/memory/patterns/P-한글-패턴-테스트.md';
+    fs.mkdirSync(path.join(dir, '.agents', 'acm', 'memory', 'patterns'), { recursive: true });
+    fs.writeFileSync(path.join(dir, utf8Rel), '# 한글 UTF-8 패턴\n', 'utf-8');
+    const emptySubDir = '.agents/acm/empty-빈폴더';
+    fs.mkdirSync(path.join(dir, emptySubDir), { recursive: true });
+
+    const unZipRes = runCli(['uninstall', '--force'], dir);
+    assert.strictEqual(unZipRes.status, 0, unZipRes.stderr || unZipRes.stdout);
+    const zipName = fs.readdirSync(dir).find((f) => f.startsWith('.acm-backup-') && f.endsWith('.zip'));
+    assert.ok(zipName, 'Default zip archive missing');
+
+    const zipEntries = readZipEntries(fs.readFileSync(path.join(dir, zipName)));
+    const entryMap = new Map(zipEntries.map((e) => [e.name, e]));
+    assert.ok(Buffer.compare(entryMap.get('.agents/acm/local/memory.db').data, dbBytes) === 0);
+    assert.ok(Buffer.compare(entryMap.get('.agents/acm/local/memory.db-wal').data, walBytes) === 0);
+    assert.ok(Buffer.compare(entryMap.get('.agents/acm/local/memory.db-shm').data, shmBytes) === 0);
+    assert.strictEqual(entryMap.get(utf8Rel).data.toString('utf-8'), '# 한글 UTF-8 패턴\n');
+    assert.ok(entryMap.get(`${emptySubDir}/`) && entryMap.get(`${emptySubDir}/`).isDirectory);
+
+    // 7b. --backup-format=tar.gz with >100 byte PAX long path + UTF-8 + system tar check
+    assert.strictEqual(runCli(['init', '--non-interactive'], dir).status, 0);
+    fs.writeFileSync(path.join(dir, '.agents', 'acm', 'local', 'memory.db-wal'), walBytes);
+    fs.writeFileSync(path.join(dir, '.agents', 'acm', 'local', 'memory.db-shm'), shmBytes);
+    const longRel = `.agents/acm/memory/patterns/${'segment-'.repeat(12)}한글-장경로.md`;
+    assert.ok(Buffer.byteLength(longRel, 'utf-8') > 100);
+    fs.mkdirSync(path.dirname(path.join(dir, longRel)), { recursive: true });
+    fs.writeFileSync(path.join(dir, longRel), 'long-pax-content\n', 'utf-8');
+
+    const unTarRes = runCli(['uninstall', '--force', '--backup-format=tar.gz'], dir);
+    assert.strictEqual(unTarRes.status, 0, unTarRes.stderr || unTarRes.stdout);
+    const tarName = fs.readdirSync(dir).find((f) => f.startsWith('.acm-backup-') && f.endsWith('.tar.gz'));
+    assert.ok(tarName, 'tar.gz archive missing');
+    const tarEntries = readTarGzEntries(fs.readFileSync(path.join(dir, tarName)));
+    const tarMap = new Map(tarEntries.map((e) => [e.name, e]));
+    assert.ok(Buffer.compare(tarMap.get('.agents/acm/local/memory.db-wal').data, walBytes) === 0);
+    assert.ok(Buffer.compare(tarMap.get('.agents/acm/local/memory.db-shm').data, shmBytes) === 0);
+    assert.strictEqual(tarMap.get(longRel).data.toString('utf-8'), 'long-pax-content\n');
+
+    const sysTarCheck = spawnSync('tar', ['-tzf', tarName], { cwd: dir, encoding: 'utf-8' });
+    if (sysTarCheck.status === 0) {
+      assert.ok(sysTarCheck.stdout.includes('.agents/acm/local/memory.db-wal'), 'System tar missing WAL entry');
+    }
+
+    // 7c. --backup-format=dir, --dry-run, --no-backup, invalid args, non-Git git-target rejection
+    assert.strictEqual(runCli(['init', '--non-interactive'], dir).status, 0);
+    const dryRes = runCli(['uninstall', '--dry-run', '--backup-format=tar.gz'], dir);
+    assert.strictEqual(dryRes.status, 0);
+    assert.ok(dryRes.stdout.includes('[DRY-RUN]'), 'Dry-run output missing');
+
+    const badFmt = runCli(['uninstall', '--force', '--backup-format=rar'], dir);
+    assert.strictEqual(badFmt.status, 1, 'Invalid backup format must fail');
+    const badTgt = runCli(['uninstall', '--force', '--backup-target=ftp'], dir);
+    assert.strictEqual(badTgt.status, 1, 'Invalid backup target must fail');
+    const nonGitTgt = runCli(['uninstall', '--force', '--backup-target=git'], dir);
+    assert.strictEqual(nonGitTgt.status, 1, 'Non-Git dir with --backup-target=git must fail');
+
+    const dirRes = runCli(['uninstall', '--force', '--backup-format=dir'], dir);
+    assert.strictEqual(dirRes.status, 0, dirRes.stderr || dirRes.stdout);
+    const dirBackup = fs
+      .readdirSync(dir)
+      .find((f) => f.startsWith('.acm-backup-') && !f.endsWith('.zip') && !f.endsWith('.tar.gz'));
+    assert.ok(dirBackup && fs.statSync(path.join(dir, dirBackup)).isDirectory(), 'Directory backup missing');
+    assert.ok(fs.existsSync(path.join(dir, dirBackup, '.agents', 'acm', 'ACM_GOVERNANCE.md')));
+
+    // 7d. Git backup target ('git' & 'both'), .gitignore coverage & legacy /.acm-backup-*/ rollback, pruning
+    execSync('git init --bare', { cwd: remoteDir, stdio: 'ignore' });
+    initGitRepo(dir);
+    fs.writeFileSync(path.join(dir, 'README.md'), '# Git Backup Test\n', 'utf-8');
+    fs.writeFileSync(path.join(dir, '.gitignore'), 'node_modules/\n# Agent Context Memory Ignored Entries\n/.acm-backup-*/\n', 'utf-8');
+    execSync('git add . && git commit -m "chore: init"', { cwd: dir, stdio: 'ignore' });
+    execSync(`git remote add origin "${remoteDir}"`, { cwd: dir, stdio: 'ignore' });
+
+    assert.strictEqual(runCli(['init', '--non-interactive'], dir).status, 0);
+    // Verify .gitignore ignores local .zip, .tar.gz, and dir backups
+    const giCheck = execSync('git status --porcelain', { cwd: dir, encoding: 'utf-8' });
+    assert.ok(!giCheck.includes('.acm-backup-'), `Backups should be gitignored, got:\n${giCheck}`);
+
+    // Legacy /.acm-backup-*/ rule rollback verification
+    const headBefore = execSync('git rev-parse HEAD', { cwd: dir, encoding: 'utf-8' }).trim();
+    const gitBothRes = runCli(['uninstall', '--force', '--backup-target=both'], dir);
+    assert.strictEqual(gitBothRes.status, 0, gitBothRes.stderr || gitBothRes.stdout);
+    assert.strictEqual(execSync('git rev-parse HEAD', { cwd: dir, encoding: 'utf-8' }).trim(), headBefore, 'Main branch HEAD mutated by Git backup');
+
+    const gitDiscovered = discoverGitBackups(dir, { fetchRemote: false });
+    assert.strictEqual(gitDiscovered.length, 1, 'Expected 1 backup on acm-backups orphan branch');
+    const remoteLs = execSync(`git ls-remote "${remoteDir}" refs/heads/acm-backups`, { encoding: 'utf-8' }).trim();
+    assert.ok(remoteLs, 'acm-backups branch not pushed to bare remote');
+    const gitBuf = readGitBackupBuffer(dir, gitDiscovered[0]);
+    assert.ok(readZipEntries(gitBuf).some((e) => e.name === '.agents/acm/local/memory.db'));
+
+    // Verify pruning retains only maxRetained newest backups
+    for (let k = 1; k <= 3; k += 1) {
+      pushBackupToGit(dir, {
+        archiveBuffer: Buffer.from(`dummy-${k}`),
+        filename: `.acm-backup-20261125_15000${k}.zip`,
+        format: 'zip',
+        branch: 'acm-prune-test',
+        maxRetained: 2,
+      });
+    }
+    const pruned = discoverGitBackups(dir, { branch: 'acm-prune-test' });
+    assert.strictEqual(pruned.length, 2, 'Git backup pruning did not cap retained count at maxRetained');
+    assert.strictEqual(pruned[0].name, '.acm-backup-20261125_150003.zip');
+
+    // Also verify /.acm-backup-*/ in pre-existing .gitignore was cleaned on uninstall
+    const giAfterLegacy = fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8');
+    assert.ok(!giAfterLegacy.includes('/.acm-backup-*/'), 'Legacy /.acm-backup-*/ remained in .gitignore');
+
+    console.log('[PASS] 7. Compressed backups (.zip/.tar.gz/dir), WAL/UTF-8/PAX, Git orphan push & pruning verified.');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(remoteDir, { recursive: true, force: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 8. Init backup discovery & restore (Local .zip/.tar.gz/dir, Git local+remote, Markdown, legacy v1, Zip-Slip)
+// ---------------------------------------------------------------------------
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-nd-restore-'));
+  const remoteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-nd-restore-remote-'));
+  const cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-nd-restore-clone-'));
+  try {
+    execSync('git init --bare', { cwd: remoteDir, stdio: 'ignore' });
+    initGitRepo(dir);
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'restore-app', version: '1.0.0' }, null, 2));
+    fs.writeFileSync(path.join(dir, 'README.md'), '# Restore Test\n', 'utf-8');
+    execSync('git add . && git commit -m "chore: init"', { cwd: dir, stdio: 'ignore' });
+    execSync(`git remote add origin "${remoteDir}"`, { cwd: dir, stdio: 'ignore' });
+    execSync('git push -u origin HEAD', { cwd: dir, stdio: 'ignore' });
+
+    // 8a. SQLite task + pattern -> uninstall --backup-target=both -> delete local zip -> restore from git
+    assert.strictEqual(runCli(['init', '--non-interactive'], dir).status, 0);
+    const addTask = runCli(['task', 'add', 'Restore Verification Task', '--purpose=Verify restore'], dir);
+    assert.strictEqual(addTask.status, 0, addTask.stderr || addTask.stdout);
+    const addedTaskCode = addTask.stdout.match(/TSK-[A-Z0-9]+/)[0];
+    const addPat = runCli(['pattern', 'add', 'Backup Pattern', '--summary=Survives uninstall/reinstall'], dir);
+    assert.strictEqual(addPat.status, 0, addPat.stderr || addPat.stdout);
+
+    assert.strictEqual(runCli(['uninstall', '--force', '--backup-target=both'], dir).status, 0);
+    for (const f of fs.readdirSync(dir)) {
+      if (f.startsWith('.acm-backup-')) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
+    }
+
+    // Non-interactive without --restore-backup must NOT auto-restore, should print hint
+    const hintRes = runCli(['init', '--non-interactive'], dir);
+    assert.strictEqual(hintRes.status, 0);
+    assert.ok(hintRes.stdout.includes('--restore-backup'), 'Non-interactive hint missing when Git backup exists');
+    const emptyList = runCli(['task', 'list', '--json'], dir);
+    assert.strictEqual(JSON.parse(emptyList.stdout).count, 0, 'Non-interactive init auto-restored unexpectedly');
+
+    // Suppress hint with --no-restore-backup
+    assert.strictEqual(runCli(['uninstall', '--force', '--no-backup'], dir).status, 0);
+    const noHintRes = runCli(['init', '--non-interactive', '--no-restore-backup'], dir);
+    assert.strictEqual(noHintRes.status, 0);
+    assert.ok(!noHintRes.stdout.includes('--restore-backup'), '--no-restore-backup did not suppress hint');
+    assert.strictEqual(runCli(['uninstall', '--force', '--no-backup'], dir).status, 0);
+
+    // Explicit --restore-backup=git restores SQLite records cleanly
+    const gitRestoreRes = runCli(['init', '--non-interactive', '--restore-backup=git'], dir);
+    assert.strictEqual(gitRestoreRes.status, 0, gitRestoreRes.stderr || gitRestoreRes.stdout);
+    const showRestored = runCli(['task', 'show', addedTaskCode, '--json'], dir);
+    assert.strictEqual(showRestored.status, 0, 'Restored task missing after --restore-backup=git');
+    assert.strictEqual(JSON.parse(showRestored.stdout).title, 'Restore Verification Task');
+    const restoreMeta = JSON.parse(fs.readFileSync(path.join(dir, '.agents', 'acm', 'meta.json'), 'utf-8'));
+    assert.strictEqual(restoreMeta.restoredFromBackup && restoreMeta.restoredFromBackup.source, 'git');
+
+    // 8b. Fresh clone from remote fetches acm-backups and restores automatically via --restore-backup=git
+    execSync(`git clone "${remoteDir}" "${cloneDir}"`, { stdio: 'ignore' });
+    const cloneRestoreRes = runCli(['init', '--non-interactive', '--restore-backup=git'], cloneDir);
+    assert.strictEqual(cloneRestoreRes.status, 0, cloneRestoreRes.stderr || cloneRestoreRes.stdout);
+    const cloneShow = runCli(['task', 'show', addedTaskCode, '--json'], cloneDir);
+    assert.strictEqual(cloneShow.status, 0, 'Fresh clone did not restore task from remote acm-backups');
+
+    // 8c. Local .tar.gz restore preserves archive & cleans stale WAL
+    const utf8Long = `.agents/acm/memory/patterns/${'abc-'.repeat(28)}한글.md`;
+    fs.mkdirSync(path.dirname(path.join(dir, utf8Long)), { recursive: true });
+    fs.writeFileSync(path.join(dir, utf8Long), '# Restored UTF-8 Long Pattern\n', 'utf-8');
+    assert.strictEqual(runCli(['uninstall', '--force', '--backup-format=tar.gz'], dir).status, 0);
+    const tarBackup = fs.readdirSync(dir).find((f) => f.startsWith('.acm-backup-') && f.endsWith('.tar.gz'));
+    assert.ok(tarBackup);
+    // Inject stale memory.db-wal that should be wiped before restoring clean DB
+    fs.mkdirSync(path.join(dir, '.agents', 'acm', 'local'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.agents', 'acm', 'local', 'memory.db-wal'), 'STALE-CORRUPT-WAL');
+
+    const tarRestoreRes = runCli(['init', '--non-interactive', `--restore-backup=${tarBackup}`], dir);
+    assert.strictEqual(tarRestoreRes.status, 0, tarRestoreRes.stderr || tarRestoreRes.stdout);
+    assert.strictEqual(fs.readFileSync(path.join(dir, utf8Long), 'utf-8'), '# Restored UTF-8 Long Pattern\n');
+    assert.ok(fs.existsSync(path.join(dir, tarBackup)), 'Original tar.gz backup was deleted during restore');
+    assert.strictEqual(runCli(['task', 'show', addedTaskCode, '--json'], dir).status, 0);
+
+    // 8d. Missing backup error & Zip-Slip security guard
+    const missingRes = runCli(['init', '--non-interactive', '--restore-backup=does-not-exist.zip'], dir);
+    assert.strictEqual(missingRes.status, 1, 'Missing backup did not fail');
+    assert.strictEqual(runCli(['uninstall', '--force', '--no-backup'], dir).status, 0);
+    const evilZipPath = path.join(dir, '.acm-backup-20261125_235959.zip');
+    writeZipArchive(evilZipPath, [
+      { name: '.agents/acm/task/task.md', isDirectory: false, data: Buffer.from('# ok\n') },
+      { name: '../../evil.txt', isDirectory: false, data: Buffer.from('pwned') },
+    ]);
+    const evilRes = runCli(['init', '--non-interactive', `--restore-backup=${path.basename(evilZipPath)}`], dir);
+    assert.strictEqual(evilRes.status, 1, 'Zip-Slip archive was not rejected');
+    assert.ok(!fs.existsSync(path.resolve(dir, '..', '..', 'evil.txt')), 'Zip-Slip escaped target dir');
+    assert.ok(!fs.existsSync(path.resolve(dir, 'evil.txt')), 'Zip-Slip wrote evil.txt');
+    fs.unlinkSync(evilZipPath);
+
+    // 8e. Markdown backup + --force --restore-backup preserves user task.md instead of blank sample
+    const mdDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-nd-md-restore-'));
+    try {
+      assert.strictEqual(runCli(['init', '--non-interactive', '--storage=markdown'], mdDir).status, 0);
+      const mdTaskPath = path.join(mdDir, '.agents', 'acm', 'task', 'task.md');
+      fs.writeFileSync(mdTaskPath, '# Task Master\n- [ ] **TSK-MD9999: Custom User Task**\n', 'utf-8');
+      assert.strictEqual(runCli(['uninstall', '--force'], mdDir).status, 0);
+
+      const mdRestoreRes = runCli(['init', '--force', '--non-interactive', '--restore-backup'], mdDir);
+      assert.strictEqual(mdRestoreRes.status, 0, mdRestoreRes.stderr || mdRestoreRes.stdout);
+      const restoredMdTask = fs.readFileSync(mdTaskPath, 'utf-8');
+      assert.ok(restoredMdTask.includes('TSK-MD9999'), '--force --restore-backup overwrote restored user task.md');
+      const restoredMdCfg = JSON.parse(fs.readFileSync(path.join(mdDir, '.agents', 'acm', 'config.json'), 'utf-8'));
+      assert.strictEqual(restoredMdCfg.storage.provider, 'markdown', 'Inferred storage provider should be markdown');
+      assert.strictEqual(runCli(['uninstall', '--force', '--no-backup'], mdDir).status, 0);
+      assert.ok(!fs.existsSync(path.join(mdDir, 'scripts', 'acm')), 'Uninstall after restore failed to clean scripts/acm');
+    } finally {
+      fs.rmSync(mdDir, { recursive: true, force: true });
+    }
+
+    // 8f. Legacy v1 backup auto-mapping into v2 .agents/acm/
+    const v1Dir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-nd-v1-restore-'));
+    try {
+      const v1Zip = path.join(v1Dir, '.acm-backup-20261125_101010.zip');
+      writeZipArchive(v1Zip, [
+        {
+          name: '.agents/config.json',
+          isDirectory: false,
+          data: Buffer.from(JSON.stringify({ version: 1, storage: { provider: 'markdown', dbPath: '.agents/local/memory.db' } })),
+        },
+        { name: '.agents/task/task.md', isDirectory: false, data: Buffer.from('# Legacy Task\n- [ ] **TSK-LEG1: Old Task**\n') },
+        { name: '.agents/memory/patterns-index.md', isDirectory: false, data: Buffer.from('# Legacy Patterns\n') },
+        { name: '.agents/MEMORY_GOVERNANCE.md', isDirectory: false, data: Buffer.from('# Old Gov Should Not Overwrite\n') },
+      ]);
+      const v1RestoreRes = runCli(['init', '--non-interactive', '--restore-backup'], v1Dir);
+      assert.strictEqual(v1RestoreRes.status, 0, v1RestoreRes.stderr || v1RestoreRes.stdout);
+      assert.ok(
+        fs.readFileSync(path.join(v1Dir, '.agents', 'acm', 'task', 'task.md'), 'utf-8').includes('TSK-LEG1'),
+        'Legacy v1 task.md not mapped into .agents/acm/task/task.md'
+      );
+      const mappedCfg = JSON.parse(fs.readFileSync(path.join(v1Dir, '.agents', 'acm', 'config.json'), 'utf-8'));
+      assert.strictEqual(mappedCfg.storage.dbPath, '.agents/acm/local/memory.db', 'Legacy dbPath not normalized');
+      assert.ok(!fs.existsSync(path.join(v1Dir, '.agents', 'MEMORY_GOVERNANCE.md')), 'Legacy system file leaked during v1 restore');
+    } finally {
+      fs.rmSync(v1Dir, { recursive: true, force: true });
+    }
+
+    console.log('[PASS] 8. Init backup discovery & restore (Local/Git/Remote/Markdown/v1/Zip-Slip) verified.');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(remoteDir, { recursive: true, force: true });
+    fs.rmSync(cloneDir, { recursive: true, force: true });
   }
 }
 

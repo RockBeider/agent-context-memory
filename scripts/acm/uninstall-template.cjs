@@ -14,6 +14,29 @@ const path = require('path');
 const readline = require('readline');
 const { ACM_MANIFEST } = require('./acm-manifest.cjs');
 const { resolveMetaPath } = require('./storage/config.cjs');
+const { checkGitEnvironment } = require('./check-git.cjs');
+const { loadClack } = require('./sync-agent-rules.cjs');
+const {
+  DEFAULT_BACKUP_FORMAT,
+  DEFAULT_BACKUP_TARGET,
+  normalizeBackupFormat,
+  normalizeBackupTarget,
+  getBackupExtension,
+  collectEntriesFromTargets,
+  createZipBuffer,
+  writeZipArchive,
+  createTarGzBuffer,
+  writeTarGzArchive,
+  writeDirectoryBackup,
+  inspectBackupEntries,
+  formatBytes,
+} = require('./backup-archive.cjs');
+const {
+  DEFAULT_BACKUP_BRANCH,
+  DEFAULT_BACKUP_REMOTE,
+  isValidRefName,
+  pushBackupToGit,
+} = require('./backup-git.cjs');
 const {
   scanPresetRules,
   checkRuleContentDrift,
@@ -45,20 +68,127 @@ function promptConfirm(questionText) {
   });
 }
 
-function copyDirRecursive(src, dest) {
-  if (!fs.existsSync(dest)) {
-    fs.mkdirSync(dest, { recursive: true });
+function promptBackupConfirmFallback(options = {}) {
+  const lang = options.lang || DEFAULT_LANGUAGE;
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: options.input || process.stdin,
+      output: options.output || process.stdout,
+    });
+    let answered = false;
+    rl.on('SIGINT', () => {
+      answered = true;
+      rl.close();
+      resolve(null);
+    });
+    rl.question(t('uninstall.backupConfirmFallback', {}, lang), (answer) => {
+      answered = true;
+      rl.close();
+      const trimmed = String(answer || '').trim().toLowerCase();
+      if (!trimmed || trimmed === 'y' || trimmed === 'yes') {
+        return resolve(true);
+      }
+      if (trimmed === 'n' || trimmed === 'no') {
+        return resolve(false);
+      }
+      resolve(false);
+    });
+    rl.on('close', () => {
+      if (!answered) resolve(null);
+    });
+  });
+}
+
+async function promptBackupConfirm(options = {}) {
+  const lang = options.lang || DEFAULT_LANGUAGE;
+  const clack = options.useClack === false ? null : await loadClack();
+  if (!clack) {
+    return promptBackupConfirmFallback(options);
   }
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDirRecursive(srcPath, destPath);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
+
+  const ioOpts = {};
+  if (options.input) ioOpts.input = options.input;
+  if (options.output) ioOpts.output = options.output;
+
+  const selected = await clack.confirm({
+    message: t('uninstall.backupConfirmPrompt', {}, lang),
+    initialValue: true,
+    ...ioOpts,
+  });
+  if (clack.isCancel(selected)) {
+    return null;
   }
+  return Boolean(selected);
+}
+
+function promptBackupTargetFallback(options = {}) {
+  const lang = options.lang || DEFAULT_LANGUAGE;
+  const branch = options.branch || DEFAULT_BACKUP_BRANCH;
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: options.input || process.stdin,
+      output: options.output || process.stdout,
+    });
+    let answered = false;
+    rl.on('SIGINT', () => {
+      answered = true;
+      rl.close();
+      resolve(null);
+    });
+    rl.question(t('uninstall.backupTargetFallback', { branch }, lang), (answer) => {
+      answered = true;
+      rl.close();
+      const trimmed = String(answer || '').trim().toLowerCase();
+      if (!trimmed || trimmed === '1') return resolve('local');
+      if (trimmed === '2') return resolve('git');
+      if (trimmed === '3') return resolve('both');
+      resolve(normalizeBackupTarget(trimmed) || 'local');
+    });
+    rl.on('close', () => {
+      if (!answered) resolve(null);
+    });
+  });
+}
+
+async function promptBackupTarget(options = {}) {
+  const lang = options.lang || DEFAULT_LANGUAGE;
+  const branch = options.branch || DEFAULT_BACKUP_BRANCH;
+  const clack = options.useClack === false ? null : await loadClack();
+  if (!clack) {
+    return promptBackupTargetFallback({ ...options, branch });
+  }
+
+  const ioOpts = {};
+  if (options.input) ioOpts.input = options.input;
+  if (options.output) ioOpts.output = options.output;
+
+  const selected = await clack.select({
+    message: t('uninstall.backupTargetPrompt', {}, lang),
+    options: [
+      {
+        value: 'local',
+        label: t('uninstall.backupTargetLocalLabel', {}, lang),
+        hint: t('uninstall.backupTargetLocalHint', {}, lang),
+      },
+      {
+        value: 'git',
+        label: t('uninstall.backupTargetGitLabel', { branch }, lang),
+        hint: t('uninstall.backupTargetGitHint', { branch }, lang),
+      },
+      {
+        value: 'both',
+        label: t('uninstall.backupTargetBothLabel', { branch }, lang),
+        hint: t('uninstall.backupTargetBothHint', { branch }, lang),
+      },
+    ],
+    initialValue: DEFAULT_BACKUP_TARGET,
+    ...ioOpts,
+  });
+
+  if (clack.isCancel(selected)) {
+    return null;
+  }
+  return normalizeBackupTarget(selected) || DEFAULT_BACKUP_TARGET;
 }
 
 function normPosix(relPath) {
@@ -91,53 +221,175 @@ function collectAncestorDirs(targetDir, fullPath, cleanedDirs) {
   }
 }
 
-function createBackupState(targetDir) {
+function createBackupState(targetDir, backupFormat = DEFAULT_BACKUP_FORMAT) {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, '0');
   const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   const baseName = `.acm-backup-${timestamp}`;
-  let dirName = baseName;
+  const ext = getBackupExtension(backupFormat);
+  let fileName = `${baseName}${ext}`;
   let suffix = 1;
-  while (fs.existsSync(path.resolve(targetDir, dirName))) {
-    dirName = `${baseName}_${suffix}`;
+  while (fs.existsSync(path.resolve(targetDir, fileName))) {
+    fileName = `${baseName}_${suffix}${ext}`;
     suffix += 1;
   }
   return {
-    dirName,
-    fullPath: path.resolve(targetDir, dirName),
+    dirName: fileName,
+    fileName,
+    fullPath: path.resolve(targetDir, fileName),
+    format: backupFormat,
     recorded: false,
   };
 }
 
-function backupRelativeTarget(targetDir, relPath, backupState, options, stats, tr) {
-  if (options.noBackup || !backupState) return;
-  const normRel = normPosix(relPath);
-  const srcFull = path.resolve(targetDir, normRel);
-  if (!isPathInsideTarget(targetDir, srcFull) || !fs.existsSync(srcFull)) {
-    return;
+function collectBackupTargets(targetDir, context) {
+  const { meta, isV2, skippedSet, isLegacyInstall } = context;
+  const targets = [];
+
+  for (const dirMeta of ACM_MANIFEST.directories || []) {
+    if (!dirMeta.backupRequired) continue;
+    const dirRel = normPosix(dirMeta.path);
+    const fullDir = path.resolve(targetDir, dirRel);
+    if (isPathInsideTarget(targetDir, fullDir) && fs.existsSync(fullDir)) {
+      targets.push(dirRel);
+    }
   }
+
+  if (isLegacyInstall && ACM_MANIFEST.legacy && Array.isArray(ACM_MANIFEST.legacy.directories)) {
+    for (const legacyDir of ACM_MANIFEST.legacy.directories) {
+      const legacyRel = normPosix(legacyDir);
+      const legacyFull = path.resolve(targetDir, legacyRel);
+      if (isPathInsideTarget(targetDir, legacyFull) && fs.existsSync(legacyFull)) {
+        targets.push(legacyRel);
+      }
+    }
+  }
+
+  if (!isV2 && ACM_MANIFEST.legacy && Array.isArray(ACM_MANIFEST.legacy.files)) {
+    for (const legacyFile of ACM_MANIFEST.legacy.files) {
+      const rel = normPosix(legacyFile);
+      if (!rel || skippedSet.has(rel)) continue;
+      const full = path.resolve(targetDir, rel);
+      if (isPathInsideTarget(targetDir, full) && fs.existsSync(full)) {
+        targets.push(rel);
+      }
+    }
+  }
+
+  if (isV2 && meta && Array.isArray(meta.installedFiles)) {
+    // Legacy individual files are already excluded in v2, and .agents/acm is covered above
+  }
+
+  return Array.from(new Set(targets));
+}
+
+function executePreDeleteBackup(targetDir, options, stats, tr, context) {
+  if (context.noBackup || !context.backupState) return;
+  const backupTargets = collectBackupTargets(targetDir, context);
+  if (backupTargets.length === 0) return;
+
+  const { backupState, backupFormat, backupTarget, backupBranch, backupRemote, isLegacyInstall } = context;
+  const needsLocal = backupTarget === 'local' || backupTarget === 'both';
+  const needsGit = backupTarget === 'git' || backupTarget === 'both';
 
   if (options.dryRun) {
-    if (!backupState.recorded) {
-      console.log(tr('uninstall.dryBackup', { backupDir: backupState.dirName }));
-      backupState.recorded = true;
+    if (needsLocal) {
+      if (backupFormat === 'dir') {
+        console.log(tr('uninstall.dryBackup', { backupDir: backupState.fileName }));
+      } else {
+        console.log(
+          tr('uninstall.dryBackupArchive', { backupFile: backupState.fileName, format: backupFormat })
+        );
+      }
     }
+    if (needsGit) {
+      const gitFormat = backupFormat === 'tar.gz' ? 'tar.gz' : 'zip';
+      const gitFilename = backupFormat === 'dir' ? `${backupState.fileName}.zip` : backupState.fileName;
+      console.log(
+        tr('uninstall.dryBackupGit', {
+          branch: backupBranch,
+          remote: backupRemote,
+          backupFile: gitFilename,
+          format: gitFormat,
+        })
+      );
+    }
+    backupState.recorded = true;
     return;
   }
 
-  const destFull = path.resolve(backupState.fullPath, normRel);
-  const stat = fs.statSync(srcFull);
-  if (stat.isDirectory()) {
-    copyDirRecursive(srcFull, destFull);
-  } else {
-    fs.mkdirSync(path.dirname(destFull), { recursive: true });
-    fs.copyFileSync(srcFull, destFull);
+  const entries = collectEntriesFromTargets(targetDir, backupTargets);
+  if (entries.length === 0) return;
+
+  let cachedZipBuf = null;
+  let cachedTarGzBuf = null;
+
+  if (needsLocal) {
+    if (backupFormat === 'zip') {
+      cachedZipBuf = writeZipArchive(backupState.fullPath, entries);
+      console.log(
+        tr('uninstall.backupArchiveDone', {
+          file: backupState.fileName,
+          format: 'zip',
+          size: formatBytes(cachedZipBuf.length),
+        })
+      );
+    } else if (backupFormat === 'tar.gz') {
+      cachedTarGzBuf = writeTarGzArchive(backupState.fullPath, entries);
+      console.log(
+        tr('uninstall.backupArchiveDone', {
+          file: backupState.fileName,
+          format: 'tar.gz',
+          size: formatBytes(cachedTarGzBuf.length),
+        })
+      );
+    } else {
+      writeDirectoryBackup(backupState.fullPath, targetDir, backupTargets);
+      console.log(tr('uninstall.backupDone', { src: backupTargets.join(', '), dest: backupState.fileName }));
+    }
+    stats.backups.push(backupState.fileName);
   }
-  console.log(tr('uninstall.backupDone', { src: normRel, dest: `${backupState.dirName}/${normRel}` }));
-  if (!backupState.recorded) {
-    stats.backups.push(backupState.dirName);
-    backupState.recorded = true;
+
+  if (needsGit) {
+    const gitFormat = backupFormat === 'tar.gz' ? 'tar.gz' : 'zip';
+    const gitFilename = backupFormat === 'dir' ? `${backupState.fileName}.zip` : backupState.fileName;
+    const archiveBuffer =
+      gitFormat === 'tar.gz'
+        ? cachedTarGzBuf || createTarGzBuffer(entries)
+        : cachedZipBuf || createZipBuffer(entries);
+    const inspected = inspectBackupEntries(entries);
+    const gitRes = pushBackupToGit(targetDir, {
+      archiveBuffer,
+      filename: gitFilename,
+      format: gitFormat,
+      branch: backupBranch,
+      remote: backupRemote,
+      metadata: {
+        storageProvider: inspected.storageProvider,
+        isLegacy: isLegacyInstall,
+        fileCount: inspected.fileCount,
+      },
+    });
+    stats.backups.push(`git:${backupBranch}/${gitFilename}`);
+    stats.gitBackup = gitRes;
+    console.log(
+      tr('uninstall.backupGitDone', {
+        branch: backupBranch,
+        file: gitFilename,
+        sha: gitRes.commitSha.slice(0, 7),
+      })
+    );
+    if (gitRes.pushWarning) {
+      console.warn(
+        tr('uninstall.backupGitPushWarn', {
+          remote: backupRemote,
+          detail: gitRes.pushWarning,
+        })
+      );
+    }
   }
+
+  backupState.recorded = true;
 }
 
 function removeDirectorySelective(targetDir, fullDirPath, skippedSet, tr, dryRun) {
@@ -209,7 +461,7 @@ function cleanupEmptyDirs(targetDir, cleanedDirs, tr, dryRun) {
  */
 function rollbackDirectories(targetDir, options, stats, tr, context) {
   console.log(tr('uninstall.step1'));
-  const { backupState, cleanedDirs, skippedSet, isLegacyInstall } = context;
+  const { cleanedDirs, skippedSet, isLegacyInstall } = context;
 
   for (const dirMeta of ACM_MANIFEST.directories) {
     const dirRel = normPosix(dirMeta.path);
@@ -217,10 +469,6 @@ function rollbackDirectories(targetDir, options, stats, tr, context) {
     if (!fs.existsSync(fullDirPath)) {
       console.log(tr('uninstall.dirMissing', { path: dirRel }));
       continue;
-    }
-
-    if (dirMeta.backupRequired) {
-      backupRelativeTarget(targetDir, dirRel, backupState, options, stats, tr);
     }
 
     const hasProtectedInside = Array.from(skippedSet).some(
@@ -259,7 +507,6 @@ function rollbackDirectories(targetDir, options, stats, tr, context) {
       const legacyFull = path.resolve(targetDir, legacyRel);
       if (!fs.existsSync(legacyFull)) continue;
 
-      backupRelativeTarget(targetDir, legacyRel, backupState, options, stats, tr);
       if (options.dryRun) {
         console.log(tr('uninstall.dryDirDelete', { path: legacyRel }));
       } else {
@@ -402,10 +649,6 @@ function rollbackOwnedFiles(targetDir, options, stats, tr, context) {
         console.log(tr('uninstall.fileSkippedProtected', { path: relFile }));
       }
       continue;
-    }
-
-    if (!isV2 && legacyAgentFileSet.has(relFile)) {
-      backupRelativeTarget(targetDir, relFile, backupState, options, stats, tr);
     }
 
     if (options.dryRun) {
@@ -637,7 +880,7 @@ async function uninstall(targetPath = '.', options = {}) {
   const force = Boolean(options.force);
   const isInteractive = typeof options.isInteractive === 'boolean'
     ? options.isInteractive
-    : Boolean(process.stdin.isTTY);
+    : Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
   // Read metadata before deleting .agents/acm so language, inventory, hooks, and ruleFiles are preserved for rollback
   let meta = null;
@@ -658,6 +901,52 @@ async function uninstall(targetPath = '.', options = {}) {
     }
   }
 
+  const lang = resolveLanguage(targetDir, options.lang);
+  const tr = createTranslator(lang);
+
+  let backupFormat = DEFAULT_BACKUP_FORMAT;
+  if (options.backupFormat !== undefined && options.backupFormat !== null) {
+    const normFmt = normalizeBackupFormat(options.backupFormat);
+    if (!normFmt) {
+      throw new Error(tr('cli.unsupportedBackupFormat', { format: options.backupFormat }));
+    }
+    backupFormat = normFmt;
+  }
+
+  let explicitBackupTarget = null;
+  if (options.backupTarget !== undefined && options.backupTarget !== null) {
+    const normTgt = normalizeBackupTarget(options.backupTarget);
+    if (!normTgt) {
+      throw new Error(tr('cli.unsupportedBackupTarget', { target: options.backupTarget }));
+    }
+    explicitBackupTarget = normTgt;
+  }
+
+  const backupBranch = options.backupBranch
+    ? String(options.backupBranch).trim()
+    : DEFAULT_BACKUP_BRANCH;
+  const backupRemote = options.backupRemote
+    ? String(options.backupRemote).trim()
+    : DEFAULT_BACKUP_REMOTE;
+
+  if (!isValidRefName(backupBranch)) {
+    throw new Error(tr('uninstall.invalidBackupRef', { ref: backupBranch }));
+  }
+  if (!isValidRefName(backupRemote)) {
+    throw new Error(tr('uninstall.invalidBackupRef', { ref: backupRemote }));
+  }
+
+  const gitStatus = checkGitEnvironment(targetDir);
+  const hasGit = Boolean(gitStatus.available && gitStatus.isRepo);
+
+  if (
+    !options.noBackup &&
+    (explicitBackupTarget === 'git' || explicitBackupTarget === 'both') &&
+    !hasGit
+  ) {
+    throw new Error(tr('uninstall.gitBackupRequiresRepo'));
+  }
+
   const isV2 = Boolean(meta && meta.schemaVersion >= 2);
   const skippedSet = new Set(
     Array.isArray(meta && meta.skippedExistingFiles)
@@ -671,19 +960,6 @@ async function uninstall(targetPath = '.', options = {}) {
       fs.existsSync(path.join(targetDir, '.agents', 'MEMORY_GOVERNANCE.md')) ||
       hasLegacyScripts);
 
-  const context = {
-    meta,
-    isV2,
-    skippedSet,
-    hasLegacyScripts,
-    isLegacyInstall,
-    cleanedDirs: new Set(),
-    backupState: options.noBackup ? null : createBackupState(targetDir),
-  };
-
-  const lang = resolveLanguage(targetDir, options.lang);
-  const tr = createTranslator(lang);
-
   console.log('=======================================================');
   console.log(tr('uninstall.bannerTitle'));
   console.log(tr('uninstall.bannerTarget', { dir: targetDir }));
@@ -694,10 +970,18 @@ async function uninstall(targetPath = '.', options = {}) {
   );
   console.log(
     tr('uninstall.bannerBackup', {
-      backup: options.noBackup ? tr('uninstall.backupSkip') : tr('uninstall.backupActive'),
+      backup: options.noBackup
+        ? tr('uninstall.backupSkip')
+        : tr('uninstall.backupActiveFormat', {
+            format: backupFormat,
+            target: explicitBackupTarget || DEFAULT_BACKUP_TARGET,
+          }),
     })
   );
   console.log('=======================================================');
+
+  let effectiveNoBackup = Boolean(options.noBackup);
+  let effectiveBackupTarget = explicitBackupTarget || DEFAULT_BACKUP_TARGET;
 
   if (!dryRun && !force && isInteractive) {
     const confirm = await promptConfirm(tr('uninstall.confirmPrompt'));
@@ -705,7 +989,51 @@ async function uninstall(targetPath = '.', options = {}) {
       console.log(tr('uninstall.cancelled'));
       return { success: false, cancelled: true };
     }
+
+    if (!effectiveNoBackup && !explicitBackupTarget) {
+      const wantBackup = await promptBackupConfirm({
+        lang,
+        input: options.input,
+        output: options.output,
+      });
+      if (wantBackup === null) {
+        console.log(tr('uninstall.cancelled'));
+        return { success: false, cancelled: true };
+      }
+      if (!wantBackup) {
+        effectiveNoBackup = true;
+      } else if (hasGit) {
+        const chosenTarget = await promptBackupTarget({
+          lang,
+          branch: backupBranch,
+          input: options.input,
+          output: options.output,
+        });
+        if (chosenTarget === null) {
+          console.log(tr('uninstall.cancelled'));
+          return { success: false, cancelled: true };
+        }
+        effectiveBackupTarget = chosenTarget;
+      } else {
+        effectiveBackupTarget = 'local';
+      }
+    }
   }
+
+  const context = {
+    meta,
+    isV2,
+    skippedSet,
+    hasLegacyScripts,
+    isLegacyInstall,
+    cleanedDirs: new Set(),
+    noBackup: effectiveNoBackup,
+    backupFormat,
+    backupTarget: effectiveBackupTarget,
+    backupBranch,
+    backupRemote,
+    backupState: effectiveNoBackup ? null : createBackupState(targetDir, backupFormat),
+  };
 
   const stats = {
     removedDirs: [],
@@ -714,7 +1042,11 @@ async function uninstall(targetPath = '.', options = {}) {
     gitignoreUpdated: false,
     ruleActions: [],
     backups: [],
+    gitBackup: null,
   };
+
+  // Pre-delete atomic backup: complete local/Git backup before removing any files or directories
+  executePreDeleteBackup(targetDir, options, stats, tr, context);
 
   rollbackDirectories(targetDir, options, stats, tr, context);
   rollbackOwnedFiles(targetDir, options, stats, tr, context);
@@ -745,6 +1077,10 @@ function parseUninstallCliArgs(args = []) {
   let dryRun = false;
   let force = false;
   let noBackup = false;
+  let backupFormat = null;
+  let backupTarget = null;
+  let backupBranch = null;
+  let backupRemote = null;
   let ruleFile = null;
 
   for (let i = 0; i < args.length; i++) {
@@ -755,6 +1091,42 @@ function parseUninstallCliArgs(args = []) {
       force = true;
     } else if (arg === '--no-backup') {
       noBackup = true;
+    } else if (arg.startsWith('--backup-format=')) {
+      backupFormat = arg.slice('--backup-format='.length);
+    } else if (arg === '--backup-format') {
+      if (args[i + 1] && !String(args[i + 1]).startsWith('-')) {
+        backupFormat = String(args[i + 1]);
+        i += 1;
+      } else {
+        backupFormat = '';
+      }
+    } else if (arg.startsWith('--backup-target=')) {
+      backupTarget = arg.slice('--backup-target='.length);
+    } else if (arg === '--backup-target') {
+      if (args[i + 1] && !String(args[i + 1]).startsWith('-')) {
+        backupTarget = String(args[i + 1]);
+        i += 1;
+      } else {
+        backupTarget = '';
+      }
+    } else if (arg.startsWith('--backup-branch=')) {
+      backupBranch = arg.slice('--backup-branch='.length);
+    } else if (arg === '--backup-branch') {
+      if (args[i + 1] && !String(args[i + 1]).startsWith('-')) {
+        backupBranch = String(args[i + 1]);
+        i += 1;
+      } else {
+        backupBranch = '';
+      }
+    } else if (arg.startsWith('--backup-remote=')) {
+      backupRemote = arg.slice('--backup-remote='.length);
+    } else if (arg === '--backup-remote') {
+      if (args[i + 1] && !String(args[i + 1]).startsWith('-')) {
+        backupRemote = String(args[i + 1]);
+        i += 1;
+      } else {
+        backupRemote = '';
+      }
     } else if (arg.startsWith('--rule-file=')) {
       ruleFile = arg.slice('--rule-file='.length);
     } else if (arg === '--rule-file' || arg === '-r') {
@@ -777,6 +1149,10 @@ function parseUninstallCliArgs(args = []) {
     dryRun,
     force,
     noBackup,
+    backupFormat,
+    backupTarget,
+    backupBranch,
+    backupRemote,
     ruleFile,
     targetArg: positionals[0] || '.',
   };
@@ -796,10 +1172,33 @@ async function main() {
     process.exit(0);
   }
 
-  const { dryRun, force, noBackup, ruleFile, targetArg } = parseUninstallCliArgs(args);
+  const {
+    dryRun,
+    force,
+    noBackup,
+    backupFormat,
+    backupTarget,
+    backupBranch,
+    backupRemote,
+    ruleFile,
+    targetArg,
+  } = parseUninstallCliArgs(args);
 
   try {
-    await uninstall(targetArg, { dryRun, force, noBackup, ruleFile, lang: parsedLang });
+    const res = await uninstall(targetArg, {
+      dryRun,
+      force,
+      noBackup,
+      backupFormat,
+      backupTarget,
+      backupBranch,
+      backupRemote,
+      ruleFile,
+      lang: parsedLang,
+    });
+    if (res && res.cancelled) {
+      process.exit(0);
+    }
   } catch (err) {
     console.error(t('cli.uninstallException', {}, resolveLanguage(targetArg, parsedLang)), err.message);
     process.exit(1);
@@ -813,4 +1212,6 @@ if (require.main === module) {
 module.exports = {
   uninstall,
   printUsage,
+  promptBackupConfirm,
+  promptBackupTarget,
 };

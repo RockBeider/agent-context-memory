@@ -8,7 +8,7 @@
 /.agents/config.json
 /.agents/.acm-meta.json
 /.agents_backup_*/
-/.acm-backup-*/
+/.acm-backup-*
 /.agent/
 
 # Local AI Agent & IDE Overrides
