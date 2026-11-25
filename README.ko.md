@@ -2,85 +2,85 @@
 
 [English](./README.md) | **한국어**
 
-Production-grade Three-Tier Context Memory & Task-Centric Git Engine for AI Coding Agents.
+AI 코딩 에이전트(Antigravity IDE, Claude Code, Cursor, Windsurf, Codex, Copilot, OpenCode 등)를 위한 **가벼운 로컬 메모리 & 작업 단위 Git 도구**입니다.
 
-AI 코딩 에이전트(Antigravity IDE, Claude Code, Cursor, Windsurf, Codex, Copilot 등) 환경에서 컨텍스트 윈도우 한계로 인한 기억 소실(Context Amnesia)과 대규모 일괄 커밋(`git add .`)으로 인한 형상 관리 오염을 원천 차단하는 **3계층 인지 메모리 거버넌스 시스템(Three-Tier Memory Model)**입니다.
+별도의 서버나 복잡한 설정 없이 바로 쓸 수 있어 **1인 개발자와 소규모 팀에 잘 맞습니다.** 새 채팅을 열 때마다 긴 대화 내용이나 문서를 통째로 다시 설명할 필요 없이, 진행 중인 작업·재사용 팁·설계 이유(ADR)만 골라서 불러옵니다. 덕분에 **토큰은 아끼면서 이전 세션의 맥락을 자연스럽게 이어갈 수 있습니다.**
 
-Git 환경과의 완벽한 유기적 결합(작업 단위 원자적 분할 커밋, 커밋 직후 `task-completed.md` 무인 자동 이관, 지능형 3-Way 병합)은 물론, **Git이 없는 환경(Git 미설치 또는 비-저장소 디렉터리)에서도 크래시 없이 100% 가동되는 메모리 뷰어 및 사용자 승인 게이트(Graceful Fallback)**를 제공합니다.
+코드 정리도 함께 돕습니다. AI가 `git add .`로 관련 없는 파일까지 한꺼번에 커밋하는 실수를 막아주고, 작업 단위로 깔끔하게 커밋한 뒤 완료 기록까지 자동으로 옮겨줍니다. Git이 없는 폴더에서도 오류 없이 메모리 도구로 그대로 사용할 수 있습니다.
 
 ---
 
-## 1. 아키텍처 개요 및 라이프사이클
+## 1. 어떻게 동작하나요?
 
-본 시스템은 인간의 인지 구조(작업 기억, 장기 기억, 콜드 아카이브)와 소프트웨어 아키텍처 의사결정(ADR)을 결합하여, AI 에이전트의 컨텍스트 소모(토큰)를 0에 가깝게 유지하면서 무손실 지식 승격과 원자적 형상 관리를 달성합니다.
+ACM은 사람이 기억을 다루는 방식처럼 정보를 3단계(지금 하는 일, 오래 기억할 지식, 끝난 일 기록)로 나누어 저장합니다. 평소에는 꼭 필요한 규칙만 가볍게 읽고, 과거 지식이나 기록은 필요할 때만 찾아보기 때문에 토큰 낭비가 적습니다.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                        L0. 거버넌스 규격 (Rules)                          │
-│ AGENTS.md (완결형 상시 가드레일) + .agents/rules/acm-task-memory-adr.md  │
+│                        L0. 기본 규칙 (Rules)                             │
+│  AGENTS.md (핵심 규칙 6가지) + .agents/rules/acm-task-memory-adr.md      │
 └────────────────────────────────────┬────────────────────────────────────┘
-                                     │ 규격 강제
+                                     │ 규칙 적용
                  ┌───────────────────┴───────────────────┐
                  ▼                                       ▼
 ┌─────────────────────────────────┐     ┌─────────────────────────────────┐
-│ L1. 작업 기억 (Working Memory)   │     │L2. 장기 지식 베이스 (Knowledge)   │
+│ L1. 지금 하는 일 (작업 기억)      │     │ L2. 오래 기억할 지식 (장기 기억)  │
 │ .agents/acm/task/task.md        │     │ .agents/acm/memory/             │
-│ (5KB 상한, TSK-X 단일 정본)       │     │ ├─ patterns-index.md (0토큰색인) │
-└────────────────┬────────────────┘     │ ├─ patterns/P-XX-*.md (샤딩패턴) │
+│ (5KB 제한, 진행 중 작업 관리)     │     │ ├─ patterns-index.md (키워드표) │
+└────────────────┬────────────────┘     │ ├─ patterns/P-XX-*.md (해결법)  │
                  │                      │ └─ project-changelog.md         │
-                 │ 지식 승격/ADR         │    (상단 ADR Index Map + 상세)   │
+                 │ 패턴/ADR 정리         │    (상단 요약표 + 상세 기록)     │
                  ├──────────────────────┴────────────────┬────────────────┘
-                 │ [커밋 대기] 3요소(목적/수행결과/대상영역) 분류
+                 │ [커밋 대기] 목적 / 결과 / 변경 파일 기록 완료
                  ▼
 ┌─────────────────────────────────┐
-│   실행 엔진 (Runtime Engine)     │
+│        실행 엔진 (CLI)           │
 │ scripts/acm/group-status.cjs    │
-│ (원자 커밋 + 무인 완료 자동 이관)  │
+│ (작업별 커밋 + 완료 목록 이동)    │
 └────────────────┬────────────────┘
-                 │ Git: 커밋 SHA 획득 즉시 자동 이관 / 비-Git: 사용자 승인 확인
+                 │ Git: 커밋 직후 자동 이동 / 비-Git: 사용자 확인 후 이동
                  ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                    L3. 콜드 아카이브 (Cold Archive)                       │
-│      .agents/acm/task/task-completed.md (완료 태스크 영구 보관소)          │
+┌─────────────────────────────────┐
+│                      L3. 끝난 일 기록 (아카이브)                          │
+│        .agents/acm/task/task-completed.md (완료된 작업 보관)              │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 작업 라이프사이클 파이프라인
+### 작업이 진행되는 흐름
 
 ```text
                  ┌─────────────────────────────────┐
-                 │      [ ] 등록 (TSK-X 채번)       │
+                 │     [ ] 할 일 등록 (TSK-X)       │
                  └────────────────┬────────────────┘
                                   │
                                   ▼
                  ┌─────────────────────────────────┐
-                 │   [진행 중] 구현 및 단위 검증      │
+                 │    [진행 중] 개발 및 테스트       │
                  └────────────────┬────────────────┘
                                   │
                                   ▼
                  ┌─────────────────────────────────┐
-                 │ [커밋 대기] 3요소 요약 기록 완료   │
-                 │ (목적 / 수행결과 / 대상영역 백틱)   │
+                 │  [커밋 대기] 3가지 핵심 정리     │
+                 │  (목적 / 결과 / 변경된 파일)     │
                  └────────────────┬────────────────┘
                                   │
                                   ▼
-                          < 환경 판별 분기 >
+                          < Git 사용 여부 >
                                   │
                 ┌─────────────────┴─────────────────┐
-           [Git 환경]                         [비-Git 환경]
+             [Git 있음]                         [Git 없음]
                 ▼                                   ▼
 ┌───────────────────────────────┐   ┌───────────────────────────────┐
-│      npm run acm:commit       │   │     사용자 수동 이관 허용        │
-│ (diff --check + 원자 분할 커밋 │   │  또는 완료 보고 후 승인 확인     │
-│  + task-completed.md 자동이관) │   └───────────────┬───────────────┘
+│      npm run acm:commit       │   │     작업 결과 확인 보고        │
+│ (충돌 점검 + 작업별 분리 커밋   │   │    & 사용자 확인 후 이동       │
+│  + 완료 목록으로 자동 이동)    │   └───────────────┬───────────────┘
 └───────────────┬───────────────┘                   │
-         (커밋 SHA 확보)                   (사용자 승인 게이트)
+         (커밋 해시 기록)                     (사용자 확인)
                 └─────────────────┬─────────────────┘
                                   │
                                   ▼
                  ┌─────────────────────────────────┐
-                 │            [x] 완료              │
-                 │    (task-completed.md 이관)      │
+                 │           [x] 완료              │
+                 │   (task-completed.md에 보관)    │
                  └─────────────────────────────────┘
 ```
 
@@ -88,49 +88,55 @@ Git 환경과의 완벽한 유기적 결합(작업 단위 원자적 분할 커�
 
 ## 2. 빠른 시작 (Quick Start)
 
-경량 대화형 CLI(`@clack/prompts`)와 **Node.js 순수 내장 모듈**(`>=22.13.0`, 내장 `node:sqlite` 지원) 기반의 실행 엔진으로 작동합니다. 별도의 2단계 과정 없이 **단 1회 명령어**로 모든 AI 코딩 에이전트 환경에 즉시 설치 및 초기화할 수 있습니다.
+Node.js(`>=22.13.0`, 내장 `node:sqlite` 사용)만 있으면 **명령어 한 줄**로 바로 시작할 수 있습니다.
 
-대화형 설치 시 **영어(English, 기본값)** 또는 **한국어(Korean)** 언어(`--lang=ko` / `-l ko` / `ACM_LANG=ko`)와 **저장소 백엔드**(**로컬 SQLite DB (권장)** — Node.js `>= 22.13.0`, `--storage=sqlite` / **레거시 Markdown 파일** `--storage=markdown`)를 선택할 수 있습니다. 기존 `.agents/acm/`(또는 레거시 `.agents/`) Markdown 기록이 있는 프로젝트에서는 설치 시 `.agents/acm/local/memory.db`로 자동 적재됩니다. (규칙 파일 미감지 시 방향키 `↑`/`↓` 및 `Space` 키로 대상 에이전트 규칙 파일을 다중 선택할 수 있으며, 비대화형 환경에서는 자동으로 `en`, `sqlite`, `AGENTS.md`가 선택됩니다.)
+설치할 때 아래 두 가지를 고를 수 있습니다.
+- **언어**: 영어(기본) 또는 한국어 (`--lang=ko`, `-l ko`, `ACM_LANG=ko`)
+- **저장 방식**: **로컬 SQLite DB (권장)**(`--storage=sqlite`) 또는 **Markdown 파일 전용**(`--storage=markdown`)
 
-### 방법 A. npx 1단계 즉시 실행 (가장 권장하는 표준 방법)
+이미 `.agents/acm/`(또는 예전 `.agents/`)에 Markdown 기록이 있다면 설치할 때 자동으로 `.agents/acm/local/memory.db`로 불러옵니다. 프로젝트에 에이전트 규칙 파일이 아직 없다면 방향키와 `Space`로 원하는 파일들을 한꺼번에 고를 수 있습니다. (비대화형 설치 시 기본값은 `en`, `sqlite`, `AGENTS.md`입니다.)
+
+### 방법 A. `npx`로 바로 설치하기 (권장)
 
 ```bash
-# 대화형 실행: 언어(영어 기본/한국어), 저장소 백엔드(SQLite 권장) 및 규칙 파일 자동 스캔·주입
+# 대화형 설치: 언어, 저장 방식(SQLite 권장), 에이전트 규칙 파일 선택
 npx -y agent-context-memory
 
-# 한국어 + SQLite 모드로 즉시 설치 (대화형 선택 건너뛰기)
+# 묻지 않고 바로 설치 (한국어 + SQLite)
 npx -y agent-context-memory --lang=ko --storage=sqlite --non-interactive
 
-# SQLite 모드에서 .agents/acm/task/*.md 상시 투영 옵트인 (기본값: 비활성)
+# SQLite를 쓰면서 task.md 파일도 함께 최신 상태로 유지하기 (기본: 끔)
 npx -y agent-context-memory init --markdown-projection
 
-# 레거시 Markdown 전용 모드로 설치
+# 예전처럼 Markdown 파일만으로 사용하기
 npx -y agent-context-memory init --storage=markdown
 
-# 특정 프로젝트 디렉터리에 즉시 설치
+# 다른 폴더에 설치하기
 npx -y agent-context-memory ./my-project
 
-# 특정 에이전트 규칙 파일 직접 지정 (쉼표 구분 다중 지정 가능)
+# 특정 규칙 파일만 골라서 적용하기 (쉼표로 여러 개 지정 가능)
 npx -y agent-context-memory ./my-project --rule-file=CLAUDE.md
 
-# 기존 템플릿 파일 강제 덮어쓰기 모드
+# 기존 ACM 템플릿 파일을 새 버전으로 덮어쓰기
 npx -y agent-context-memory --force
 ```
 
-### 방법 B. npm 패키지 설치와 동시에 자동 초기화 (`postinstall`)
+### 방법 B. `npm install`로 프로젝트에 추가하기 (`postinstall`)
+
+개발 의존성으로 설치하면 프로젝트에 필요한 파일이 자동으로 세팅됩니다.
 
 ```bash
-# 패키지 설치와 동시에 호스트 프로젝트(.agents/acm/, scripts/acm/, 규칙 파일) 영어 기본 자동 초기화
+# 영어 기본 설정으로 자동 초기화
 npm install -D agent-context-memory
 
-# 한국어 템플릿으로 자동 초기화
+# 한국어 설정으로 자동 초기화
 ACM_LANG=ko npm install -D agent-context-memory
 
-# (선택) 자동 초기화를 건너뛰고 패키지만 설치하고자 할 경우
+# 자동 초기화를 건너뛰고 패키지만 설치하기
 ACM_SKIP_POSTINSTALL=1 npm install -D agent-context-memory
 ```
 
-### 방법 C. 전역 설치 (Global CLI)
+### 방법 C. 전역 명령어(`acm`)로 설치하기
 
 ```bash
 npm install -g agent-context-memory
@@ -140,7 +146,7 @@ acm --lang=ko
 acm status
 ```
 
-### 방법 D. 로컬 번들 인스톨러 직접 실행
+### 방법 D. 로컬 스크립트로 직접 설치하기
 
 ```bash
 node scripts/acm/install-template.cjs /path/to/my-project
@@ -149,97 +155,100 @@ node scripts/acm/install-template.cjs /path/to/my-project --lang=ko --rule-file=
 
 ---
 
-## 3. 멀티 에이전트 호환성 매트릭스 (Multi-Agent Support)
+## 3. 지원하는 AI 코딩 도구
 
-`agent-context-memory`는 특정 IDE나 단일 AI 도구에 종속되지 않습니다. 프로젝트 루트의 규칙 파일을 자동 감지하여 마커 기반(`<!-- ACM_GOVERNANCE_START -->`)으로 비파괴 주입됩니다.
+특정 IDE나 AI 도구에 묶이지 않습니다. 프로젝트 루트의 규칙 파일을 찾아 전용 구간(`<!-- ACM_GOVERNANCE_START -->`)만 안전하게 추가하므로 기존에 적어둔 규칙을 해치지 않습니다.
 
-| AI 에이전트 환경 | 대상 규칙 파일 | 연동 방식 및 기능 지원 |
+| AI 코딩 도구 | 대상 규칙 파일 | 지원하는 연동 기능 |
 | :--- | :--- | :--- |
-| **Antigravity IDE** | `AGENTS.md` / `GEMINI.md` | `.agents/acm/` 격리 작업 기억, `acm-task-memory-adr.md`, `hooks.json` (`acm-token-monitor`), 서브 에이전트(`acm-git-release-sentinel`, `acm-context-compactor`) 연동 |
-| **Claude Code** | `CLAUDE.md` | 프로젝트 가드레일 자동 주입, `scripts/acm/group-status.cjs` 원자 커밋 및 자동 이관 워크플로 |
-| **Cursor** | `.cursorrules` / `.cursor/rules/*.mdc` | 3계층 메모리 규칙 주입, 5KB 상한 작업 기억 단일 정본 연동 |
-| **Windsurf** | `.windsurfrules` | Cascade 엔진 가드레일 자동 반영, 작업 상태 기반 컨텍스트 정렬 |
-| **Codex / Copilot** | `AGENTS.md` / `.github/copilot-instructions.md` | 프로젝트 표준 거버넌스 및 ADR Index Map 기반 히스토리 추적 |
-| **OpenCode** | `AGENTS.md` | 표준 마크다운 프롬프트 인터페이스 및 0토큰 Grep 지식 탐색 |
+| **Antigravity IDE** | `AGENTS.md` / `GEMINI.md` | `.agents/acm/` 작업 메모리, 세부 규칙(`acm-task-memory-adr.md`), `hooks.json`(`acm-token-monitor`), 전용 서브 에이전트(`acm-git-release-sentinel`, `acm-context-compactor`) |
+| **Claude Code** | `CLAUDE.md` | 핵심 규칙 자동 추가, `scripts/acm/group-status.cjs` 기반 작업별 커밋 및 완료 자동 이동 |
+| **Cursor** | `.cursorrules` / `.cursor/rules/*.mdc` | 3단계 메모리 규칙 적용, 5KB 제한 작업 기억 연동 |
+| **Windsurf** | `.windsurfrules` | Cascade용 작업 규칙 반영, 작업 상태 기반 맥락 유지 |
+| **Codex / Copilot** | `AGENTS.md` / `.github/copilot-instructions.md` | 표준 규칙 적용 및 `ADR Index Map` 기반 설계 이력 조회 |
+| **OpenCode** | `AGENTS.md` | 마크다운 규칙 연동 및 키워드 기반 경량 지식 검색 |
 
 ---
 
-## 4. 왜 Agent Context Memory인가? (Why ACM?)
+## 4. ACM을 쓰면 좋은 이유
 
-### 1) 컨텍스트 고갈과 기억 소실(Context Amnesia) 해결
-- **문제**: AI 에이전트는 대화가 길어지면 과거 결정 사항을 망각하고, 수만 줄의 문서를 통째로 읽어 토큰을 낭비합니다.
-- **해결**: 엄격한 **5KB 상한 작업 기억(`task.md`)**, 키워드 색인표(`patterns-index.md`)를 통한 **0토큰 Grep 원칙**, `project-changelog.md` 최상단 **`ADR Index Map` 경량 색인표** 및 선택적 로컬 **`node:sqlite` + FTS5** 검색 엔진(`scripts/acm/storage/`)을 제공합니다.
+### 1) 토큰은 아끼고, 세션은 자연스럽게 이어갑니다
+- **기존의 불편함**: 대화가 길어지거나 새 세션을 열면 AI가 이전 결정 사항을 까먹습니다. 반대로 문서 전체를 매번 읽히면 토큰이 금방 소진됩니다.
+- **ACM의 해결 방식**: 현재 작업 파일(`task.md`)은 **5KB 이하**로 가볍게 유지합니다. 과거 해결법(`patterns-index.md`)과 설계 기록(`project-changelog.md` 상단 35줄 `ADR Index Map`)은 먼저 목차만 훑거나 로컬 **`node:sqlite` + FTS5 검색**(`scripts/acm/storage/`)으로 필요한 부분만 콕 집어 불러옵니다.
 
-### 2) 대규모 일괄 커밋(`git add .`) 차단 및 무인 완료 이관(`autoCompleteTask`)
-- **문제**: 에이전트에게 커밋을 맡기면 변경된 수십 개의 파일을 한꺼번에 스테이징하여 롤백을 불가능하게 만들고, 커밋 후 `task.md` 정리나 완료 이관을 누락합니다.
-- **해결**: `scripts/acm/group-status.cjs` 커밋 엔진이 `task.md`의 `[커밋 대기]`/`[Ready]` 작업(`TSK-X`)만 안전하게 선별하여 **① `git diff --cached --check` 충돌 마커 검증 -> ② 작업 단위 개별 원자 커밋 -> ③ `task-completed.md` 자동 완료 이관 및 `task.md` 절삭**을 단 1회 실행으로 무인 완결합니다.
+### 2) `git add .` 대신 작업 단위로 깔끔하게 커밋합니다
+- **기존의 불편함**: AI에게 커밋을 맡기면 `git add .`로 여러 작업의 파일을 한꺼번에 묶어버려 되돌리기 어렵고, 커밋 후 할 일 목록 정리도 자주 빼먹습니다.
+- **ACM의 해결 방식**: `scripts/acm/group-status.cjs`가 `[커밋 대기]`/`[Ready]` 상태의 작업(`TSK-X`)만 골라냅니다. `git diff --cached --check`로 충돌 흔적이 없는지 확인한 뒤, **작업별로 나누어 커밋하고 완료 기록(`task-completed.md`) 이동까지 한 번에 끝냅니다.**
 
-### 3) 검증 전 조기 완료 오판 방지 및 무결성 게이트 (Negative Rule & Approval Gate)
-- **문제**: AI 에이전트는 코드를 작성하자마자 "작업 완료"로 표시하거나 임의로 커밋해 버리는 실수를 반복합니다.
-- **해결**: 상태 라이프사이클에 `[커밋 대기]`/`[Ready]` 단계를 강제하고, 사용자의 명시적 커밋 지시 후 `npm run acm:commit`을 통해 실제 커밋 SHA 해시를 획득함과 동시에 `task-completed.md`로 자동 이관합니다.
+### 3) 테스트도 안 했는데 "완료"라고 하는 실수를 막습니다
+- **기존의 불편함**: AI는 코드를 짜자마자 확인 없이 완료 처리하거나 사용자 허락 없이 커밋해 버리곤 합니다.
+- **ACM의 해결 방식**: 작업이 끝나면 바로 완료하지 않고 `[커밋 대기]`/`[Ready]` 단계에 머물며 **목적·결과·변경 파일** 3가지를 정리합니다. 사용자가 명시적으로 커밋을 지시해 `npm run acm:commit`을 실행해야 실제 커밋 해시와 함께 완료 목록으로 넘어갑니다.
 
-### 4) 초기 샘플 비오염 & 무충돌 단축 식별자 (`short-id`) 단일 체계
-- **문제**: 전역 순차 번호(`TSK-1`, `P-01`, `LOG-01`)는 다중 개발자, 멀티 PC, Git Worktree, 병렬 에이전트 환경에서 번호 충돌을 일으키며, 보일러플레이트의 실제 번호 샘플은 에이전트 오인을 유발합니다.
-- **해결**: 배포 템플릿(`acm-template/`)의 초기 샘플은 `TSK-SAMPLE`, `P-00`, `LOG-00`으로 격리하고, 모든 신규 레코드는 별도 설정·모드 전환 없이 6자리 Crockford Base32 단축 ID(`TSK-K7M29A`, `P-M3N8Q2`, `LOG-R9A4C1`)로 발급됩니다. 앞 3~5자리 접두사 단축 조회(`K7M2`)와 기존 숫자 ID(`TSK-1`, `P-01`, `LOG-01`) 읽기를 100% 하위 호환합니다.
+### 4) 예시와 실제 작업을 헷갈리지 않고, ID도 겹치지 않습니다
+- **기존의 불편함**: `TSK-1`, `P-01` 같은 순차 번호는 여러 PC나 브랜치, 병렬 에이전트에서 작업할 때 번호가 쉽게 겹칩니다. 템플릿에 들어 있던 예시 번호를 AI가 실제 할 일로 착각하기도 합니다.
+- **ACM의 해결 방식**: 템플릿 예시는 파서가 무시하는 `TSK-SAMPLE`, `P-00`, `LOG-00`으로 구분합니다. 새로 만드는 항목은 별도 설정 없이 **겹치지 않는 6자리 짧은 ID**(`TSK-K7M29A`, `P-M3N8Q2`, `LOG-R9A4C1`)가 붙습니다. 앞 3~5글자(`K7M2`)만 입력해도 찾을 수 있고, 예전 숫자 ID(`TSK-1`, `P-01`, `LOG-01`)도 그대로 호환됩니다.
 
-### 5) 완전한 비파괴 가역성 (100% Safe Uninstall) 및 비-Git 무장애 가동
-- `scripts/acm/acm-manifest.cjs` 단일 정본 매니페스트, `.agents/acm/meta.json` v2 파일 인벤토리 추적(`installedFiles` / `skippedExistingFiles`), `.agents/hooks.json` 키 단위 비파괴 병합/정리, 선별 `.gitignore` 격리 및 영/한 변조 감지(Drift Detection)를 통해 `npx agent-context-memory uninstall` 시 프로젝트 루트 `.acm-backup-*` 백업 후 호스트 고유 `.agents/`·`scripts/`·커스텀 훅을 손대지 않고 ACM 자산만 정밀 복구합니다. `scripts/acm/check-git.cjs`를 통해 비-Git 환경에서도 메모리 뷰어 모드로 무장애 작동합니다.
+### 5) 기존 설정을 건드리지 않고 깔끔하게 지울 수 있습니다
+- 설치할 때 ACM이 만든 파일 목록을 `.agents/acm/meta.json`(v2)과 `scripts/acm/acm-manifest.cjs`에 기록해 둡니다.
+- 나중에 `npx agent-context-memory uninstall`을 실행하면 `.agents/acm`을 프로젝트 루트의 `.acm-backup-*`에 먼저 백업한 뒤, 원래 있던 `.agents/`, `scripts/`, 커스텀 훅은 그대로 두고 ACM 파일만 깔끔하게 지워줍니다. Git이 없는 폴더에서도 `scripts/acm/check-git.cjs`가 환경을 확인해 메모리 뷰어 모드로 문제없이 동작합니다.
 
 ---
 
-## 5. 3계층 데이터 모델 및 로컬 우선 SQLite 저장소
+## 5. 3단계 메모리 구조와 로컬 SQLite
 
-ACM은 코드 브랜치를 오염시키지 않는 `.agents/acm/local/memory.db` 기반의 **로컬 우선 SQLite (`node:sqlite` + FTS5 BM25)** 엔진(`.agents/acm/config.json` 설정, `.gitignore` 보호)을 **유일한 단일 정본(`storage.markdownProjection: false` 기본값)**으로 운용합니다. 신규 `sqlite` 설치 시에는 빈 `.agents/acm/task/`·`.agents/acm/memory/` Markdown 스캐폴딩 생성과 이중 쓰기를 생략하여 정본 불일치(Split-Brain)를 원천 차단하며, Markdown 문서가 필요할 때는 `acm export --format=md` 온디맨드 내보내기 또는 `--markdown-projection` / `acm config set storage.markdownProjection true` 옵트인을 지원합니다(레거시 `--storage=markdown` 및 `registerProvider()` 확장 슬롯 유지):
+ACM은 기본값으로 프로젝트 안의 `.agents/acm/local/memory.db`(**로컬 SQLite + FTS5 검색**, `.agents/acm/config.json` 설정, `.gitignore`로 코드 브랜치와 분리) 하나만 기준 저장소로 씁니다.
 
-| 계층 | Markdown 뷰 / 정본 경로 | SQLite 및 검색 저장소 | 역할 및 거버넌스 규격 |
+기본 설정(`storage.markdownProjection: false`)에서는 Markdown 파일을 동시에 중복 저장하지 않으므로, DB와 파일 내용이 서로 달라지는 문제가 생기지 않습니다. Markdown 파일로 보고 싶을 때는 `acm export --format=md`로 언제든 꺼내 볼 수 있고, 파일도 항상 같이 갱신하고 싶다면 `--markdown-projection` 또는 `acm config set storage.markdownProjection true`를 켜면 됩니다. (예전 `--storage=markdown` 방식과 `registerProvider()` 확장 구조도 계속 지원합니다.)
+
+| 단계 | Markdown 경로 | SQLite 테이블 | 역할 |
 | :--- | :--- | :--- | :--- |
-| **L0 (규칙 계층)** | `AGENTS.md` (상시 가드레일)<br>`.agents/rules/acm-task-memory-adr.md`<br>`.agents/acm/ACM_GOVERNANCE.md` | `.agents/acm/config.json` | 완결형 6대 가드레일 상시 주입 및 조건부 세부 규격·저장소 모드 참조 |
-| **L1 (작업 기억)** | `.agents/acm/task/task.md` (**5KB 이하**) | `tasks` 테이블 + `memory_fts` | 현재 활성화된 작업의 단일 정본. `TSK-XXXXXX`(기존 `TSK-{자연수}` 호환), 에이전트 Lease 잠금 및 `[커밋 대기]` 3요소 검증. |
-| **L2 (장기 지식)** | `.agents/acm/memory/patterns-index.md`<br>`.agents/acm/memory/patterns/P-XX-*.md`<br>`.agents/acm/memory/project-changelog.md` | `patterns` + `adrs` 테이블 + FTS5 BM25 | **0토큰 탐색**: FTS5 BM25/토큰 예산 검색(`acm search` / MCP) + `supersedes` 버전 체인 + 색인표 Grep 폴백. |
-| **L3 (콜드 아카이브)** | `.agents/acm/task/task-completed.md`<br>`.agents/acm/memory/archive/` | `tasks (status='done')` + `sync_log` | `npm run acm:commit` 성공 시 획득한 커밋 SHA 및 orphan 브랜치 동기화 이력 보관. |
+| **L0 (기본 규칙)** | `AGENTS.md` (핵심 규칙)<br>`.agents/rules/acm-task-memory-adr.md`<br>`.agents/acm/ACM_GOVERNANCE.md` | `.agents/acm/config.json` | 항상 읽는 핵심 규칙 6가지. 자세한 규칙이나 저장소 사양은 필요할 때만 읽습니다. |
+| **L1 (지금 하는 일)** | `.agents/acm/task/task.md` (**5KB 이하**) | `tasks` + `memory_fts` | 현재 진행 중이거나 커밋 대기 중인 작업 목록(`TSK-XXXXXX` / 기존 `TSK-{N}`). 에이전트 중복 작업 방지(Lease 잠금)와 커밋 전 3요소 점검을 담당합니다. |
+| **L2 (오래 기억할 지식)** | `.agents/acm/memory/patterns-index.md`<br>`.agents/acm/memory/patterns/P-XX-*.md`<br>`.agents/acm/memory/project-changelog.md` | `patterns` + `adrs` + FTS5 BM25 | 자주 쓰는 해결 패턴과 주요 설계 결정(ADR). `acm search`나 MCP로 토큰 예산에 맞춰 필요한 항목만 바로 찾아오고, 수정 이력(`supersedes`)도 연결합니다. |
+| **L3 (끝난 일 기록)** | `.agents/acm/task/task-completed.md`<br>`.agents/acm/memory/archive/` | `tasks (status='done')` + `sync_log` | `npm run acm:commit`으로 커밋을 마친 작업의 해시(SHA)와 공유 브랜치 동기화 이력을 보관합니다. |
 
 ---
 
-## 6. 핵심 실행 엔진, Git Orphan 동기화 및 MCP 가이드
+## 6. 자주 쓰는 명령어와 MCP 연동
 
-### 1) 기본 및 작업 단위 Git CLI 명령어
+### 1) 기본 및 Git 작업 명령어
 
 ```bash
-# 템플릿 설치 및 프로젝트 초기화 (EN/KO 언어, SQLite/Markdown 백엔드 선택)
+# 설치 및 초기 설정 (언어, SQLite/Markdown 선택)
 npx agent-context-memory init [경로] [옵션]
 
-# 작업 단위 상태 점검 (Git 환경: 파일 변경 감지 / 비-Git 환경: 3계층 메모리 뷰어)
+# 작업별 변경 파일 미리보기 (Git이 없으면 3단계 메모리 요약 표시)
 npx agent-context-memory status
 npx agent-context-memory status --compact
 
-# '[Ready]' / '[커밋 대기]' 작업 순차 원자 커밋 및 SQLite + task-completed.md 자동 이관
+# [Ready] / [커밋 대기] 작업을 하나씩 깔끔하게 커밋하고 완료 목록으로 이동
 npx agent-context-memory commit
-npx agent-context-memory commit --commit=K7M2   # 순번, 전체 ID, 3~5자 단축 접두사 모두 지원
+npx agent-context-memory commit --commit=K7M2   # 순번, 전체 ID, 앞 3~5글자 모두 가능
 
-# 원격 브랜치 변경사항 지능형 3-Way 병합 (Git 환경 전용)
+# 원격 변경 사항을 안전하게 합치기 (3-Way 병합, Git 전용)
 npx agent-context-memory pull
 npx agent-context-memory resolve
 
-# 원격 푸시 전 위생 및 로컬 DB 파일(*.db / *.db-wal / *.db-shm) 유출 차단 감사
+# 푸시 전 점검 (임시 파일, 로컬 *.db / *.db-wal / *.db-shm 유출, 충돌 흔적 차단)
 npx agent-context-memory audit
 
-# 현재 환경의 Git 설치 유무 및 대상 디렉터리 저장소 여부 정밀 진단
+# Git 설치 여부와 현재 폴더의 저장소 상태 확인
 npx agent-context-memory check-git
 
-# ACM 자산 안전 롤백 및 제거 (시뮬레이션: --dry-run)
+# ACM 파일만 안전하게 백업 후 제거 (미리보기: --dry-run)
 npx agent-context-memory uninstall [경로] [옵션]
 ```
 
-### 2) 로컬 DB CLI 및 팀 Git Orphan 동기화 (`acm`)
+### 2) 로컬 DB 관리 및 소규모 팀 동기화 (`acm`)
 
-모든 DB 명령어는 `--json` 출력 및 `--stdin` JSON 입력을 지원하여 셸 따옴표 문제 없이 안정적으로 자동화할 수 있습니다:
+모든 DB 명령어는 `--json` 출력과 `--stdin` JSON 입력을 지원해 스크립트나 AI 에이전트가 따옴표 오류 없이 안정적으로 호출할 수 있습니다.
 
 ```bash
-# 수동 Markdown 편집 시 무충돌 6자리 단축 ID 발급
+# Markdown을 직접 고칠 때 겹치지 않는 6자리 ID 발급하기
 npx agent-context-memory id task
 npx agent-context-memory id pattern --count=3
 
-# 태스크, 지식 패턴, ADR 관리 및 토큰 예산 기반 FTS5 BM25 검색
+# 작업, 패턴, ADR 등록 및 토큰 예산에 맞춘 빠른 검색
 npx agent-context-memory task list
 npx agent-context-memory task add "OAuth 인증 구현" --status=in_progress --owner=agent-1
 npx agent-context-memory task show K7M2
@@ -247,39 +256,39 @@ npx agent-context-memory search "원자 커밋" --kind=all --budget=1500
 npx agent-context-memory pattern add "Git Pager 프리징 해결" --supersedes=P-M3N8Q2
 npx agent-context-memory adr add "로컬 SQLite 도입" --task=TSK-K7M29A --area="scripts/acm/storage/"
 
-# 저장소 전환, 온디맨드 Markdown 내보내기 및 스냅샷 이식
+# 저장 방식 전환, Markdown 내보내기, JSON 백업/복원
 npx agent-context-memory migrate --to=sqlite
 npx agent-context-memory export --format=md --out=.agents/acm/exported-md
 npx agent-context-memory export --format=json --out=.agents/acm/backup.json
 npx agent-context-memory import .agents/acm/backup.json --strategy=merge
 
-# DB 보존 압축, 런타임 설정 및 통계 조회
+# 오래된 기록 정리, 설정 확인/변경, 통계 보기
 npx agent-context-memory compact
 npx agent-context-memory config show
 npx agent-context-memory config set storage.markdownProjection true
 npx agent-context-memory stats
 
-# Git orphan 브랜치('acm-memory')를 통한 공유 메모리(패턴, ADR, 완료 태스크) 협업 동기화
-# 순수 Git Plumbing(GIT_INDEX_FILE), LWW/코드 충돌 자동 재채번 병합 및 아웃바운드 Secret Scrubber 내장
+# 별도 Git 브랜치('acm-memory')로 패턴·ADR·완료 기록을 팀원이나 다른 PC와 공유
+# 작업 브랜치를 건드리지 않고(GIT_INDEX_FILE) 병합하며, 비밀키/토큰이 나가지 않게 자동 필터링
 npx agent-context-memory sync --status
 npx agent-context-memory sync --pull
 npx agent-context-memory sync --push --dry-run
 npx agent-context-memory sync
 ```
 
-### 3) 무의존성 Stdio MCP 서버 (`acm mcp`)
+### 3) 별도 서버 없이 바로 쓰는 MCP 연동 (`acm mcp`)
 
-외부 npm 패키지 추가 없이 순수 Node.js stdio(줄바꿈 구분 JSON-RPC 2.0)를 통해 9개 구조화 도구(`acm_status`, `acm_search`, `acm_task_list`, `acm_task_upsert`, `acm_task_complete`, `acm_pattern_save`, `acm_pattern_get`, `acm_adr_add`, `acm_sync`)를 노출합니다:
+외부 패키지나 백그라운드 서버 없이 Node.js 표준 입출력(stdio JSON-RPC 2.0)으로 9개의 도구(`acm_status`, `acm_search`, `acm_task_list`, `acm_task_upsert`, `acm_task_complete`, `acm_pattern_save`, `acm_pattern_get`, `acm_adr_add`, `acm_sync`)를 바로 연결할 수 있습니다.
 
 ```bash
-# Antigravity, Claude Code, Cursor 등에 바로 붙여넣을 수 있는 MCP 설정 JSON 출력
+# Antigravity, Claude Code, Cursor 등에 바로 붙여넣을 MCP 설정 출력
 npx agent-context-memory mcp --print-config
 
-# stdio MCP 서버 직접 실행
+# MCP 서버 직접 실행
 npx agent-context-memory mcp
 ```
 
-설정 스니펫 예시 (`acm mcp --print-config` 출력):
+설정 예시 (`acm mcp --print-config` 출력):
 
 ```json
 {
@@ -295,58 +304,58 @@ npx agent-context-memory mcp
 }
 ```
 
-### 4) 작업 단위 Git 자동화 스크립트 (`package.json`)
+### 4) `package.json`에 추가되는 단축 스크립트
 
 ```bash
-npm run acm:status      # 작업별 파일 분류 및 자동 생성 커밋 메시지 미리보기 (--dry-run)
-npm run acm:summary     # 에이전트 초경량 토큰용 1줄 요약 조회 (--compact)
-npm run acm:commit      # 완료 대기 작업을 순차 원자 커밋 및 task-completed.md로 자동 이관 (--all)
-npm run acm:pull        # 원격 브랜치 변경사항 지능형 풀 (3-Way 병합)
-npm run acm:resolve     # 3-Way 충돌 해결 마커 점검 및 하이브리드 해소
-npm run acm:audit-push  # 원격 푸시 전 임시 파일, DB 파일, 미해결 충돌 마커 정적 감사
+npm run acm:status      # 작업별 파일 묶음과 커밋 메시지 미리보기 (--dry-run)
+npm run acm:summary     # AI 에이전트가 토큰을 아끼기 위해 읽는 1줄 요약 (--compact)
+npm run acm:commit      # 커밋 대기 작업을 차례로 커밋하고 완료 목록으로 이동 (--all)
+npm run acm:pull        # 원격 변경 사항 안전하게 가져오기 (3-Way 병합)
+npm run acm:resolve     # 충돌 해결 확인 및 마무리 점검
+npm run acm:audit-push  # 푸시 전 임시 파일, DB 파일, 충돌 마커 점검
 ```
 
 ---
 
-## 7. 저장소 구조: 배포 자산과 개발 환경의 분리
+## 7. 프로젝트 폴더 구조
 
 ```text
 agent-context-memory/
-├── acm-template/           # [배포 자산] 신규 프로젝트에 주입될 클린 보일러플레이트 (영어 기본 정본)
-│   ├── .agents/            # 비오염 샘플(TSK-SAMPLE, P-00, LOG-00), acm/ 격리 저장소, acm-* 룰/에이전트/스킬, 훅
-│   └── locales/ko/         # --lang=ko 또는 대화형 한국어 선택 시 적용되는 한국어 템플릿 오버레이
-├── .agents/                # [자체 개발] 본 패키지 자체의 격리 작업 기억 및 거버넌스 (.agents/acm/, acm-*)
-├── bin/                    # 통합 CLI 진입점 (agent-context-memory.js)
-├── scripts/acm/            # 단일 정본 런타임 엔진, 인스톨러, 매니페스트, i18n, DB CLI, MCP, 스토리지 계층
-│   ├── i18n.cjs            # 무의존성 EN/KO 다국어 리졸버
-│   ├── locales/            # en.cjs (기본값) 및 ko.cjs 메시지 카탈로그
-│   ├── acm-db-cli.cjs      # MemoryStore CLI (task, pattern, adr, search, migrate, export, import, sync)
-│   ├── mcp-server.cjs      # 무의존성 stdio JSON-RPC 2.0 MCP 서버
-│   └── storage/            # MemoryStore, node:sqlite FTS5, Markdown 브리지, Git orphan 동기화, Secret Scrubber
-├── tests/                  # Git, 비-Git, SQLite, DB CLI, Git orphan 동기화 및 MCP 서버 E2E 검증 스위트
-├── README.md               # 영문 README (기본)
-├── README.ko.md            # 국문 README
-└── LICENSE                 # MIT License
+├── acm-template/           # 다른 프로젝트에 설치할 깨끗한 템플릿 (영어 기본)
+│   ├── .agents/            # 예시 샘플(TSK-SAMPLE, P-00, LOG-00), acm/ 공간, 규칙·에이전트·스킬·훅
+│   └── locales/ko/         # --lang=ko 또는 한국어 선택 시 덮어씌우는 한국어 템플릿
+├── .agents/                # 이 저장소 자체에서 사용하는 ACM 작업 공간
+├── bin/                    # CLI 진입점 (agent-context-memory.js)
+├── scripts/acm/            # 실행 스크립트, 설치/제거기, 다국어, DB CLI, MCP, 스토리지 모듈
+│   ├── i18n.cjs            # 외부 패키지 없는 영/한 메시지 처리기
+│   ├── locales/            # en.cjs(기본) 및 ko.cjs 문구 파일
+│   ├── acm-db-cli.cjs      # DB CLI (task, pattern, adr, search, migrate, export, import, sync)
+│   ├── mcp-server.cjs      # stdio JSON-RPC 2.0 MCP 서버
+│   └── storage/            # MemoryStore, node:sqlite FTS5, Markdown 연동, Git 동기화, 비밀정보 필터
+├── tests/                  # Git, 비-Git, SQLite, DB CLI, 동기화, MCP 자동 테스트
+├── README.md               # 영문 안내서 (기본)
+├── README.ko.md            # 국문 안내서
+└── LICENSE                 # MIT 라이선스
 ```
 
 ---
 
-## 8. 기존 방식과의 비교 (Comparison)
+## 8. 기존 방식과 무엇이 다른가요?
 
-| 비교 항목 | 기존 일반 방식 | Agent Context Memory (ACM) |
+| 비교 항목 | 기존 방식 | Agent Context Memory (ACM) |
 | :--- | :--- | :--- |
-| **메모리 유지** | 대화 세션 종료 시 모든 컨텍스트 소실 | 3계층 모델을 통해 파일 시스템 및 SQLite에 무손실 보존 |
-| **토큰 소모량** | 매 턴마다 수천 줄의 가이드 문서 전체 주입 | 완결형 마이크로 가드레일 및 색인표(`patterns-index`, `ADR Index Map`) 기반 0토큰 핀포인트 로딩 |
-| **작업 추적 및 이관** | 에이전트 임의 판단으로 완료 선언 또는 이관 누락 | `npm run acm:commit` 실행 시 커밋 SHA 확보와 동시에 `task-completed.md` 무인 자동 이관 |
-| **Git 커밋 품질** | `git add .`로 수십 개 파일 혼합 일괄 커밋 | `[Ready]` / `[커밋 대기]` 상태 태스크(`TSK-X`)만 선별하여 파일 자동 분할 원자 커밋 (`diff --check` 내장) |
-| **환경 유연성** | Git 미설치/비저장소 시 스크립트 크래시 발생 | 2단계 진단 엔진으로 비-Git 자동 감지, 메모리 뷰어 및 사용자 승인 게이트 가동 (Graceful Fallback) |
-| **안전 롤백** | 설치 후 파일 삭제 시 프로젝트 파손 위험 | 매니페스트 기반 선별 제거 및 영/한 변조 감지(Drift Detection) 복원 |
+| **세션 연결** | 채팅을 새로 열면 맥락이 끊김 | 진행 작업·패턴·설계 이유를 로컬 파일과 SQLite에 정리해 다음 세션으로 이어짐 |
+| **토큰 사용량** | 매번 긴 문서나 대화 전체를 다시 읽힘 | 짧은 핵심 규칙 + 목차/검색으로 꼭 필요한 내용만 골라 불러옴 |
+| **작업 정리** | 커밋 후 할 일 목록 정리를 자주 깜빡함 | `npm run acm:commit` 한 번으로 커밋 해시 기록과 완료 이동을 자동 처리 |
+| **커밋 깔끔함** | `git add .`로 여러 작업 파일이 뒤섞임 | `[Ready]` / `[커밋 대기]` 작업(`TSK-X`)만 골라 충돌 점검 후 작업별로 분리 커밋 |
+| **Git 없는 폴더** | Git 기반 스크립트가 오류를 내며 멈춤 | 비-Git 환경을 자동 감지해 메모리 뷰어와 사용자 확인 흐름으로 정상 동작 |
+| **안전한 제거** | 직접 지우다 기존 규칙까지 날릴 위험 | 설치 기록을 바탕으로 백업 후 ACM 파일만 정확히 골라 제거 |
 
 ---
 
-## 9. 라이선스 및 기여 (License)
+## 9. 라이선스
 
-본 프로젝트는 [MIT License](LICENSE) 하에 오픈소스로 제공됩니다. 자유롭게 개인 또는 기업 프로젝트에 도입하고 확장할 수 있습니다.
+[MIT License](LICENSE)로 공개되어 있습니다. 개인 프로젝트나 팀 프로젝트 어디서든 자유롭게 사용하고 수정할 수 있습니다.
 
 - Author: Rock Beider
 - Repository: [https://github.com/rockbeider/agent-context-memory](https://github.com/rockbeider/agent-context-memory)
