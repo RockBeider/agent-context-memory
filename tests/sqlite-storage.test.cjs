@@ -325,10 +325,17 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
   let storeKo = null;
 
   try {
-    // 6-1. English live .agents/ workspace roundtrip + sample exclusion
+    // 6-1. English live .agents/ workspace roundtrip + sample exclusion (self-contained fixture)
     fs.cpSync(path.join(ROOT_DIR, '.agents'), path.join(fixtureDir, '.agents'), { recursive: true });
-    const taskMdPath = path.join(fixtureDir, '.agents', 'acm', 'task', 'task.md');
-    const origTaskMd = fs.readFileSync(taskMdPath, 'utf-8');
+    fs.rmSync(path.join(fixtureDir, '.agents', 'acm', 'local'), { recursive: true, force: true });
+    const taskDir = path.join(fixtureDir, '.agents', 'acm', 'task');
+    fs.mkdirSync(taskDir, { recursive: true });
+
+    const taskMdPath = path.join(taskDir, 'task.md');
+    const origTaskMd = fs.readFileSync(
+      path.join(ROOT_DIR, 'acm-template', '.agents', 'acm', 'task', 'task.md'),
+      'utf-8'
+    );
     const augmentedTaskMd = [
       origTaskMd,
       '',
@@ -351,6 +358,32 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
       '  - **Targets**: `src/shortid.cjs`',
     ].join('\n');
     fs.writeFileSync(taskMdPath, augmentedTaskMd, 'utf-8');
+
+    const completedTaskMd = [
+      '# Agent Context Memory Task Completed Master (Cold Archive)',
+      '',
+      '> ```markdown',
+      '> ## 0. YYYY-MM-DD Tasks',
+      '> - [x] **TSK-SAMPLE. (Sample Example) Ignored completed sample** (Commit: `0000000`)',
+      '>   - **Purpose**: Ignored sample',
+      '>   - **Results**:',
+      '>     - `sample.js`: ignored',
+      '>   - **Targets**: `sample.js`',
+      '> ```',
+      '',
+      '---',
+      '',
+      '## 2026-11-23',
+      '',
+      '- [x] **TSK-17. Template tracking, commit/smart-pull fixes, and governance CI sync** (Commit: `6781614`)',
+      '  - **Purpose**: Verify completed task roundtrip preservation including commit SHA',
+      '  - **Results**:',
+      '    - `scripts/acm/group-status.cjs`: verified archive roundtrip',
+      '  - **Targets**: `scripts/acm/group-status.cjs`',
+      '',
+    ].join('\n');
+    fs.writeFileSync(path.join(taskDir, 'task-completed.md'), completedTaskMd, 'utf-8');
+
     fs.copyFileSync(
       path.join(ROOT_DIR, 'acm-template', '.agents', 'acm', 'memory', 'patterns', 'P-00-sample-pattern.md'),
       path.join(fixtureDir, '.agents', 'acm', 'memory', 'patterns', 'P-00-sample-pattern.md')
