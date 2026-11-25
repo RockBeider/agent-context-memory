@@ -1,7 +1,7 @@
 # Agent Context Memory Task Completed Master (Cold Archive)
 
 > [!NOTE]
-> Cold archive storing only verified tasks with a real commit SHA obtained from `npm run git:commit`.
+> Cold archive storing only verified tasks with a real commit SHA obtained from `npm run acm:commit`.
 > The `group-status.cjs` engine automatically prepends completed tasks under the top date section.
 >
 > **Sample Archive Format (NOT a real task)**:

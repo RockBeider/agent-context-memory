@@ -4,7 +4,7 @@
 > **Governance Rules**:
 > 1. This document is the Single Source of Truth for active tasks only (keep `<= 5KB`; Latest Done: `None`, Active: `None`).
 > 2. Task IDs (`TSK-XXXXXX`) are immutable 6-char Crockford Base32 short IDs issued via `acm task add`, `acm id`, or MCP (legacy `TSK-{N}` supported).
-> 3. Status lifecycle: `[ ]` (Todo) -> `[In Progress]` -> `[Ready]` (verified) -> `[x]` (auto-archived to `task-completed.md` on `npm run git:commit`).
+> 3. Status lifecycle: `[ ]` (Todo) -> `[In Progress]` -> `[Ready]` (verified) -> `[x]` (auto-archived to `task-completed.md` on `npm run acm:commit`).
 > 4. When transitioning to `[Ready]`, record **Purpose**, **Results**, and **Targets** (all modified paths in backticks) so `group-status.cjs` generates commit messages and archives automatically.
 
 > [!NOTE]

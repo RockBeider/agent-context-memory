@@ -33,10 +33,14 @@ try {
   });
 
   assert.strictEqual(initRes.status, 0, `init failed (status: ${initRes.status}): ${initRes.stderr || initRes.stdout}`);
-  assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'task', 'task.md')), '.agents/task/task.md missing');
-  assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'MEMORY_GOVERNANCE.md')), '.agents/MEMORY_GOVERNANCE.md missing');
+  const initCfg = JSON.parse(fs.readFileSync(path.join(tempDir, '.agents', 'acm', 'config.json'), 'utf-8'));
+  assert.strictEqual(initCfg.storage.provider, 'sqlite', 'Default Non-Git init should use sqlite');
+  assert.strictEqual(initCfg.storage.markdownProjection, false, 'Default sqlite Non-Git init should disable markdownProjection');
+  assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'acm', 'local', 'memory.db')), '.agents/acm/local/memory.db missing');
+  assert.ok(!fs.existsSync(path.join(tempDir, '.agents', 'acm', 'task', 'task.md')), 'Default sqlite init should not create .agents/acm/task/task.md');
+  assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'acm', 'ACM_GOVERNANCE.md')), '.agents/acm/ACM_GOVERNANCE.md missing');
   assert.ok(fs.existsSync(path.join(tempDir, 'AGENTS.md')), 'AGENTS.md missing');
-  console.log('[PASS] init completed and template files verified.');
+  console.log('[PASS] init completed and pure SQLite non-Git setup verified.');
 
   // 2. status (Non-Git Memory Viewer mode)
   console.log('[Step 2] Running status (Non-Git Memory Viewer mode)');
@@ -136,6 +140,20 @@ try {
   assert.strictEqual(idOut.codes.length, 2);
   assert.ok(idOut.codes.every((c) => /^P-[ABCDEFGHJKMNPQRSTVWXYZ][0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}$/.test(c)));
   console.log('[PASS] acm id Non-Git verified.');
+
+  // 7.6 --storage=markdown Non-Git fallback verification
+  console.log('[Step 7.6] Verifying --storage=markdown Non-Git fallback');
+  const mdInitRes = spawnSync(
+    process.execPath,
+    [CLI_PATH, 'init', '--storage=markdown', '--force', '--non-interactive'],
+    { cwd: tempDir, encoding: 'utf-8' }
+  );
+  assert.strictEqual(mdInitRes.status, 0, 'Markdown Non-Git init failed');
+  assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'acm', 'task', 'task.md')), 'Markdown Non-Git mode missing task.md');
+  const mdStatusRes = spawnSync(process.execPath, [CLI_PATH, 'status'], { cwd: tempDir, encoding: 'utf-8' });
+  assert.strictEqual(mdStatusRes.status, 0, 'Markdown Non-Git status failed');
+  assert.ok(mdStatusRes.stdout.includes('Non-Git Mode'), 'Markdown Non-Git viewer header missing');
+  console.log('[PASS] Markdown Non-Git fallback verified.');
 
   // 8. uninstall --force rollback
   console.log('[Step 8] Running uninstall (rollback verification)');

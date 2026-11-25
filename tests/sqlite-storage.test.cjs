@@ -30,18 +30,21 @@ const {
   normalizeTaskStatus,
   toDisplayStatus,
   toMarkdownCheckbox,
-} = require('../scripts/storage/id-utils.cjs');
-const { saveConfig, loadConfig } = require('../scripts/storage/config.cjs');
-const { createMemoryStore } = require('../scripts/storage/memory-store.cjs');
-const { SqliteProvider } = require('../scripts/storage/sqlite-provider.cjs');
+} = require('../scripts/acm/storage/id-utils.cjs');
+const { DEFAULT_CONFIG, saveConfig, loadConfig } = require('../scripts/acm/storage/config.cjs');
+const { resolveLanguage } = require('../scripts/acm/i18n.cjs');
+const { createMemoryStore } = require('../scripts/acm/storage/memory-store.cjs');
+const { SqliteProvider } = require('../scripts/acm/storage/sqlite-provider.cjs');
 const {
+  resolveTaskFiles,
+  resolveMemoryFiles,
   importMarkdownToStore,
   exportStoreToMarkdown,
   parseTaskMdFile,
   parseTaskCompletedMdFile,
   parsePatternsFromMd,
   parseAdrsFromMd,
-} = require('../scripts/storage/markdown-bridge.cjs');
+} = require('../scripts/acm/storage/markdown-bridge.cjs');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 
@@ -145,7 +148,9 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
   const tempDbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-sqlite-unit-'));
   let store = null;
   try {
-    saveConfig(tempDbDir, { storage: { provider: 'sqlite', markdownProjection: false } });
+    assert.strictEqual(DEFAULT_CONFIG.storage.markdownProjection, false, 'DEFAULT_CONFIG.storage.markdownProjection should default to false');
+    saveConfig(tempDbDir, { storage: { provider: 'sqlite' } });
+    assert.strictEqual(loadConfig(tempDbDir).storage.markdownProjection, false, 'Default sqlite config should disable markdownProjection');
     store = createMemoryStore(tempDbDir);
     assert.strictEqual(store.providerName, 'sqlite', 'Failed to select sqlite provider');
 
@@ -322,7 +327,7 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
   try {
     // 6-1. English live .agents/ workspace roundtrip + sample exclusion
     fs.cpSync(path.join(ROOT_DIR, '.agents'), path.join(fixtureDir, '.agents'), { recursive: true });
-    const taskMdPath = path.join(fixtureDir, '.agents', 'task', 'task.md');
+    const taskMdPath = path.join(fixtureDir, '.agents', 'acm', 'task', 'task.md');
     const origTaskMd = fs.readFileSync(taskMdPath, 'utf-8');
     const augmentedTaskMd = [
       origTaskMd,
@@ -347,8 +352,8 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
     ].join('\n');
     fs.writeFileSync(taskMdPath, augmentedTaskMd, 'utf-8');
     fs.copyFileSync(
-      path.join(ROOT_DIR, 'acm-template', '.agents', 'memory', 'patterns', 'P-00-sample-pattern.md'),
-      path.join(fixtureDir, '.agents', 'memory', 'patterns', 'P-00-sample-pattern.md')
+      path.join(ROOT_DIR, 'acm-template', '.agents', 'acm', 'memory', 'patterns', 'P-00-sample-pattern.md'),
+      path.join(fixtureDir, '.agents', 'acm', 'memory', 'patterns', 'P-00-sample-pattern.md')
     );
 
     saveConfig(fixtureDir, { storage: { provider: 'sqlite', markdownProjection: false } });
@@ -368,8 +373,8 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
 
     exportStoreToMarkdown(exportDir, storeA, { lang: 'en' });
 
-    const parsedActive = parseTaskMdFile(path.join(exportDir, '.agents', 'task', 'task.md'));
-    const parsedDone = parseTaskCompletedMdFile(path.join(exportDir, '.agents', 'task', 'task-completed.md'));
+    const parsedActive = parseTaskMdFile(path.join(exportDir, '.agents', 'acm', 'task', 'task.md'));
+    const parsedDone = parseTaskCompletedMdFile(path.join(exportDir, '.agents', 'acm', 'task', 'task-completed.md'));
     const parsedPatterns = parsePatternsFromMd(exportDir);
     const parsedAdrs = parseAdrsFromMd(exportDir);
 
@@ -389,10 +394,10 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
     assert.strictEqual(storeB.getAdr('LOG-02').title, storeA.getAdr('LOG-02').title);
 
     // 6-2. Korean backward-compatibility Markdown fixture roundtrip
-    fs.mkdirSync(path.join(koFixtureDir, '.agents', 'task'), { recursive: true });
-    fs.mkdirSync(path.join(koFixtureDir, '.agents', 'memory', 'patterns'), { recursive: true });
+    fs.mkdirSync(path.join(koFixtureDir, '.agents', 'acm', 'task'), { recursive: true });
+    fs.mkdirSync(path.join(koFixtureDir, '.agents', 'acm', 'memory', 'patterns'), { recursive: true });
     fs.writeFileSync(
-      path.join(koFixtureDir, '.agents', 'task', 'task.md'),
+      path.join(koFixtureDir, '.agents', 'acm', 'task', 'task.md'),
       [
         '# Agent Context Memory Task Master (작업 단일 정본)',
         '## 1. 활성 작업 목록 (Active Tasks)',
@@ -405,22 +410,22 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
       'utf-8'
     );
     fs.writeFileSync(
-      path.join(koFixtureDir, '.agents', 'task', 'task-completed.md'),
+      path.join(koFixtureDir, '.agents', 'acm', 'task', 'task-completed.md'),
       '# Completed\n\n## 2026-11-20\n\n- [x] **TSK-4. 선행 한국어 작업** (Commit: `abc1234`)\n  - **목적**: 선행 작업\n  - **수행결과**:\n    - `a.js`: 완료\n  - **대상영역**: `a.js`\n',
       'utf-8'
     );
     fs.writeFileSync(
-      path.join(koFixtureDir, '.agents', 'memory', 'patterns-index.md'),
+      path.join(koFixtureDir, '.agents', 'acm', 'memory', 'patterns-index.md'),
       '| ID | 카테고리 | 핵심 요약 | 파일 링크 |\n| :--- | :--- | :--- | :--- |\n| P-01 | Git | 한국어 패턴 | [P-01-ko.md](file:///./patterns/P-01-ko.md) |\n',
       'utf-8'
     );
     fs.writeFileSync(
-      path.join(koFixtureDir, '.agents', 'memory', 'patterns', 'P-01-ko.md'),
+      path.join(koFixtureDir, '.agents', 'acm', 'memory', 'patterns', 'P-01-ko.md'),
       '# [P-01] 한국어 패턴\n\n- **일자**: 2026-11-20\n- **도메인 분류**: Git\n- **증상 및 원인**: 한국어 증상\n- **해결 패턴**: 한국어 해법\n- **연관 파일**: `scripts/ko.cjs`\n',
       'utf-8'
     );
     fs.writeFileSync(
-      path.join(koFixtureDir, '.agents', 'memory', 'project-changelog.md'),
+      path.join(koFixtureDir, '.agents', 'acm', 'memory', 'project-changelog.md'),
       [
         '# Changelog',
         '## 1. ADR Index Map',
@@ -452,7 +457,7 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
     assert.strictEqual(storeKo.getAdr('LOG-01').decision, '한국어 결정');
 
     exportStoreToMarkdown(koExportDir, storeKo, { lang: 'ko' });
-    const exportedKoTask = fs.readFileSync(path.join(koExportDir, '.agents', 'task', 'task.md'), 'utf-8');
+    const exportedKoTask = fs.readFileSync(path.join(koExportDir, '.agents', 'acm', 'task', 'task.md'), 'utf-8');
     assert.ok(exportedKoTask.includes('- [커밋 대기] **TSK-5.'), 'Korean projection missing [커밋 대기]');
     assert.ok(exportedKoTask.includes('**목적**:'), 'Korean projection missing **목적**');
 
@@ -486,7 +491,7 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
     execSync('git add . && git commit -m "chore: baseline"', { cwd: gitDir, stdio: 'ignore' });
 
     saveConfig(gitDir, {
-      storage: { provider: 'sqlite', dbPath: '.agents/local/memory.db', markdownProjection: true },
+      storage: { provider: 'sqlite', dbPath: '.agents/acm/local/memory.db', markdownProjection: true },
     });
     const loadedCfg = loadConfig(gitDir);
     assert.strictEqual(loadedCfg.explicit, true);
@@ -508,7 +513,7 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
     fs.mkdirSync(path.join(gitDir, 'src'), { recursive: true });
     fs.writeFileSync(path.join(gitDir, 'src', 'feature.js'), 'module.exports = () => 42;\n', 'utf-8');
 
-    const groupStatusPath = path.join(ROOT_DIR, 'scripts', 'group-status.cjs');
+    const groupStatusPath = path.join(ROOT_DIR, 'scripts', 'acm', 'group-status.cjs');
     const compactRes = spawnSync(process.execPath, [groupStatusPath, '--compact'], {
       cwd: gitDir,
       env: { ...process.env, ACM_ROOT_DIR: gitDir },
@@ -536,8 +541,8 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
     verifyStore.close();
     verifyStore = null;
 
-    const projectedTaskMd = fs.readFileSync(path.join(gitDir, '.agents', 'task', 'task.md'), 'utf-8');
-    const projectedCompMd = fs.readFileSync(path.join(gitDir, '.agents', 'task', 'task-completed.md'), 'utf-8');
+    const projectedTaskMd = fs.readFileSync(path.join(gitDir, '.agents', 'acm', 'task', 'task.md'), 'utf-8');
+    const projectedCompMd = fs.readFileSync(path.join(gitDir, '.agents', 'acm', 'task', 'task-completed.md'), 'utf-8');
     assert.ok(projectedTaskMd.includes('(No active tasks)'), 'Projected task.md did not clear active task');
     assert.ok(projectedTaskMd.includes(`Latest Done: \`${gitTaskCode}\``), 'Projected task.md Latest Done meta not updated');
     assert.ok(
@@ -550,6 +555,51 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
     if (store) store.close();
     if (verifyStore) verifyStore.close();
     fs.rmSync(gitDir, { recursive: true, force: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 8. Legacy .agents/ read fallbacks (config.json, .acm-meta.json, local/memory.db, task/, memory/)
+// ---------------------------------------------------------------------------
+{
+  const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-legacy-fallback-'));
+  try {
+    fs.mkdirSync(path.join(legacyDir, '.agents', 'local'), { recursive: true });
+    fs.mkdirSync(path.join(legacyDir, '.agents', 'task'), { recursive: true });
+    fs.mkdirSync(path.join(legacyDir, '.agents', 'memory', 'patterns'), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(legacyDir, '.agents', 'config.json'),
+      JSON.stringify({ version: 1, language: 'ko', storage: { provider: 'sqlite' } }, null, 2),
+      'utf-8'
+    );
+    fs.writeFileSync(path.join(legacyDir, '.agents', 'local', 'memory.db'), '', 'utf-8');
+    fs.writeFileSync(path.join(legacyDir, '.agents', 'task', 'task.md'), '# Legacy Task\n', 'utf-8');
+    fs.writeFileSync(path.join(legacyDir, '.agents', 'memory', 'patterns-index.md'), '# Legacy Patterns\n', 'utf-8');
+
+    const legacyCfg = loadConfig(legacyDir);
+    assert.strictEqual(legacyCfg.explicit, true);
+    assert.strictEqual(legacyCfg.storage.provider, 'sqlite');
+    assert.strictEqual(legacyCfg.storage.dbPath, '.agents/local/memory.db', 'Legacy config without dbPath should resolve to legacy .agents/local/memory.db when present');
+    assert.strictEqual(resolveLanguage(legacyDir), 'ko', 'Legacy .agents/config.json language fallback failed');
+
+    const legacyTaskFiles = resolveTaskFiles(legacyDir);
+    assert.strictEqual(legacyTaskFiles.taskFile, path.join(legacyDir, '.agents', 'task', 'task.md'));
+    const legacyMemFiles = resolveMemoryFiles(legacyDir);
+    assert.strictEqual(legacyMemFiles.patternsIndexFile, path.join(legacyDir, '.agents', 'memory', 'patterns-index.md'));
+
+    // Also verify implicit legacy DB fallback when config.json does not exist
+    fs.unlinkSync(path.join(legacyDir, '.agents', 'config.json'));
+    fs.writeFileSync(path.join(legacyDir, '.agents', '.acm-meta.json'), JSON.stringify({ language: 'ko' }), 'utf-8');
+    const implicitLegacyCfg = loadConfig(legacyDir);
+    assert.strictEqual(implicitLegacyCfg.explicit, false);
+    assert.strictEqual(implicitLegacyCfg.storage.provider, 'sqlite');
+    assert.strictEqual(implicitLegacyCfg.storage.dbPath, '.agents/local/memory.db');
+    assert.strictEqual(resolveLanguage(legacyDir), 'ko', 'Legacy .agents/.acm-meta.json language fallback failed');
+
+    console.log('[PASS] 8. Legacy .agents/ read fallbacks verified.');
+  } finally {
+    fs.rmSync(legacyDir, { recursive: true, force: true });
   }
 }
 

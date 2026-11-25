@@ -14,7 +14,7 @@ const { spawnSync, execSync } = require('child_process');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const CLI_PATH = path.join(ROOT_DIR, 'bin', 'agent-context-memory.js');
-const { promptStorageProvider } = require('../scripts/install-template.cjs');
+const { promptStorageProvider } = require('../scripts/acm/install-template.cjs');
 
 console.log('=== Starting Phase 2 DB CLI & Installer Storage UI E2E Tests ===');
 
@@ -74,12 +74,12 @@ async function runTests() {
 
     const mdRes = runCli(['init', '--storage=markdown', '--non-interactive'], mdInitDir);
     assert.strictEqual(mdRes.status, 0, `init --storage=markdown failed: ${mdRes.stderr || mdRes.stdout}`);
-    const mdCfg = JSON.parse(fs.readFileSync(path.join(mdInitDir, '.agents', 'config.json'), 'utf-8'));
+    const mdCfg = JSON.parse(fs.readFileSync(path.join(mdInitDir, '.agents', 'acm', 'config.json'), 'utf-8'));
     assert.strictEqual(mdCfg.storage.provider, 'markdown');
-    assert.ok(!fs.existsSync(path.join(mdInitDir, '.agents', 'local', 'memory.db')), 'memory.db should not exist in markdown mode');
+    assert.ok(!fs.existsSync(path.join(mdInitDir, '.agents', 'acm', 'local', 'memory.db')), 'memory.db should not exist in markdown mode');
 
     // Add a real task in markdown mode, then run init --storage=sqlite (without --force) to verify auto-migration
-    const taskMdPath = path.join(mdInitDir, '.agents', 'task', 'task.md');
+    const taskMdPath = path.join(mdInitDir, '.agents', 'acm', 'task', 'task.md');
     const origTask = fs.readFileSync(taskMdPath, 'utf-8');
     fs.writeFileSync(
       taskMdPath,
@@ -125,6 +125,10 @@ async function runTests() {
 
     const initRes = runCli(['init', '--non-interactive'], workDir);
     assert.strictEqual(initRes.status, 0, `Default init failed: ${initRes.stderr || initRes.stdout}`);
+    const initCfg = JSON.parse(fs.readFileSync(path.join(workDir, '.agents', 'acm', 'config.json'), 'utf-8'));
+    assert.strictEqual(initCfg.storage.provider, 'sqlite');
+    assert.strictEqual(initCfg.storage.markdownProjection, false, 'Default sqlite init should set markdownProjection=false');
+    assert.ok(!fs.existsSync(path.join(workDir, '.agents', 'acm', 'task', 'task.md')), 'Default sqlite init must not create task.md');
 
     // Subcommand help delegation
     const taskHelpRes = runCli(['task', '--help'], workDir);
@@ -208,9 +212,16 @@ async function runTests() {
     assert.strictEqual(completedTask.status, 'done');
     assert.strictEqual(completedTask.commitSha, 'deadbeef');
 
-    // Projected task-completed.md should contain taskCode
-    const projectedDone = fs.readFileSync(path.join(workDir, '.agents', 'task', 'task-completed.md'), 'utf-8');
-    assert.ok(projectedDone.includes(taskCode) && projectedDone.includes('deadbeef'), 'task-completed.md projection missing');
+    // Default sqlite mode must NOT generate task.md or task-completed.md automatically
+    assert.ok(!fs.existsSync(path.join(workDir, '.agents', 'acm', 'task', 'task.md')), 'task.md should not exist when markdownProjection is false');
+    assert.ok(!fs.existsSync(path.join(workDir, '.agents', 'acm', 'task', 'task-completed.md')), 'task-completed.md should not exist when markdownProjection is false');
+
+    // Enabling storage.markdownProjection=true should immediately project existing SQLite DB tasks
+    const enableProjRes = runCli(['config', 'set', 'storage.markdownProjection', 'true', '--json'], workDir);
+    assert.strictEqual(enableProjRes.status, 0, enableProjRes.stderr);
+    const projectedDone = fs.readFileSync(path.join(workDir, '.agents', 'acm', 'task', 'task-completed.md'), 'utf-8');
+    assert.ok(projectedDone.includes(taskCode) && projectedDone.includes('deadbeef'), 'Opt-in task-completed.md projection missing');
+    assert.strictEqual(runCli(['config', 'set', 'storage.markdownProjection', 'false', '--json'], workDir).status, 0);
 
     // 4. pattern add / list / show / supersedes
     const pat1Res = runCli(
@@ -303,14 +314,14 @@ async function runTests() {
     const expMdDir = path.join(workDir, 'exported-md-view');
     const expMdRes = runCli(['export', '--format=md', `--out=${expMdDir}`, '--json'], workDir);
     assert.strictEqual(expMdRes.status, 0, expMdRes.stderr);
-    assert.ok(fs.existsSync(path.join(expMdDir, '.agents', 'memory', 'patterns-index.md')));
+    assert.ok(fs.existsSync(path.join(expMdDir, '.agents', 'acm', 'memory', 'patterns-index.md')));
 
     // migrate --to=markdown --dry-run (config must remain sqlite)
     const migDryMd = runCli(['migrate', '--to=markdown', '--dry-run', '--json'], workDir);
     assert.strictEqual(migDryMd.status, 0, migDryMd.stderr);
     assert.strictEqual(JSON.parse(migDryMd.stdout).dryRun, true);
     assert.strictEqual(
-      JSON.parse(fs.readFileSync(path.join(workDir, '.agents', 'config.json'), 'utf-8')).storage.provider,
+      JSON.parse(fs.readFileSync(path.join(workDir, '.agents', 'acm', 'config.json'), 'utf-8')).storage.provider,
       'sqlite'
     );
 
@@ -318,10 +329,10 @@ async function runTests() {
     const migRealMd = runCli(['migrate', '--to=markdown', '--json'], workDir);
     assert.strictEqual(migRealMd.status, 0, migRealMd.stderr);
     assert.strictEqual(
-      JSON.parse(fs.readFileSync(path.join(workDir, '.agents', 'config.json'), 'utf-8')).storage.provider,
+      JSON.parse(fs.readFileSync(path.join(workDir, '.agents', 'acm', 'config.json'), 'utf-8')).storage.provider,
       'markdown'
     );
-    assert.ok(fs.existsSync(path.join(workDir, '.agents', 'memory', 'project-changelog.md')));
+    assert.ok(fs.existsSync(path.join(workDir, '.agents', 'acm', 'memory', 'project-changelog.md')));
 
     // Verify Markdown provider works via CLI (task add + import skip/replace)
     const mdAddRes = runCli(['task', 'add', 'Markdown mode task', '--json'], workDir);
@@ -341,7 +352,7 @@ async function runTests() {
     const migRealSql = runCli(['migrate', '--to=sqlite', '--json'], workDir);
     assert.strictEqual(migRealSql.status, 0, migRealSql.stderr);
     assert.strictEqual(
-      JSON.parse(fs.readFileSync(path.join(workDir, '.agents', 'config.json'), 'utf-8')).storage.provider,
+      JSON.parse(fs.readFileSync(path.join(workDir, '.agents', 'acm', 'config.json'), 'utf-8')).storage.provider,
       'sqlite'
     );
 
@@ -362,12 +373,14 @@ async function runTests() {
     assert.strictEqual(koListRes.status, 0);
     assert.ok(koListRes.stdout.includes('[태스크]'), 'Korean CLI header missing');
 
-    // Uninstall removes acm-db-cli.cjs, storage/*, and .agents/ (no EBUSY lock)
+    // Uninstall removes scripts/acm/* and .agents/ (no EBUSY lock)
     const unRes = runCli(['uninstall', '--force', '--no-backup'], workDir);
     assert.strictEqual(unRes.status, 0, `uninstall failed: ${unRes.stderr || unRes.stdout}`);
     assert.ok(!fs.existsSync(path.join(workDir, '.agents')), '.agents directory remained after uninstall');
-    assert.ok(!fs.existsSync(path.join(workDir, 'scripts', 'acm-db-cli.cjs')), 'scripts/acm-db-cli.cjs remained after uninstall');
-    assert.ok(!fs.existsSync(path.join(workDir, 'scripts', 'storage')), 'scripts/storage remained after uninstall');
+    assert.ok(!fs.existsSync(path.join(workDir, 'scripts', 'acm', 'acm-db-cli.cjs')), 'scripts/acm/acm-db-cli.cjs remained after uninstall');
+    assert.ok(!fs.existsSync(path.join(workDir, 'scripts', 'acm', 'storage')), 'scripts/acm/storage remained after uninstall');
+    assert.ok(!fs.existsSync(path.join(workDir, 'scripts', 'acm')), 'scripts/acm remained after uninstall');
+    assert.ok(!fs.existsSync(path.join(workDir, 'scripts')), 'empty scripts directory remained after uninstall');
   } finally {
     fs.rmSync(workDir, { recursive: true, force: true });
   }

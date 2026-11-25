@@ -14,7 +14,7 @@ const { spawnSync, execSync } = require('child_process');
 console.log('=== Starting Agent Context Memory E2E & Distribution Verification Tests ===');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
-const { ACM_MANIFEST } = require('../scripts/acm-manifest.cjs');
+const { ACM_MANIFEST } = require('../scripts/acm/acm-manifest.cjs');
 
 // 1. Verify required repository & distribution files exist
 const requiredFiles = [
@@ -24,58 +24,58 @@ const requiredFiles = [
   'LICENSE',
   'AGENTS.md',
   'bin/agent-context-memory.js',
-  'scripts/i18n.cjs',
-  'scripts/locales/en.cjs',
-  'scripts/locales/ko.cjs',
-  'scripts/install-template.cjs',
-  'scripts/uninstall-template.cjs',
-  'scripts/acm-manifest.cjs',
-  'scripts/acm-db-cli.cjs',
-  'scripts/mcp-server.cjs',
-  'scripts/group-status.cjs',
-  'scripts/smart-pull.cjs',
-  'scripts/audit-push.cjs',
-  'scripts/check-git.cjs',
-  'scripts/sync-agent-rules.cjs',
-  'scripts/storage/id-utils.cjs',
-  'scripts/storage/config.cjs',
-  'scripts/storage/memory-store.cjs',
-  'scripts/storage/sqlite-provider.cjs',
-  'scripts/storage/markdown-bridge.cjs',
-  'scripts/storage/markdown-provider.cjs',
-  'scripts/storage/secret-scrubber.cjs',
-  'scripts/storage/git-orphan-sync.cjs',
-  '.agents/MEMORY_GOVERNANCE.md',
-  '.agents/rules/60-task-memory-adr.md',
-  '.agents/agents/git-release-sentinel.md',
-  '.agents/agents/context-compactor.md',
-  '.agents/skills/git-workflow/SKILL.md',
-  '.agents/scripts/token-monitor.cjs',
+  'scripts/acm/i18n.cjs',
+  'scripts/acm/locales/en.cjs',
+  'scripts/acm/locales/ko.cjs',
+  'scripts/acm/install-template.cjs',
+  'scripts/acm/uninstall-template.cjs',
+  'scripts/acm/acm-manifest.cjs',
+  'scripts/acm/acm-db-cli.cjs',
+  'scripts/acm/mcp-server.cjs',
+  'scripts/acm/group-status.cjs',
+  'scripts/acm/smart-pull.cjs',
+  'scripts/acm/audit-push.cjs',
+  'scripts/acm/check-git.cjs',
+  'scripts/acm/sync-agent-rules.cjs',
+  'scripts/acm/storage/id-utils.cjs',
+  'scripts/acm/storage/config.cjs',
+  'scripts/acm/storage/memory-store.cjs',
+  'scripts/acm/storage/sqlite-provider.cjs',
+  'scripts/acm/storage/markdown-bridge.cjs',
+  'scripts/acm/storage/markdown-provider.cjs',
+  'scripts/acm/storage/secret-scrubber.cjs',
+  'scripts/acm/storage/git-orphan-sync.cjs',
+  '.agents/acm/ACM_GOVERNANCE.md',
+  '.agents/rules/acm-task-memory-adr.md',
+  '.agents/agents/acm-git-release-sentinel.md',
+  '.agents/agents/acm-context-compactor.md',
+  '.agents/skills/acm-git-workflow/SKILL.md',
+  '.agents/acm/scripts/acm-token-monitor.cjs',
   '.agents/hooks.json',
   'acm-template/AGENTS.md',
-  'acm-template/.agents/MEMORY_GOVERNANCE.md',
-  'acm-template/.agents/rules/60-task-memory-adr.md',
-  'acm-template/.agents/agents/git-release-sentinel.md',
-  'acm-template/.agents/agents/context-compactor.md',
-  'acm-template/.agents/skills/git-workflow/SKILL.md',
-  'acm-template/.agents/scripts/token-monitor.cjs',
+  'acm-template/.agents/acm/ACM_GOVERNANCE.md',
+  'acm-template/.agents/rules/acm-task-memory-adr.md',
+  'acm-template/.agents/agents/acm-git-release-sentinel.md',
+  'acm-template/.agents/agents/acm-context-compactor.md',
+  'acm-template/.agents/skills/acm-git-workflow/SKILL.md',
+  'acm-template/.agents/acm/scripts/acm-token-monitor.cjs',
   'acm-template/.agents/hooks.json',
-  'acm-template/.agents/task/task.md',
-  'acm-template/.agents/task/task-completed.md',
-  'acm-template/.agents/memory/patterns-index.md',
-  'acm-template/.agents/memory/patterns/P-00-sample-pattern.md',
-  'acm-template/.agents/memory/project-changelog.md',
+  'acm-template/.agents/acm/task/task.md',
+  'acm-template/.agents/acm/task/task-completed.md',
+  'acm-template/.agents/acm/memory/patterns-index.md',
+  'acm-template/.agents/acm/memory/patterns/P-00-sample-pattern.md',
+  'acm-template/.agents/acm/memory/project-changelog.md',
   'acm-template/locales/ko/AGENTS.md',
-  'acm-template/locales/ko/.agents/MEMORY_GOVERNANCE.md',
-  'acm-template/locales/ko/.agents/rules/60-task-memory-adr.md',
-  'acm-template/locales/ko/.agents/agents/git-release-sentinel.md',
-  'acm-template/locales/ko/.agents/agents/context-compactor.md',
-  'acm-template/locales/ko/.agents/skills/git-workflow/SKILL.md',
-  'acm-template/locales/ko/.agents/task/task.md',
-  'acm-template/locales/ko/.agents/task/task-completed.md',
-  'acm-template/locales/ko/.agents/memory/patterns-index.md',
-  'acm-template/locales/ko/.agents/memory/patterns/P-00-sample-pattern.md',
-  'acm-template/locales/ko/.agents/memory/project-changelog.md',
+  'acm-template/locales/ko/.agents/acm/ACM_GOVERNANCE.md',
+  'acm-template/locales/ko/.agents/rules/acm-task-memory-adr.md',
+  'acm-template/locales/ko/.agents/agents/acm-git-release-sentinel.md',
+  'acm-template/locales/ko/.agents/agents/acm-context-compactor.md',
+  'acm-template/locales/ko/.agents/skills/acm-git-workflow/SKILL.md',
+  'acm-template/locales/ko/.agents/acm/task/task.md',
+  'acm-template/locales/ko/.agents/acm/task/task-completed.md',
+  'acm-template/locales/ko/.agents/acm/memory/patterns-index.md',
+  'acm-template/locales/ko/.agents/acm/memory/patterns/P-00-sample-pattern.md',
+  'acm-template/locales/ko/.agents/acm/memory/project-changelog.md',
 ];
 
 for (const rel of requiredFiles) {
@@ -95,23 +95,23 @@ assert.ok(
   'Duplicate acm-template/scripts/ directory still exists'
 );
 assert.ok(
-  !fs.existsSync(path.join(ROOT_DIR, 'acm-template/.agents/memory/patterns/P-01-git-pager-freeze-fix.md')),
+  !fs.existsSync(path.join(ROOT_DIR, 'acm-template/.agents/acm/memory/patterns/P-01-git-pager-freeze-fix.md')),
   'Real numbered pattern file (P-01) leaked into acm-template'
 );
 
 const normalizeEol = (s) => s.replace(/\r\n/g, '\n');
 for (const fileMeta of ACM_MANIFEST.files) {
   const rootScriptPath = path.join(ROOT_DIR, fileMeta.path);
-  assert.ok(fs.existsSync(rootScriptPath), `Missing manifest script in root scripts/: ${fileMeta.path}`);
+  assert.ok(fs.existsSync(rootScriptPath), `Missing manifest script in root scripts/acm/: ${fileMeta.path}`);
 }
 
 const sharedAgentFiles = [
-  'MEMORY_GOVERNANCE.md',
-  'rules/60-task-memory-adr.md',
-  'agents/git-release-sentinel.md',
-  'agents/context-compactor.md',
-  'skills/git-workflow/SKILL.md',
-  'scripts/token-monitor.cjs',
+  'acm/ACM_GOVERNANCE.md',
+  'rules/acm-task-memory-adr.md',
+  'agents/acm-git-release-sentinel.md',
+  'agents/acm-context-compactor.md',
+  'skills/acm-git-workflow/SKILL.md',
+  'acm/scripts/acm-token-monitor.cjs',
   'hooks.json',
 ];
 for (const relAgent of sharedAgentFiles) {
@@ -133,8 +133,8 @@ assert.ok(
 );
 
 // Verify locale catalog key parity between en.cjs and ko.cjs
-const enCatalog = require('../scripts/locales/en.cjs');
-const koCatalog = require('../scripts/locales/ko.cjs');
+const enCatalog = require('../scripts/acm/locales/en.cjs');
+const koCatalog = require('../scripts/acm/locales/ko.cjs');
 function collectKeys(obj, prefix = '') {
   const keys = [];
   for (const [k, v] of Object.entries(obj)) {
@@ -194,13 +194,13 @@ async function runTests() {
       encoding: 'utf-8',
     });
     assert.strictEqual(initRes.status, 0, `Implicit init failed: ${initRes.stderr || initRes.stdout}`);
-    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'task', 'task.md')), '.agents/task/task.md missing');
-    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'rules', '60-task-memory-adr.md')), '60-task-memory-adr.md missing');
-    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'agents', 'git-release-sentinel.md')), 'git-release-sentinel.md missing');
-    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'memory', 'patterns', 'P-00-sample-pattern.md')), 'P-00-sample-pattern.md missing');
-    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'MEMORY_GOVERNANCE.md')), '.agents/MEMORY_GOVERNANCE.md missing');
-    assert.ok(fs.existsSync(path.join(tempDir, 'scripts', 'i18n.cjs')), 'scripts/i18n.cjs missing');
-    assert.ok(fs.existsSync(path.join(tempDir, 'scripts', 'locales', 'en.cjs')), 'scripts/locales/en.cjs missing');
+    assert.ok(!fs.existsSync(path.join(tempDir, '.agents', 'acm', 'task', 'task.md')), 'Default sqlite init should not create .agents/acm/task/task.md');
+    assert.ok(!fs.existsSync(path.join(tempDir, '.agents', 'acm', 'memory', 'patterns-index.md')), 'Default sqlite init should not create .agents/acm/memory/patterns-index.md');
+    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'rules', 'acm-task-memory-adr.md')), 'acm-task-memory-adr.md missing');
+    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'agents', 'acm-git-release-sentinel.md')), 'acm-git-release-sentinel.md missing');
+    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'acm', 'ACM_GOVERNANCE.md')), '.agents/acm/ACM_GOVERNANCE.md missing');
+    assert.ok(fs.existsSync(path.join(tempDir, 'scripts', 'acm', 'i18n.cjs')), 'scripts/acm/i18n.cjs missing');
+    assert.ok(fs.existsSync(path.join(tempDir, 'scripts', 'acm', 'locales', 'en.cjs')), 'scripts/acm/locales/en.cjs missing');
     for (const fileMeta of ACM_MANIFEST.files) {
       const hostScriptPath = path.join(tempDir, fileMeta.path);
       assert.ok(fs.existsSync(hostScriptPath), `Host missing manifest script: ${fileMeta.path}`);
@@ -216,20 +216,33 @@ async function runTests() {
     const rootAgentsContent = fs.readFileSync(path.join(tempDir, 'AGENTS.md'), 'utf-8');
     assert.ok(rootAgentsContent.includes('[Three Canonical Stores]'), 'Default AGENTS.md is not English');
 
-    const metaObj = JSON.parse(fs.readFileSync(path.join(tempDir, '.agents', '.acm-meta.json'), 'utf-8'));
-    assert.strictEqual(metaObj.language, 'en', '.acm-meta.json language should default to en');
-    assert.strictEqual(metaObj.storageProvider, 'sqlite', '.acm-meta.json storageProvider should default to sqlite');
+    const metaObj = JSON.parse(fs.readFileSync(path.join(tempDir, '.agents', 'acm', 'meta.json'), 'utf-8'));
+    assert.strictEqual(metaObj.schemaVersion, 2, 'meta.json schemaVersion should be 2');
+    assert.strictEqual(metaObj.language, 'en', 'meta.json language should default to en');
+    assert.strictEqual(metaObj.storageProvider, 'sqlite', 'meta.json storageProvider should default to sqlite');
+    assert.ok(Array.isArray(metaObj.installedFiles) && metaObj.installedFiles.length > 0, 'meta.json installedFiles missing');
+    assert.ok(Array.isArray(metaObj.skippedExistingFiles), 'meta.json skippedExistingFiles missing');
+    assert.strictEqual(metaObj.hooks && metaObj.hooks.file, '.agents/hooks.json', 'meta.json hooks.file mismatch');
+    assert.strictEqual(metaObj.hooks && metaObj.hooks.createdFile, true, 'meta.json hooks.createdFile should be true on clean repo');
+    assert.ok(Array.isArray(metaObj.hooks && metaObj.hooks.keys) && metaObj.hooks.keys.includes('acm-token-monitor'), 'meta.json hooks.keys missing acm-token-monitor');
+    assert.ok(Array.isArray(metaObj.gitignoreEntries) && metaObj.gitignoreEntries.includes('/.agents/hooks.json'), 'meta.json gitignoreEntries missing /.agents/hooks.json');
+    assert.ok(Array.isArray(metaObj.packageScripts) && metaObj.packageScripts.includes('acm:commit'), 'meta.json packageScripts missing acm:commit');
 
-    const cfgObj = JSON.parse(fs.readFileSync(path.join(tempDir, '.agents', 'config.json'), 'utf-8'));
-    assert.strictEqual(cfgObj.storage.provider, 'sqlite', '.agents/config.json storage.provider should default to sqlite');
-    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'local', 'memory.db')), '.agents/local/memory.db missing');
+    const cfgObj = JSON.parse(fs.readFileSync(path.join(tempDir, '.agents', 'acm', 'config.json'), 'utf-8'));
+    assert.strictEqual(cfgObj.storage.provider, 'sqlite', '.agents/acm/config.json storage.provider should default to sqlite');
+    assert.strictEqual(cfgObj.storage.markdownProjection, false, '.agents/acm/config.json storage.markdownProjection should default to false');
+    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'acm', 'local', 'memory.db')), '.agents/acm/local/memory.db missing');
 
     const gitignoreContent = fs.readFileSync(path.join(tempDir, '.gitignore'), 'utf-8');
-    assert.ok(gitignoreContent.includes('.agents/'), '.agents/ missing in .gitignore');
+    assert.ok(!/^\/?\.agents\/?$/m.test(gitignoreContent), '.gitignore must not wholesale-ignore /.agents/');
+    assert.ok(gitignoreContent.includes('/.agents/acm/'), '/.agents/acm/ missing in .gitignore');
+    assert.ok(gitignoreContent.includes('/.agents/rules/acm-task-memory-adr.md'), 'IDE rule entry missing in .gitignore');
+    assert.ok(gitignoreContent.includes('/.agents/hooks.json'), '/.agents/hooks.json missing when ACM created hooks.json');
+    assert.ok(gitignoreContent.includes('/.acm-backup-*/'), '/.acm-backup-*/ missing in .gitignore');
 
     const injectedPkg = JSON.parse(fs.readFileSync(path.join(tempDir, 'package.json'), 'utf-8'));
-    assert.ok(injectedPkg.scripts['git:status'], 'git:status script missing');
-    assert.ok(injectedPkg.scripts['git:commit'], 'git:commit script missing');
+    assert.ok(injectedPkg.scripts['acm:status'], 'acm:status script missing');
+    assert.ok(injectedPkg.scripts['acm:commit'], 'acm:commit script missing');
     console.log('[PASS] English default init, locale overlay isolation, .gitignore, and package.json scripts verified.');
 
     // 4-3. check-git diagnostics
@@ -269,23 +282,25 @@ async function runTests() {
     );
     console.log('[PASS] Commit safety gate verified.');
 
-    // 4-6. Register TSK-1 [Ready], commit, and verify autoCompleteTask archive
-    console.log('[Stage 4-2] Register TSK-1 [Ready], commit, and verify autoCompleteTask');
-    const initialTaskMd = fs.readFileSync(path.join(tempDir, '.agents', 'task', 'task.md'), 'utf-8');
-    const updatedTaskMd = initialTaskMd.replace(
-      '(No active tasks)',
-      [
-        '### [ACM Onboarding]',
-        '- [Ready] **TSK-1. Initial ACM onboarding and governance scripts**',
-        '  - **Registered**: 2026-11-23',
-        '  - **Purpose**: Introduce Agent Context Memory governance and automation scripts.',
-        '  - **Results**:',
-        '    - `AGENTS.md`: Injected ACM governance guardrails',
-        '    - `scripts/`: Installed task-centric commit and smart-pull scripts',
-        '  - **Targets**: `package.json`, `AGENTS.md`, `.gitignore`, `scripts/`',
-      ].join('\n')
-    );
-    fs.writeFileSync(path.join(tempDir, '.agents', 'task', 'task.md'), updatedTaskMd, 'utf-8');
+    // 4-6. Register TSK-1 [Ready] in SQLite DB, commit, and verify DB-only completion (no MD files written)
+    console.log('[Stage 4-2] Register TSK-1 [Ready] via DB CLI, commit, and verify SQLite completion');
+    const addTsk1Res = spawnSync(process.execPath, [CLI_PATH, 'task', 'add', '--stdin', '--json'], {
+      cwd: tempDir,
+      encoding: 'utf-8',
+      input: JSON.stringify({
+        code: 'TSK-1',
+        groupName: 'ACM Onboarding',
+        title: 'Initial ACM onboarding and governance scripts',
+        status: 'ready',
+        purpose: 'Introduce Agent Context Memory governance and automation scripts.',
+        results: [
+          '`AGENTS.md`: Injected ACM governance guardrails',
+          '`scripts/`: Installed task-centric commit and smart-pull scripts',
+        ],
+        targets: ['package.json', 'AGENTS.md', '.gitignore', 'scripts/'],
+      }),
+    });
+    assert.strictEqual(addTsk1Res.status, 0, `task add TSK-1 failed: ${addTsk1Res.stderr || addTsk1Res.stdout}`);
 
     const commitRes = spawnSync(process.execPath, [CLI_PATH, 'commit'], {
       cwd: tempDir,
@@ -295,31 +310,35 @@ async function runTests() {
     const postStatus = execSync('git status --porcelain', { cwd: tempDir, encoding: 'utf-8' });
     assert.strictEqual(postStatus.trim(), '', `Working tree not clean after commit: ${postStatus}`);
 
-    const afterTaskMd = fs.readFileSync(path.join(tempDir, '.agents', 'task', 'task.md'), 'utf-8');
-    const afterCompletedMd = fs.readFileSync(path.join(tempDir, '.agents', 'task', 'task-completed.md'), 'utf-8');
-    assert.ok(afterTaskMd.includes('(No active tasks)'), 'TSK-1 was not removed from task.md after commit');
-    assert.ok(afterTaskMd.includes('Latest Done: `TSK-1`'), 'task.md Latest Done meta not updated');
-    assert.ok(afterTaskMd.includes('Active: `None`'), 'task.md Active meta not updated');
-    assert.ok(
-      afterCompletedMd.includes('- [x] **TSK-1. Initial ACM onboarding and governance scripts** (Commit: `'),
-      'TSK-1 and commit SHA were not archived into task-completed.md'
-    );
-    console.log('[PASS] Legacy sequential atomic commit, clean tree, and autoCompleteTask English archival verified.');
+    const showTsk1Res = spawnSync(process.execPath, [CLI_PATH, 'task', 'show', 'TSK-1', '--json'], {
+      cwd: tempDir,
+      encoding: 'utf-8',
+    });
+    assert.strictEqual(showTsk1Res.status, 0, showTsk1Res.stderr);
+    const doneTsk1 = JSON.parse(showTsk1Res.stdout);
+    const tsk1HeadSha = execSync('git rev-parse --short HEAD', { cwd: tempDir, encoding: 'utf-8' }).trim();
+    assert.strictEqual(doneTsk1.status, 'done', 'TSK-1 was not marked done in SQLite after commit');
+    assert.strictEqual(doneTsk1.commitSha, tsk1HeadSha, 'TSK-1 commitSha mismatch in SQLite');
+    assert.ok(!fs.existsSync(path.join(tempDir, '.agents', 'acm', 'task', 'task.md')), 'task.md must not be created when markdownProjection=false');
+    assert.ok(!fs.existsSync(path.join(tempDir, '.agents', 'acm', 'task', 'task-completed.md')), 'task-completed.md must not be created when markdownProjection=false');
+    console.log('[PASS] Legacy sequential atomic commit, clean tree, and SQLite DB archival verified.');
 
-    // 4-6b. Short-ID task commit via --commit=<prefix> and autoCompleteTask archival
-    console.log('[Stage 4-3] Register TSK-K7M29A [Ready], commit via --commit=K7M2 prefix, and verify archival');
+    // 4-6b. Short-ID task commit via --commit=<prefix> and SQLite archival
+    console.log('[Stage 4-3] Register TSK-K7M29A [Ready], commit via --commit=K7M2 prefix, and verify SQLite archival');
     fs.writeFileSync(path.join(tempDir, 'shortid-feature.txt'), 'short-id commit test\n', 'utf-8');
-    const shortIdTaskMd = afterTaskMd.replace(
-      '(No active tasks)',
-      [
-        '- [Ready] **TSK-K7M29A. Short-ID prefix targeted commit verification**',
-        '  - **Purpose**: Verify short-id commit header and prefix selection in group-status.cjs.',
-        '  - **Results**:',
-        '    - `shortid-feature.txt`: Added test artifact for short-id commit',
-        '  - **Targets**: `shortid-feature.txt`',
-      ].join('\n')
-    );
-    fs.writeFileSync(path.join(tempDir, '.agents', 'task', 'task.md'), shortIdTaskMd, 'utf-8');
+    const addShortRes = spawnSync(process.execPath, [CLI_PATH, 'task', 'add', '--stdin', '--json'], {
+      cwd: tempDir,
+      encoding: 'utf-8',
+      input: JSON.stringify({
+        code: 'TSK-K7M29A',
+        title: 'Short-ID prefix targeted commit verification',
+        status: 'ready',
+        purpose: 'Verify short-id commit header and prefix selection in group-status.cjs.',
+        results: ['`shortid-feature.txt`: Added test artifact for short-id commit'],
+        targets: ['shortid-feature.txt'],
+      }),
+    });
+    assert.strictEqual(addShortRes.status, 0, `task add TSK-K7M29A failed: ${addShortRes.stderr || addShortRes.stdout}`);
 
     const shortCommitRes = spawnSync(process.execPath, [CLI_PATH, 'commit', '--commit=K7M2'], {
       cwd: tempDir,
@@ -329,14 +348,17 @@ async function runTests() {
     assert.ok(shortCommitRes.stdout.includes('[TSK-K7M29A]'), 'Commit header missing [TSK-K7M29A]');
     assert.strictEqual(execSync('git status --porcelain', { cwd: tempDir, encoding: 'utf-8' }).trim(), '');
 
-    const afterShortTaskMd = fs.readFileSync(path.join(tempDir, '.agents', 'task', 'task.md'), 'utf-8');
-    const afterShortCompMd = fs.readFileSync(path.join(tempDir, '.agents', 'task', 'task-completed.md'), 'utf-8');
-    assert.ok(afterShortTaskMd.includes('Latest Done: `TSK-K7M29A`'), 'task.md Latest Done not updated to TSK-K7M29A');
-    assert.ok(
-      afterShortCompMd.includes('- [x] **TSK-K7M29A. Short-ID prefix targeted commit verification** (Commit: `'),
-      'TSK-K7M29A archive entry missing from task-completed.md'
-    );
-    console.log('[PASS] Short-ID atomic commit (--commit=K7M2) and autoCompleteTask archival verified.');
+    const showShortRes = spawnSync(process.execPath, [CLI_PATH, 'task', 'show', 'K7M2', '--json'], {
+      cwd: tempDir,
+      encoding: 'utf-8',
+    });
+    assert.strictEqual(showShortRes.status, 0, showShortRes.stderr);
+    const doneShort = JSON.parse(showShortRes.stdout);
+    assert.strictEqual(doneShort.code, 'TSK-K7M29A');
+    assert.strictEqual(doneShort.status, 'done');
+    assert.ok(doneShort.commitSha, 'TSK-K7M29A commitSha missing in SQLite');
+    assert.ok(!fs.existsSync(path.join(tempDir, '.agents', 'acm', 'task', 'task-completed.md')), 'task-completed.md must not exist when markdownProjection=false');
+    console.log('[PASS] Short-ID atomic commit (--commit=K7M2) and SQLite DB archival verified.');
 
     // 4-7. Uninstall --force verification
     console.log('[Stage 5] uninstall --force rollback verification');
@@ -346,19 +368,24 @@ async function runTests() {
     });
     assert.strictEqual(uninstallRes.status, 0, `uninstall failed: ${uninstallRes.stderr || uninstallRes.stdout}`);
     assert.ok(!fs.existsSync(path.join(tempDir, '.agents')), '.agents directory was not removed');
+    assert.ok(!fs.existsSync(path.join(tempDir, 'scripts')), 'empty scripts directory was not removed');
 
     const files = fs.readdirSync(tempDir);
-    const backupDir = files.find((f) => f.startsWith('.agents_backup_') || f.includes('backup'));
-    assert.ok(backupDir, 'Uninstall backup directory was not created');
+    const backupDir = files.find((f) => f.startsWith('.acm-backup-'));
+    assert.ok(backupDir, 'Uninstall .acm-backup-* directory was not created');
+    assert.ok(
+      fs.existsSync(path.join(tempDir, backupDir, '.agents', 'acm', 'ACM_GOVERNANCE.md')),
+      'Backup missing .agents/acm/ACM_GOVERNANCE.md'
+    );
     console.log(`[PASS] Uninstall rollback and backup directory (${backupDir}) verified.`);
 
     // 4-8. npm postinstall auto-initialization and 4 safety guards
     console.log('[Stage 6] npm postinstall hook and safety guards verification');
-    const { runPostInstall } = require('../scripts/install-template.cjs');
+    const { runPostInstall } = require('../scripts/acm/install-template.cjs');
 
     const selfGuardRes = spawnSync(
       process.execPath,
-      [path.join(ROOT_DIR, 'scripts', 'install-template.cjs'), '--postinstall'],
+      [path.join(ROOT_DIR, 'scripts', 'acm', 'install-template.cjs'), '--postinstall'],
       {
         cwd: ROOT_DIR,
         env: { ...process.env, INIT_CWD: ROOT_DIR },
@@ -369,7 +396,7 @@ async function runTests() {
 
     const execGuardRes = spawnSync(
       process.execPath,
-      [path.join(ROOT_DIR, 'scripts', 'install-template.cjs'), '--postinstall'],
+      [path.join(ROOT_DIR, 'scripts', 'acm', 'install-template.cjs'), '--postinstall'],
       {
         cwd: ROOT_DIR,
         env: { ...process.env, CI: '', GITHUB_ACTIONS: '', INIT_CWD: tempDir, npm_command: 'exec' },
@@ -381,7 +408,7 @@ async function runTests() {
 
     const ciGuardRes = spawnSync(
       process.execPath,
-      [path.join(ROOT_DIR, 'scripts', 'install-template.cjs'), '--postinstall'],
+      [path.join(ROOT_DIR, 'scripts', 'acm', 'install-template.cjs'), '--postinstall'],
       {
         cwd: ROOT_DIR,
         env: { ...process.env, CI: 'true', INIT_CWD: tempDir, npm_command: 'install' },
@@ -393,7 +420,7 @@ async function runTests() {
 
     const npmCiGuardRes = spawnSync(
       process.execPath,
-      [path.join(ROOT_DIR, 'scripts', 'install-template.cjs'), '--postinstall'],
+      [path.join(ROOT_DIR, 'scripts', 'acm', 'install-template.cjs'), '--postinstall'],
       {
         cwd: ROOT_DIR,
         env: { ...process.env, CI: '', GITHUB_ACTIONS: '', INIT_CWD: tempDir, npm_command: 'ci' },
@@ -406,7 +433,7 @@ async function runTests() {
     const beforePostinstallPkg = fs.readFileSync(path.join(tempDir, 'package.json'), 'utf-8');
     const postInstallRes = spawnSync(
       process.execPath,
-      [path.join(ROOT_DIR, 'scripts', 'install-template.cjs'), '--postinstall'],
+      [path.join(ROOT_DIR, 'scripts', 'acm', 'install-template.cjs'), '--postinstall'],
       {
         cwd: ROOT_DIR,
         env: {
@@ -423,12 +450,17 @@ async function runTests() {
       }
     );
     assert.strictEqual(postInstallRes.status, 0, `postinstall failed: ${postInstallRes.stderr || postInstallRes.stdout}`);
-    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'task', 'task.md')), 'postinstall missing task.md');
-    assert.ok(
-      fs.readFileSync(path.join(tempDir, '.agents', 'task', 'task.md'), 'utf-8').includes('Latest Done:'),
-      'Default postinstall should initialize English task.md'
-    );
+    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'acm', 'local', 'memory.db')), 'postinstall missing memory.db');
+    assert.ok(!fs.existsSync(path.join(tempDir, '.agents', 'acm', 'task', 'task.md')), 'Default postinstall should not create task.md');
+    const postCfg = JSON.parse(fs.readFileSync(path.join(tempDir, '.agents', 'acm', 'config.json'), 'utf-8'));
+    assert.strictEqual(postCfg.storage.provider, 'sqlite');
+    assert.strictEqual(postCfg.storage.markdownProjection, false);
+    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'acm', 'ACM_GOVERNANCE.md')), 'postinstall missing ACM_GOVERNANCE.md');
     assert.ok(fs.existsSync(path.join(tempDir, 'AGENTS.md')), 'postinstall missing AGENTS.md');
+    assert.ok(
+      fs.readFileSync(path.join(tempDir, 'AGENTS.md'), 'utf-8').includes('[Three Canonical Stores]'),
+      'Default postinstall should initialize English AGENTS.md'
+    );
     const afterPostinstallPkg = fs.readFileSync(path.join(tempDir, 'package.json'), 'utf-8');
     assert.strictEqual(afterPostinstallPkg, beforePostinstallPkg, 'postinstall mutated host package.json');
 
@@ -443,7 +475,7 @@ async function runTests() {
 
     // 4-9. @clack/prompts interactive multiselect & non-interactive fallback
     console.log('[Stage 7] @clack/prompts interactive multiselect, cancel, and fallback verification');
-    const { loadClack, promptCustomRuleFile, resolveTargetRuleFiles } = require('../scripts/sync-agent-rules.cjs');
+    const { loadClack, promptCustomRuleFile, resolveTargetRuleFiles } = require('../scripts/acm/sync-agent-rules.cjs');
 
     const clack = await loadClack();
     assert.ok(clack && typeof clack.multiselect === 'function', '@clack/prompts dynamic import failed');
@@ -512,8 +544,8 @@ async function runTests() {
         { cwd: customDir, encoding: 'utf-8' }
       );
       assert.strictEqual(customInitRes.status, 0, `Custom rule init failed: ${customInitRes.stderr || customInitRes.stdout}`);
-      const metaPath = path.join(customDir, '.agents', '.acm-meta.json');
-      assert.ok(fs.existsSync(metaPath), '.agents/.acm-meta.json missing');
+      const metaPath = path.join(customDir, '.agents', 'acm', 'meta.json');
+      assert.ok(fs.existsSync(metaPath), '.agents/acm/meta.json missing');
 
       const injectedCopilot = fs.readFileSync(path.join(customDir, '.github', 'copilot-instructions.md'), 'utf-8');
       assert.ok(injectedCopilot.includes('ACM_GOVERNANCE_START'), 'Governance block missing in custom rule file');
@@ -530,13 +562,13 @@ async function runTests() {
       const restoredGitignore = fs.readFileSync(path.join(customDir, '.gitignore'), 'utf-8').replace(/\r\n/g, '\n');
       assert.strictEqual(restoredGitignore, 'node_modules/\n\ndist/\n', 'Existing .gitignore blank line structure damaged');
 
-      spawnSync(process.execPath, [CLI_PATH, 'init', '--force', '--non-interactive'], { cwd: customDir, encoding: 'utf-8' });
+      spawnSync(process.execPath, [CLI_PATH, 'init', '--force', '--non-interactive', '--markdown-projection'], { cwd: customDir, encoding: 'utf-8' });
       fs.writeFileSync(path.join(customDir, 'AGENTS.md'), '# Root Agents Updated\n');
       fs.writeFileSync(path.join(customDir, 'nested', 'AGENTS.md'), '# Nested Agents Updated\n');
       fs.writeFileSync(path.join(customDir, 'shared.txt'), 'v1\n');
       execSync('git add nested/AGENTS.md', { cwd: customDir, stdio: 'ignore' });
 
-      const taskPath = path.join(customDir, '.agents', 'task', 'task.md');
+      const taskPath = path.join(customDir, '.agents', 'acm', 'task', 'task.md');
       const baseTaskMd = fs.readFileSync(taskPath, 'utf-8');
       const dualTaskMd = baseTaskMd.replace(
         '(No active tasks)',
@@ -561,7 +593,7 @@ async function runTests() {
       const afterDualStatus = execSync('git status --porcelain', { cwd: customDir, encoding: 'utf-8' });
       assert.ok(afterDualStatus.includes('nested/AGENTS.md'), 'nested/AGENTS.md was wrongly matched by root AGENTS.md');
 
-      const afterDualCompleted = fs.readFileSync(path.join(customDir, '.agents', 'task', 'task-completed.md'), 'utf-8');
+      const afterDualCompleted = fs.readFileSync(path.join(customDir, '.agents', 'acm', 'task', 'task-completed.md'), 'utf-8');
       assert.ok(afterDualCompleted.includes('**TSK-1.'), 'TSK-1 archive missing');
       assert.ok(afterDualCompleted.includes('**TSK-2.'), 'Shared trailing task TSK-2 archive missing');
       console.log('[PASS] Custom rule rollback, .gitignore preservation, root isolation, and shared task archive verified.');
@@ -571,7 +603,7 @@ async function runTests() {
 
     // 4-11. Regression suite (C1 temp-index rm --cached, H1 JSX props, H2 functions, L1 .gitignore preservation, C02 branch validation)
     console.log('[Stage 9] Regression verification (C1, H1/H2, L1, C02)');
-    const { tryResolveJsxProps, tryResolveFunctionBlocks, isValidBranchName } = require('../scripts/smart-pull.cjs');
+    const { tryResolveJsxProps, tryResolveFunctionBlocks, isValidBranchName } = require('../scripts/acm/smart-pull.cjs');
     assert.strictEqual(isValidBranchName('feature/ok-1'), true, 'C02 valid branch rejected');
     assert.strictEqual(isValidBranchName('--upload-pack=evil'), false, 'C02 leading dash branch flag not blocked');
     assert.strictEqual(isValidBranchName('main;whoami'), false, 'C02 invalid branch name not blocked');
@@ -674,7 +706,7 @@ async function runTests() {
 
     // 4-12. Stage 10: i18n EN/KO install, interactive promptLanguage, Korean E2E & drift-free uninstall
     console.log('[Stage 10] i18n (EN/KO) interactive promptLanguage, --lang=ko lifecycle, and postinstall ACM_LANG=ko');
-    const { promptLanguage } = require('../scripts/install-template.cjs');
+    const { promptLanguage } = require('../scripts/acm/install-template.cjs');
 
     // Interactive promptLanguage via mock TTY: default Enter -> 'en'
     {
@@ -724,14 +756,17 @@ async function runTests() {
       assert.strictEqual(koInitRes.status, 0, `Korean init failed: ${koInitRes.stderr || koInitRes.stdout}`);
       assert.ok(!fs.existsSync(path.join(koDir, 'locales')), 'locales/ directory leaked into Korean host project');
 
-      const koMeta = JSON.parse(fs.readFileSync(path.join(koDir, '.agents', '.acm-meta.json'), 'utf-8'));
-      assert.strictEqual(koMeta.language, 'ko', '.acm-meta.json did not persist language=ko');
+      const koMeta = JSON.parse(fs.readFileSync(path.join(koDir, '.agents', 'acm', 'meta.json'), 'utf-8'));
+      assert.strictEqual(koMeta.language, 'ko', 'meta.json did not persist language=ko');
+
+      const koCfg = JSON.parse(fs.readFileSync(path.join(koDir, '.agents', 'acm', 'config.json'), 'utf-8'));
+      assert.strictEqual(koCfg.storage.provider, 'sqlite');
+      assert.strictEqual(koCfg.storage.markdownProjection, false);
+      assert.ok(fs.existsSync(path.join(koDir, '.agents', 'acm', 'local', 'memory.db')), 'Korean sqlite DB missing');
+      assert.ok(!fs.existsSync(path.join(koDir, '.agents', 'acm', 'task', 'task.md')), 'Korean default sqlite init should not create task.md');
 
       const koAgents = fs.readFileSync(path.join(koDir, 'AGENTS.md'), 'utf-8');
       assert.ok(koAgents.includes('[3대 정본]'), 'Korean AGENTS.md governance block not injected');
-
-      const koTaskMd = fs.readFileSync(path.join(koDir, '.agents', 'task', 'task.md'), 'utf-8');
-      assert.ok(koTaskMd.includes('(현재 진행 중인 활성 작업 없음)'), 'Korean task.md template not copied');
 
       const koStatusRes = spawnSync(process.execPath, [CLI_PATH, 'status', '--compact'], {
         cwd: koDir,
@@ -740,28 +775,35 @@ async function runTests() {
       assert.strictEqual(koStatusRes.status, 0, 'Korean status --compact failed');
       assert.ok(koStatusRes.stdout.includes('[작업 단위 커밋 현황]'), 'Korean status --compact output expected');
 
-      const koTaskUpdated = koTaskMd.replace(
-        '(현재 진행 중인 활성 작업 없음)',
-        [
-          '- [커밋 대기] **TSK-1. 한국어 온보딩 및 거버넌스 반영**',
-          '  - **목적**: 한국어 모드 커밋 및 자동 이관 검증',
-          '  - **수행결과**:',
-          '    - `AGENTS.md`, `scripts/`: 한국어 템플릿 주입 및 커밋 검증',
-          '  - **대상영역**: `package.json`, `AGENTS.md`, `.gitignore`, `scripts/`',
-        ].join('\n')
-      );
-      fs.writeFileSync(path.join(koDir, '.agents', 'task', 'task.md'), koTaskUpdated, 'utf-8');
+      const koAddRes = spawnSync(process.execPath, [CLI_PATH, 'task', 'add', '--lang=ko', '--stdin', '--json'], {
+        cwd: koDir,
+        encoding: 'utf-8',
+        input: JSON.stringify({
+          code: 'TSK-1',
+          title: '한국어 온보딩 및 거버넌스 반영',
+          status: 'ready',
+          purpose: '한국어 모드 커밋 및 자동 이관 검증',
+          results: ['`AGENTS.md`, `scripts/`: 한국어 템플릿 주입 및 커밋 검증'],
+          targets: ['package.json', 'AGENTS.md', '.gitignore', 'scripts/'],
+        }),
+      });
+      assert.strictEqual(koAddRes.status, 0, `Korean task add failed: ${koAddRes.stderr || koAddRes.stdout}`);
 
       const koCommitRes = spawnSync(process.execPath, [CLI_PATH, 'commit'], { cwd: koDir, encoding: 'utf-8' });
       assert.strictEqual(koCommitRes.status, 0, `Korean commit failed: ${koCommitRes.stderr || koCommitRes.stdout}`);
       assert.ok(koCommitRes.stdout.includes('[성공] 커밋 완료!'), 'Korean commit output missing');
 
-      const koAfterTask = fs.readFileSync(path.join(koDir, '.agents', 'task', 'task.md'), 'utf-8');
-      const koAfterDone = fs.readFileSync(path.join(koDir, '.agents', 'task', 'task-completed.md'), 'utf-8');
-      assert.ok(koAfterTask.includes('최근 완료: `TSK-1`'), 'Korean task.md meta header not updated');
-      assert.ok(koAfterDone.includes('**TSK-1. 한국어 온보딩 및 거버넌스 반영** (Commit: `'), 'Korean task-completed.md archive missing');
+      const koShowDone = spawnSync(process.execPath, [CLI_PATH, 'task', 'show', 'TSK-1', '--json'], {
+        cwd: koDir,
+        encoding: 'utf-8',
+      });
+      assert.strictEqual(koShowDone.status, 0, koShowDone.stderr);
+      const koDoneObj = JSON.parse(koShowDone.stdout);
+      assert.strictEqual(koDoneObj.status, 'done');
+      assert.ok(koDoneObj.commitSha, 'Korean SQLite commitSha missing');
+      assert.ok(!fs.existsSync(path.join(koDir, '.agents', 'acm', 'task', 'task-completed.md')), 'Korean default sqlite commit should not create task-completed.md');
 
-      // Uninstall without --lang flag: must auto-detect ko from .acm-meta.json and cleanly remove Korean AGENTS.md (EXACT_MATCH)
+      // Uninstall without --lang flag: must auto-detect ko from .agents/acm/meta.json and cleanly remove Korean AGENTS.md (EXACT_MATCH)
       const koUninstallRes = spawnSync(process.execPath, [CLI_PATH, 'uninstall', '--force', '--no-backup'], {
         cwd: koDir,
         encoding: 'utf-8',
@@ -770,10 +812,10 @@ async function runTests() {
       assert.ok(koUninstallRes.stdout.includes('제거 및 롤백이 완료되었습니다'), 'Korean uninstall output missing');
       assert.ok(!fs.existsSync(path.join(koDir, 'AGENTS.md')), 'Korean AGENTS.md should be cleanly removed via EXACT_MATCH drift check');
 
-      // Verify postinstall respects ACM_LANG=ko
+      // Verify postinstall respects ACM_LANG=ko (pure sqlite default + opt-in --markdown-projection check)
       const koPostRes = spawnSync(
         process.execPath,
-        [path.join(ROOT_DIR, 'scripts', 'install-template.cjs'), '--postinstall'],
+        [path.join(ROOT_DIR, 'scripts', 'acm', 'install-template.cjs'), '--postinstall'],
         {
           cwd: ROOT_DIR,
           env: {
@@ -791,13 +833,63 @@ async function runTests() {
       );
       assert.strictEqual(koPostRes.status, 0, 'Korean postinstall failed');
       assert.ok(
-        fs.readFileSync(path.join(koDir, '.agents', 'task', 'task.md'), 'utf-8').includes('(현재 진행 중인 활성 작업 없음)'),
-        'postinstall with ACM_LANG=ko did not install Korean task.md'
+        fs.readFileSync(path.join(koDir, 'AGENTS.md'), 'utf-8').includes('[3대 정본]'),
+        'postinstall with ACM_LANG=ko did not install Korean AGENTS.md'
+      );
+      assert.ok(!fs.existsSync(path.join(koDir, '.agents', 'acm', 'task', 'task.md')), 'Korean postinstall should not create task.md by default');
+
+      // Opt-in --markdown-projection with --lang=ko copies Korean task.md template
+      const koOptInRes = spawnSync(
+        process.execPath,
+        [CLI_PATH, 'init', '--lang=ko', '--force', '--non-interactive', '--markdown-projection'],
+        { cwd: koDir, encoding: 'utf-8' }
+      );
+      assert.strictEqual(koOptInRes.status, 0, 'Korean opt-in markdown-projection init failed');
+      assert.ok(
+        fs.readFileSync(path.join(koDir, '.agents', 'acm', 'task', 'task.md'), 'utf-8').includes('(현재 진행 중인 활성 작업 없음)'),
+        'Korean opt-in --markdown-projection did not copy Korean task.md'
       );
     } finally {
       fs.rmSync(koDir, { recursive: true, force: true });
     }
     console.log('[PASS] i18n EN/KO interactive prompt, --lang=ko lifecycle, drift-free uninstall, and ACM_LANG=ko postinstall verified.');
+
+    // 4-13. Stage 11: Host scripts/ non-collision & preservation on init/uninstall
+    console.log('[Stage 11] Host scripts/ namespace non-collision & preservation verification');
+    const hostScriptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-host-scripts-'));
+    try {
+      fs.mkdirSync(path.join(hostScriptDir, 'scripts', 'storage'), { recursive: true });
+      fs.writeFileSync(path.join(hostScriptDir, 'scripts', 'i18n.cjs'), '// host custom i18n\n', 'utf-8');
+      fs.writeFileSync(path.join(hostScriptDir, 'scripts', 'group-status.cjs'), 'throw new Error("Wrong host group-status called");\n', 'utf-8');
+      fs.writeFileSync(path.join(hostScriptDir, 'scripts', 'storage', 'config.cjs'), '// host custom storage config\n', 'utf-8');
+
+      const hostInit = spawnSync(process.execPath, [CLI_PATH, 'init', '--force', '--non-interactive'], {
+        cwd: hostScriptDir,
+        encoding: 'utf-8',
+      });
+      assert.strictEqual(hostInit.status, 0, `Host scripts non-collision init failed: ${hostInit.stderr || hostInit.stdout}`);
+      assert.strictEqual(fs.readFileSync(path.join(hostScriptDir, 'scripts', 'i18n.cjs'), 'utf-8'), '// host custom i18n\n');
+      assert.strictEqual(fs.readFileSync(path.join(hostScriptDir, 'scripts', 'storage', 'config.cjs'), 'utf-8'), '// host custom storage config\n');
+
+      // CLI must run scripts/acm/group-status.cjs, NOT host scripts/group-status.cjs
+      const hostStatus = spawnSync(process.execPath, [CLI_PATH, 'status', '--compact'], {
+        cwd: hostScriptDir,
+        encoding: 'utf-8',
+      });
+      assert.strictEqual(hostStatus.status, 0, `CLI picked wrong host script instead of scripts/acm/: ${hostStatus.stderr || hostStatus.stdout}`);
+
+      const hostUn = spawnSync(process.execPath, [CLI_PATH, 'uninstall', '--force', '--no-backup'], {
+        cwd: hostScriptDir,
+        encoding: 'utf-8',
+      });
+      assert.strictEqual(hostUn.status, 0, `Host scripts uninstall failed: ${hostUn.stderr || hostUn.stdout}`);
+      assert.ok(!fs.existsSync(path.join(hostScriptDir, 'scripts', 'acm')), 'scripts/acm should be removed');
+      assert.strictEqual(fs.readFileSync(path.join(hostScriptDir, 'scripts', 'i18n.cjs'), 'utf-8'), '// host custom i18n\n', 'Host scripts/i18n.cjs lost');
+      assert.strictEqual(fs.readFileSync(path.join(hostScriptDir, 'scripts', 'storage', 'config.cjs'), 'utf-8'), '// host custom storage config\n', 'Host scripts/storage/config.cjs lost');
+      console.log('[PASS] Host scripts/ non-collision and preservation verified.');
+    } finally {
+      fs.rmSync(hostScriptDir, { recursive: true, force: true });
+    }
 
     console.log('=== All integrity and Git E2E tests passed (0 errors) ===\n');
   } finally {
