@@ -1,6 +1,6 @@
 {
   "name": "agent-context-memory",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Agentic Three-Tier Agent Context Memory & Task-Centric Git Engine",
   "keywords": [
     "ai-agent",
@@ -34,23 +34,29 @@
     "bin",
     "acm-template",
     "scripts",
-    "rules",
+    "!scripts/sync-dist-branch.cjs",
     "AGENTS.md",
     "README.md",
+    "README.ko.md",
     "LICENSE"
   ],
   "directories": {
     "doc": "docs"
   },
   "scripts": {
+    "postinstall": "node scripts/acm/install-template.cjs --postinstall",
     "init": "node bin/agent-context-memory.js init",
-    "git:status": "node scripts/group-status.cjs",
-    "git:commit": "node scripts/group-status.cjs --all",
-    "git:pull": "node scripts/smart-pull.cjs",
-    "git:resolve": "node scripts/smart-pull.cjs --resolve",
-    "git:audit-push": "node scripts/audit-push.cjs"
+    "acm:status": "node scripts/acm/group-status.cjs --dry-run",
+    "acm:summary": "node scripts/acm/group-status.cjs --compact",
+    "acm:commit": "node scripts/acm/group-status.cjs --all",
+    "acm:pull": "node scripts/acm/smart-pull.cjs",
+    "acm:resolve": "node scripts/acm/smart-pull.cjs --resolve",
+    "acm:audit-push": "node scripts/acm/audit-push.cjs"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.13.0"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.9.0"
   }
 }

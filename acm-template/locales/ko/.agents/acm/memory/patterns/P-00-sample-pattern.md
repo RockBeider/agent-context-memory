@@ -1,0 +1,11 @@
+# [P-00] Sample Pattern Template (양식 샘플 - 실제 패턴 아님)
+
+> [!NOTE]
+> 본 파일은 `P-XXXXXX`(또는 기존 `P-XX`) 지식 패턴 작성 양식 및 `group-status.cjs` 파서 호환 규격을 안내하기 위한 샘플입니다.
+> 프로젝트에서 재사용 가능한 기술 해법을 증류할 때 `acm pattern add` / `acm id pattern` / MCP로 발급한 `P-XXXXXX-{영문-슬러그}.md`로 생성하십시오.
+
+- **일자**: YYYY-MM-DD
+- **도메인 분류**: (예: Git / 빌드 / 상태관리 / UI / 인증 등)
+- **증상 및 원인**: (발생한 버그 현상 및 근본 원인 1줄 요약)
+- **해결 패턴**: (재발 방지를 위한 핵심 해결 코드 및 아키텍처 해법 1~2줄 요약)
+- **연관 파일**: `src/example/file.ts`
