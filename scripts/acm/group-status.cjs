@@ -1,19 +1,19 @@
 /**
- * scripts/group-status.cjs
+ * scripts/acm/group-status.cjs
  *
  * Agent Context Memory task-centric change classifier, atomic commit runner,
  * and automatic task-completed archive engine.
  *
  * [Source Priority]
- * 1st: .agents/task/task.md ([Ready] first, then [In Progress] active tasks)
+ * 1st: .agents/acm/task/task.md (or legacy .agents/task/task.md) ([Ready] first, then [In Progress] active tasks)
  * 2nd: Smart auxiliary buckets for remaining unmapped files (rules, memory, scripts, ui, core, misc)
  *
  * [CLI Options]
- *   node scripts/group-status.cjs                      : Interactive task selection & commit prompt
- *   node scripts/group-status.cjs --dry-run            : Preview groupings and commit messages without committing
- *   node scripts/group-status.cjs --compact            : Compact 1-line summary (low-token agent view)
- *   node scripts/group-status.cjs --commit=<num|TSK-X> : Commit a specific group or TSK ID and auto-archive
- *   node scripts/group-status.cjs --all                : Sequentially commit all [Ready] tasks and auto-archive
+ *   node scripts/acm/group-status.cjs                      : Interactive task selection & commit prompt
+ *   node scripts/acm/group-status.cjs --dry-run            : Preview groupings and commit messages without committing
+ *   node scripts/acm/group-status.cjs --compact            : Compact 1-line summary (low-token agent view)
+ *   node scripts/acm/group-status.cjs --commit=<num|TSK-X> : Commit a specific group or TSK ID and auto-archive
+ *   node scripts/acm/group-status.cjs --all                : Sequentially commit all [Ready] tasks and auto-archive
  */
 
 const fs = require('fs');
@@ -22,6 +22,7 @@ const { execSync, spawnSync } = require('child_process');
 const readline = require('readline');
 const { loadConfig } = require('./storage/config.cjs');
 const { createMemoryStore } = require('./storage/memory-store.cjs');
+const { resolveTaskFiles, resolveMemoryFiles } = require('./storage/markdown-bridge.cjs');
 const {
   TASK_ID_REGEX_SOURCE,
   PATTERN_ID_REGEX_SOURCE,
@@ -51,23 +52,19 @@ const PATTERN_INDEX_ROW_RE = new RegExp(
 );
 const PATTERN_SHARD_HEADER_RE = new RegExp(`^#\\s*\\[(${PATTERN_ID_REGEX_SOURCE})\\]\\s*(.+)$`, 'im');
 
-const ROOT_DIR = process.env.ACM_ROOT_DIR ? path.resolve(process.env.ACM_ROOT_DIR) : path.resolve(__dirname, '..');
+const ROOT_DIR = process.env.ACM_ROOT_DIR ? path.resolve(process.env.ACM_ROOT_DIR) : path.resolve(__dirname, '..', '..');
 const ACTIVE_LANG = resolveLanguage(ROOT_DIR, parseLangFlag(process.argv.slice(2)).lang);
 const tr = createTranslator(ACTIVE_LANG);
 
-const TASK_FILE = path.join(ROOT_DIR, '.agents', 'task', 'task.md');
-const TASK_COMPLETED_FILE = fs.existsSync(path.join(ROOT_DIR, '.agents', 'task', 'task-completed.md'))
-  ? path.join(ROOT_DIR, '.agents', 'task', 'task-completed.md')
-  : fs.existsSync(path.join(ROOT_DIR, '.agents', 'task', 'task_completed.md'))
-    ? path.join(ROOT_DIR, '.agents', 'task', 'task_completed.md')
-    : path.join(ROOT_DIR, '.agents', 'task', 'task-completed.md');
-const CHANGELOG_FILE = fs.existsSync(path.join(ROOT_DIR, '.agents', 'memory', 'project-changelog.md'))
-  ? path.join(ROOT_DIR, '.agents', 'memory', 'project-changelog.md')
-  : path.join(ROOT_DIR, '.agents', 'memory', 'project_changelog.md');
-const PATTERNS_INDEX_FILE = fs.existsSync(path.join(ROOT_DIR, '.agents', 'memory', 'patterns-index.md'))
-  ? path.join(ROOT_DIR, '.agents', 'memory', 'patterns-index.md')
-  : path.join(ROOT_DIR, '.agents', 'memory', 'patterns_index.md');
-const PATTERNS_DIR = path.join(ROOT_DIR, '.agents', 'memory', 'patterns');
+const {
+  taskFile: TASK_FILE,
+  completedFile: TASK_COMPLETED_FILE,
+} = resolveTaskFiles(ROOT_DIR);
+const {
+  changelogFile: CHANGELOG_FILE,
+  patternsIndexFile: PATTERNS_INDEX_FILE,
+  patternsDir: PATTERNS_DIR,
+} = resolveMemoryFiles(ROOT_DIR);
 
 /**
  * 1. Parses Git working tree changes. Returns null when outside a Git repo or Git is unavailable.
@@ -550,11 +547,11 @@ function buildCommitMessage(task, files) {
   const filePaths = files.map((f) => f.file);
   if (filePaths.some((p) => p.includes('rules/') || p.includes('GEMINI.md') || p.includes('AGENTS.md') || p.includes('README'))) {
     scope = 'rules';
-  } else if (filePaths.some((p) => p.startsWith('.agents/task/'))) {
+  } else if (filePaths.some((p) => p.startsWith('.agents/acm/task/') || p.startsWith('.agents/task/'))) {
     scope = 'task';
-  } else if (filePaths.some((p) => p.startsWith('.agents/memory/'))) {
+  } else if (filePaths.some((p) => p.startsWith('.agents/acm/memory/') || p.startsWith('.agents/memory/'))) {
     scope = 'memory';
-  } else if (filePaths.some((p) => p.includes('scripts/') || p.includes('.agents/scripts/'))) {
+  } else if (filePaths.some((p) => p.includes('scripts/') || p.includes('.agents/acm/scripts/') || p.includes('.agents/scripts/'))) {
     scope = 'scripts';
   } else if (filePaths.some((p) => p.includes('docs/'))) {
     scope = 'docs';
@@ -784,9 +781,14 @@ function classifyChanges() {
       const p = f.file;
       if (p.includes('rules/') || p.includes('GEMINI.md') || p.includes('AGENTS.md') || p.includes('README')) {
         subBuckets.rules.files.push(f);
-      } else if (p.startsWith('.agents/task/') || p.startsWith('.agents/memory/')) {
+      } else if (
+        p.startsWith('.agents/acm/task/') ||
+        p.startsWith('.agents/acm/memory/') ||
+        p.startsWith('.agents/task/') ||
+        p.startsWith('.agents/memory/')
+      ) {
         subBuckets.memory.files.push(f);
-      } else if (p.includes('scripts/') || p.includes('.agents/scripts/')) {
+      } else if (p.includes('scripts/') || p.includes('.agents/acm/scripts/') || p.includes('.agents/scripts/')) {
         subBuckets.scripts.files.push(f);
       } else if (p.includes('package.json') || p.includes('tsconfig') || p.includes('.config') || p.includes('.env')) {
         subBuckets.core.files.push(f);
@@ -1374,12 +1376,12 @@ function reportNonGitMemoryStatus(isCompact) {
   let tasks;
   let changelog;
   let patterns;
-  let storageLabel = '.agents/task/task.md';
+  let storageLabel = '.agents/acm/task/task.md';
 
   if (cfg.storage && cfg.storage.provider === 'sqlite') {
     const store = createMemoryStore(ROOT_DIR, { config: cfg, skipProjection: true });
     try {
-      storageLabel = cfg.storage.dbPath || '.agents/local/memory.db';
+      storageLabel = cfg.storage.dbPath || '.agents/acm/local/memory.db';
       tasks = store.listTasks({ includeDone: false }).map((task) => {
         const canonicalStatus = normalizeTaskStatus(task.status);
         return {

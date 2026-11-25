@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @file token-monitor.cjs
+ * @file acm-token-monitor.cjs
  * @description Antigravity PreInvocation hook script.
  *              Measures session transcript (transcript.jsonl) file size with zero model tokens
  *              and injects proactive threshold alerts (deduplicated via MD5 state cache).
@@ -39,8 +39,10 @@ function resolveHookLanguage() {
   const fromEnv = normalizeLang(process.env.ACM_LANG);
   if (fromEnv) return fromEnv;
 
-  const workspaceRoot = path.resolve(__dirname, '..', '..');
+  const workspaceRoot = path.resolve(__dirname, '..', '..', '..');
   const candidates = [
+    path.join(workspaceRoot, '.agents', 'acm', 'config.json'),
+    path.join(workspaceRoot, '.agents', 'acm', 'meta.json'),
     path.join(workspaceRoot, '.agents', 'config.json'),
     path.join(workspaceRoot, '.agents', '.acm-meta.json'),
   ];
@@ -58,7 +60,7 @@ function resolveHookLanguage() {
 
 function getStateFilePath(transcriptPath) {
   const hash = crypto.createHash('md5').update(transcriptPath).digest('hex').slice(0, 12);
-  return path.join(os.tmpdir(), `agy_token_monitor_${hash}.json`);
+  return path.join(os.tmpdir(), `acm_token_monitor_${hash}.json`);
 }
 
 function getPreviousAlertLevel(stateFile) {

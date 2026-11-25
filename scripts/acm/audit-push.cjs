@@ -61,7 +61,7 @@ const FORBIDDEN_PATTERNS = [
   { pattern: /\.tmp$/i, reasonKey: 'auditPush.reasonTmpFile' },
   { pattern: /\.bak$/i, reasonKey: 'auditPush.reasonBakFile' },
   { pattern: /\.log$/i, reasonKey: 'auditPush.reasonLogFile' },
-  { pattern: /(?:^|\/)\.agents\/local\/.*\.db(?:-wal|-shm)?$/i, reasonKey: 'auditPush.reasonLocalDbFile' },
+  { pattern: /(?:^|\/)\.agents\/(?:acm\/)?local\/.*\.db(?:-wal|-shm)?$/i, reasonKey: 'auditPush.reasonLocalDbFile' },
   { pattern: /\.(?:sqlite|sqlite3|db-wal|db-shm)$/i, reasonKey: 'auditPush.reasonLocalDbFile' },
 ];
 

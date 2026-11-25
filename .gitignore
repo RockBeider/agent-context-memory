@@ -1,9 +1,14 @@
 # Agent Context Memory Ignored Entries
+/.agents/acm/task/
+/.agents/acm/local/
+/.agents/acm/config.json
+/.agents/acm/meta.json
 /.agents/task/
 /.agents/local/
 /.agents/config.json
 /.agents/.acm-meta.json
 /.agents_backup_*/
+/.acm-backup-*/
 /.agent/
 
 # Local AI Agent & IDE Overrides

@@ -11,14 +11,14 @@ const os = require('os');
 const assert = require('assert');
 const { spawnSync, execSync } = require('child_process');
 
-const { scrubText, scrubRecord, scrubRecords } = require('../scripts/storage/secret-scrubber.cjs');
-const { syncWithGitOrphan } = require('../scripts/storage/git-orphan-sync.cjs');
-const { saveConfig } = require('../scripts/storage/config.cjs');
-const { createMemoryStore } = require('../scripts/storage/memory-store.cjs');
+const { scrubText, scrubRecord, scrubRecords } = require('../scripts/acm/storage/secret-scrubber.cjs');
+const { syncWithGitOrphan } = require('../scripts/acm/storage/git-orphan-sync.cjs');
+const { saveConfig } = require('../scripts/acm/storage/config.cjs');
+const { createMemoryStore } = require('../scripts/acm/storage/memory-store.cjs');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const CLI_PATH = path.join(ROOT_DIR, 'bin', 'agent-context-memory.js');
-const AUDIT_PATH = path.join(ROOT_DIR, 'scripts', 'audit-push.cjs');
+const AUDIT_PATH = path.join(ROOT_DIR, 'scripts', 'acm', 'audit-push.cjs');
 
 console.log('=== Starting Phase 3 Git Orphan Sync & Secret Scrubber Tests ===');
 
@@ -369,10 +369,12 @@ function runCli(args, cwd, env = {}) {
     fs.writeFileSync(path.join(auditDir, 'README.md'), '# Audit DB Test\n');
     execSync('git add README.md && git commit -m "chore: init"', { cwd: auditDir, stdio: 'ignore' });
 
+    fs.mkdirSync(path.join(auditDir, '.agents', 'acm', 'local'), { recursive: true });
+    fs.writeFileSync(path.join(auditDir, '.agents', 'acm', 'local', 'memory.db'), 'fake sqlite binary\n');
+    fs.writeFileSync(path.join(auditDir, '.agents', 'acm', 'local', 'memory.db-wal'), 'fake wal\n');
     fs.mkdirSync(path.join(auditDir, '.agents', 'local'), { recursive: true });
-    fs.writeFileSync(path.join(auditDir, '.agents', 'local', 'memory.db'), 'fake sqlite binary\n');
-    fs.writeFileSync(path.join(auditDir, '.agents', 'local', 'memory.db-wal'), 'fake wal\n');
-    execSync('git add -f .agents/local/memory.db .agents/local/memory.db-wal', {
+    fs.writeFileSync(path.join(auditDir, '.agents', 'local', 'legacy.db'), 'fake legacy sqlite binary\n');
+    execSync('git add -f .agents/acm/local/memory.db .agents/acm/local/memory.db-wal .agents/local/legacy.db', {
       cwd: auditDir,
       stdio: 'ignore',
     });
@@ -382,10 +384,15 @@ function runCli(args, cwd, env = {}) {
       env: { ...process.env, ACM_ROOT_DIR: auditDir },
       encoding: 'utf-8',
     });
-    assert.strictEqual(auditRes.status, 1, 'audit-push.cjs must block staged .agents/local/memory.db files');
+    assert.strictEqual(auditRes.status, 1, 'audit-push.cjs must block staged local SQLite DB files');
+    const auditOut = auditRes.stderr || auditRes.stdout;
     assert.ok(
-      (auditRes.stderr || auditRes.stdout).includes('.agents/local/memory.db'),
-      'Blocked DB file path missing from audit output'
+      auditOut.includes('.agents/acm/local/memory.db'),
+      'Blocked .agents/acm/local/memory.db path missing from audit output'
+    );
+    assert.ok(
+      auditOut.includes('.agents/local/legacy.db'),
+      'Blocked legacy .agents/local/legacy.db path missing from audit output'
     );
     console.log('[PASS] 4. audit-push.cjs local SQLite DB leak blocking verified.');
   } finally {

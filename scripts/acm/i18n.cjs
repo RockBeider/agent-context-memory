@@ -107,9 +107,11 @@ function readLanguageFromJsonFile(filePath) {
  * Resolves the effective ACM language in priority order:
  * 1) explicitLang
  * 2) process.env.ACM_LANG
- * 3) .agents/config.json (when explicitly set)
- * 4) .agents/.acm-meta.json
- * 5) DEFAULT_LANGUAGE ('en')
+ * 3) .agents/acm/config.json
+ * 4) .agents/acm/meta.json
+ * 5) legacy .agents/config.json
+ * 6) legacy .agents/.acm-meta.json
+ * 7) DEFAULT_LANGUAGE ('en')
  *
  * @param {string} [rootDir=process.cwd()]
  * @param {string|null} [explicitLang=null]
@@ -123,11 +125,16 @@ function resolveLanguage(rootDir = process.cwd(), explicitLang = null) {
   if (fromEnv) return fromEnv;
 
   const resolvedRoot = path.resolve(rootDir || process.cwd());
-  const fromConfig = readLanguageFromJsonFile(path.join(resolvedRoot, '.agents', 'config.json'));
-  if (fromConfig) return fromConfig;
-
-  const fromMeta = readLanguageFromJsonFile(path.join(resolvedRoot, '.agents', '.acm-meta.json'));
-  if (fromMeta) return fromMeta;
+  const candidates = [
+    path.join(resolvedRoot, '.agents', 'acm', 'config.json'),
+    path.join(resolvedRoot, '.agents', 'acm', 'meta.json'),
+    path.join(resolvedRoot, '.agents', 'config.json'),
+    path.join(resolvedRoot, '.agents', '.acm-meta.json'),
+  ];
+  for (const candidate of candidates) {
+    const detected = readLanguageFromJsonFile(candidate);
+    if (detected) return detected;
+  }
 
   return DEFAULT_LANGUAGE;
 }

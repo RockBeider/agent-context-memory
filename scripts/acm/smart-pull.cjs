@@ -1,13 +1,13 @@
 /**
- * scripts/smart-pull.cjs
+ * scripts/acm/smart-pull.cjs
  *
  * Agent Context Memory smart remote branch sync and precision hybrid conflict resolver CLI.
  *
  * Modes:
- *   node scripts/smart-pull.cjs          : [Default] fetch -> virtual check -> merge -> hybrid resolve -> 3 quality gates -> merge commit
- *   node scripts/smart-pull.cjs --check  : [Check] Simulate in-memory virtual merge (merge-tree) without touching the working tree
- *   node scripts/smart-pull.cjs --resolve: [Resolve] Resolve existing conflicted working tree files and complete merge commit
- *   node scripts/smart-pull.cjs --dry-run: Preview conflict resolution without modifying files
+ *   node scripts/acm/smart-pull.cjs          : [Default] fetch -> virtual check -> merge -> hybrid resolve -> 3 quality gates -> merge commit
+ *   node scripts/acm/smart-pull.cjs --check  : [Check] Simulate in-memory virtual merge (merge-tree) without touching the working tree
+ *   node scripts/acm/smart-pull.cjs --resolve: [Resolve] Resolve existing conflicted working tree files and complete merge commit
+ *   node scripts/acm/smart-pull.cjs --dry-run: Preview conflict resolution without modifying files
  */
 
 const fs = require('fs');
@@ -16,7 +16,7 @@ const { spawnSync } = require('child_process');
 const readline = require('readline');
 const { parseLangFlag, resolveLanguage, createTranslator } = require('./i18n.cjs');
 
-const ROOT_DIR = process.env.ACM_ROOT_DIR ? path.resolve(process.env.ACM_ROOT_DIR) : path.resolve(__dirname, '..');
+const ROOT_DIR = process.env.ACM_ROOT_DIR ? path.resolve(process.env.ACM_ROOT_DIR) : path.resolve(__dirname, '..', '..');
 const ACTIVE_LANG = resolveLanguage(ROOT_DIR, parseLangFlag(process.argv.slice(2)).lang);
 const tr = createTranslator(ACTIVE_LANG);
 
