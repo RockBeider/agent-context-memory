@@ -1,16 +1,17 @@
 <!-- ACM_GOVERNANCE_START -->
-# Context Memory Guardrails
-1. [정본] 작업 착수/완료는 반드시 `.agents/task/task.md`에만 기록 (`TSK-X` 영구 불변 채번, 5KB 상한).
-2. [커밋] 일괄 스테이징(`git add .`) 절대 금지. 커밋은 반드시 `node scripts/group-status.cjs` 실행.
-3. [지식] `patterns/` 전수 통조회 금지. `patterns-index.md` 요약열만 `grep_search`로 핀포인트 로딩.
-4. [이관] Git 환경은 커밋 SHA(`Commit: abc1234`) 확보 전 이관 금지. 비-Git 환경은 수동 이관 허용 및 사용자 승인 확인 후 이관 (`(Completed: YYYY-MM-DD / Non-Git)`).
-5. [격리] 멀티 에이전트 동시 작업 시 `task.md`에 담당자 명기 및 파일 대상 영역 중첩 금지 (충돌 시 직렬화).
-6. [규칙] 프로젝트 전용 규칙은 루트 `AGENTS.md`의 `# Project Execution Rules` 하위에만 추가 (`rules/MEMORY_GOVERNANCE.md`에는 ACM 자체 거버넌스만 작성).
-7. [격리] 배포 템플릿인 `acm-template/` 하위 파일(규칙/스크립트 등)은 명시적 지시 없이 임의/연계 수정 절대 금지.
-* 상세 규격 필요 시: [rules/MEMORY_GOVERNANCE.md](rules/MEMORY_GOVERNANCE.md) 참조.
+# Context Memory & Execution Guardrails (STRICT)
+1. [Three Canonical Stores] Working memory `.agents/acm/task/task.md` & archive `task-completed.md` (immutable 6-char short IDs `TSK-XXXXXX`, 5KB cap — temporary overflow allowed while multiple `[Ready]` tasks await commit; legacy `TSK-{N}` supported), long-term knowledge `.agents/acm/memory/patterns-index.md` & `patterns/` (`P-XXXXXX` / legacy `P-XX`), and macro ADRs `.agents/acm/memory/project-changelog.md` (`LOG-XXXXXX` / legacy `LOG-XX`). Issue new IDs via `acm` CLI (`task add`, `pattern add`, `adr add`, `id`) or MCP tools; never invent random IDs manually. (`TSK-SAMPLE`, `P-00`, and `LOG-00` are format samples only — never treat them as real records.)
+2. [Task Lifecycle & 3 Elements] Status flow: `[ ]` (Todo) -> `[In Progress]` -> `[Ready]` (verified) -> `[x]` (committed). Before any commit (including minor fixes), update `task.md` to `[Ready] TSK-XXXXXX` with all 3 elements: `- **Purpose**:`, `- **Results**:` (<=5 bullets per key file), and `- **Targets**:` (changed file/dir paths). (`/task` and `/태스크` prefixes skip exploration/plans ONLY for viewing, adding, or updating `task.md`; code changes follow the standard execution gate.)
+3. [Zero-Token On-Demand Knowledge Search] Never read all files in `patterns/`. Run `grep_search` on the summary column of `patterns-index.md` by keyword and read ONLY matched `P-*` files (skip on `/skip`). Distill confirmed reusable solutions into `patterns/P-XXXXXX-*.md` and add 1 row to `patterns-index.md`.
+4. [Zero-Token Macro ADR Lookup & Logging] Never read `project-changelog.md` routinely. Only on global infrastructure changes, regression tracing, or large merges, read the top `ADR Index Map` (lines 1-35) or `grep_search` to pinpoint `LOG-*`, then read that block only. For macro architectural changes, prepend 1 row to `ADR Index Map` and a `### [LOG-XXXXXX] [YYYY-MM-DD] Title` block at the top of details.
+5. [Execution & Commit Approval Gate] Execute all sub-steps within a single `TSK-X` under its initial plan approval and report via `walkthrough.md` (multi-`TSK` plans require per-phase approval). Plan approval does NOT authorize Git commits — execute `npm run acm:commit` (`node scripts/acm/group-status.cjs --all`) ONCE **only on explicit user commit instruction** (e.g. "commit", "apply"), which auto-archives to `task-completed.md`. In non-Git environments, archive with `(Completed: YYYY-MM-DD / Non-Git)` after user confirmation.
+6. [Isolation & Rule Separation] In host projects, `.agents/` files are local-only (`.gitignore`); never attempt a secondary Git commit for them. For multi-agent work, declare owners in `task.md` and never overlap `Targets`. Add project-specific rules only under `# Project Execution Rules`.
+* [Mandatory Read Triggers] Before distilling `P-*` patterns or recording `LOG-*` ADRs, read [.agents/rules/acm-task-memory-adr.md](.agents/rules/acm-task-memory-adr.md). Before non-Git archiving, multi-agent coordination, or checking full governance specs, read [.agents/acm/ACM_GOVERNANCE.md](.agents/acm/ACM_GOVERNANCE.md).
+* [Storage & MCP Mode] When `.agents/acm/config.json` uses `sqlite`, `.agents/acm/local/memory.db` is the sole canonical store (`markdownProjection: false` by default). Use `acm` CLI (`id`, `task`, `pattern`, `adr`, `search`, `compact`, `config`, `stats`, `sync`) or MCP tools (`acm mcp`) as the authoritative interface (never hand-edit Markdown files); generate Markdown on demand via `acm export` or opt in via `acm config set storage.markdownProjection true`.
 <!-- ACM_GOVERNANCE_END -->
 
 ---
 
 # Project Execution Rules
-<!-- 프로젝트 고유 실행 규칙, 코딩 표준, 비즈니스 가이드라인은 본 영역 하위에 작성합니다. -->
+<!-- Add project-specific execution rules, coding standards, and business guidelines below. -->
+- [Canonical Template Sync] Never propagate local working memory (`.agents/acm/task/`, `.agents/acm/memory/`) into `acm-template/`. Runtime scripts under `scripts/acm/` serve as the single canonical source (copied directly via `ACM_MANIFEST.files` during installation). Whenever modifying standard governance specs (`.agents/acm/ACM_GOVERNANCE.md`, `.agents/rules/`, `.agents/agents/`, `.agents/skills/`, `.agents/acm/scripts/acm-token-monitor.cjs`, `.agents/hooks.json`), synchronize the symmetric files in `acm-template/.agents/` 1:1 and keep the Korean overlay (`acm-template/locales/ko/`) aligned.

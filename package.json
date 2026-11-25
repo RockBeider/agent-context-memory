@@ -1,6 +1,6 @@
 {
   "name": "agent-context-memory",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Agentic Three-Tier Agent Context Memory & Task-Centric Git Engine",
   "keywords": [
     "ai-agent",
@@ -34,30 +34,36 @@
     "bin",
     "acm-template",
     "scripts",
-    "rules",
+    "!scripts/sync-dist-branch.cjs",
     "AGENTS.md",
     "README.md",
+    "README.ko.md",
     "LICENSE"
   ],
   "directories": {
     "doc": "docs"
   },
   "scripts": {
-    "test": "node tests/e2e-install.test.cjs && node tests/non-git-compatibility.test.cjs",
+    "test": "node tests/e2e-install.test.cjs && node tests/non-git-compatibility.test.cjs && node tests/sqlite-storage.test.cjs && node tests/cli-db-commands.test.cjs && node tests/git-orphan-sync.test.cjs && node tests/mcp-server.test.cjs && node tests/compact-retention.test.cjs && node tests/non-destructive-lifecycle.test.cjs",
     "prepublishOnly": "npm test",
+    "postinstall": "node scripts/acm/install-template.cjs --postinstall",
     "init": "node bin/agent-context-memory.js init",
-    "check-git": "node scripts/check-git.cjs",
-    "acm:install": "node scripts/install-template.cjs",
-    "acm:uninstall": "node scripts/uninstall-template.cjs",
-    "git:status": "node scripts/group-status.cjs",
-    "git:commit": "node scripts/group-status.cjs --all",
-    "git:pull": "node scripts/smart-pull.cjs",
-    "git:resolve": "node scripts/smart-pull.cjs --resolve",
-    "git:audit-push": "node scripts/audit-push.cjs",
+    "check-git": "node scripts/acm/check-git.cjs",
+    "acm:install": "node scripts/acm/install-template.cjs",
+    "acm:uninstall": "node scripts/acm/uninstall-template.cjs",
+    "acm:status": "node scripts/acm/group-status.cjs --dry-run",
+    "acm:summary": "node scripts/acm/group-status.cjs --compact",
+    "acm:commit": "node scripts/acm/group-status.cjs --all",
+    "acm:pull": "node scripts/acm/smart-pull.cjs",
+    "acm:resolve": "node scripts/acm/smart-pull.cjs --resolve",
+    "acm:audit-push": "node scripts/acm/audit-push.cjs",
     "dist:sync": "node scripts/sync-dist-branch.cjs",
     "dist:push": "node scripts/sync-dist-branch.cjs --push"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.13.0"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.9.0"
   }
 }
