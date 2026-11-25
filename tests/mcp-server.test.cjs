@@ -151,8 +151,9 @@ async function runTests() {
     assert.ok(
       snippets.localNodeScript &&
         snippets.localNodeScript.mcpServers &&
-        snippets.localNodeScript.mcpServers['agent-context-memory'],
-      'Invalid localNodeScript config snippet'
+        snippets.localNodeScript.mcpServers['agent-context-memory'] &&
+        snippets.localNodeScript.mcpServers['agent-context-memory'].args[0].endsWith('/scripts/acm/mcp-server.cjs'),
+      'Invalid localNodeScript config snippet (expected scripts/acm/mcp-server.cjs)'
     );
 
     const printHumanRes = spawnSync(process.execPath, [CLI_PATH, 'mcp', '--print-config'], {
@@ -185,7 +186,10 @@ async function runTests() {
       { cwd: repoDir, encoding: 'utf-8' }
     );
     assert.strictEqual(initRes.status, 0, `init failed: ${initRes.stderr || initRes.stdout}`);
-    assert.ok(fs.existsSync(path.join(repoDir, '.agents', 'local', 'memory.db')), 'SQLite DB missing after init');
+    assert.ok(fs.existsSync(path.join(repoDir, '.agents', 'acm', 'local', 'memory.db')), 'SQLite DB missing after init');
+    const mcpCfg = JSON.parse(fs.readFileSync(path.join(repoDir, '.agents', 'acm', 'config.json'), 'utf-8'));
+    assert.strictEqual(mcpCfg.storage.markdownProjection, false, 'Default sqlite MCP repo should disable markdownProjection');
+    assert.ok(!fs.existsSync(path.join(repoDir, '.agents', 'acm', 'task', 'task.md')), 'Default sqlite init must not create task.md');
 
     // 3. Spawn stdio MCP server and test full JSON-RPC 2.0 protocol + all 9 tools
     console.log('[Stage 3] Spawn stdio MCP server (`acm mcp`) and test JSON-RPC lifecycle + all 9 tools');
@@ -226,6 +230,7 @@ async function runTests() {
       'acm_pattern_get',
       'acm_adr_add',
       'acm_sync',
+      'acm_compact',
     ];
     assert.deepStrictEqual(toolNames, expectedTools, `Tool list mismatch: ${JSON.stringify(toolNames)}`);
     for (const tool of listRpc.result.tools) {
@@ -239,6 +244,8 @@ async function runTests() {
     assert.strictEqual(statusPayload.provider, 'sqlite');
     assert.strictEqual(statusPayload.gitAvailable, true);
     assert.strictEqual(statusPayload.stats.tasks.total, 0);
+    assert.ok(statusPayload.retention && statusPayload.retention.doneTaskProjectionLimit === 50, 'Expected retention defaults in acm_status');
+    assert.strictEqual(typeof statusPayload.stats.dbSizeBytes, 'number');
 
     // 3-4. acm_task_upsert invalid [Ready] missing 3 elements -> isError: true
     const invalidReadyResp = await client.sendRequest(
@@ -277,8 +284,10 @@ async function runTests() {
     const taskCode = upsertCreatePayload.task.code;
     assert.ok(tskShortRe.test(taskCode), `Expected short-id task code, got: ${taskCode}`);
     assert.strictEqual(upsertCreatePayload.task.status, 'ready');
-    const projectedTaskMd = fs.readFileSync(path.join(repoDir, '.agents', 'task', 'task.md'), 'utf-8');
-    assert.ok(projectedTaskMd.includes(`${taskCode}.`), `${taskCode} was not projected to .agents/task/task.md`);
+    assert.ok(
+      !fs.existsSync(path.join(repoDir, '.agents', 'acm', 'task', 'task.md')),
+      'acm_task_upsert should not create .agents/acm/task/task.md when markdownProjection is false'
+    );
 
     // 3-6. acm_task_list
     const taskListPayload = parseToolPayload(
@@ -410,6 +419,53 @@ async function runTests() {
     });
     assert.ok(remoteBranchCheck.includes('refs/heads/acm-memory'), 'acm-memory branch was not pushed to bare remote');
 
+    // 3-11b. acm_compact (default dryRun=true, then dryRun=false)
+    const compactDryPayload = parseToolPayload(
+      await client.sendRequest('tools/call', { name: 'acm_compact', arguments: {} }, 20)
+    );
+    assert.strictEqual(compactDryPayload.ok, true);
+    assert.strictEqual(compactDryPayload.dryRun, true);
+    assert.strictEqual(compactDryPayload.vacuumed, false);
+
+    const compactExecPayload = parseToolPayload(
+      await client.sendRequest(
+        'tools/call',
+        { name: 'acm_compact', arguments: { dryRun: false, doneTaskFtsDays: 0, vacuum: true } },
+        21
+      )
+    );
+    assert.strictEqual(compactExecPayload.ok, true);
+    assert.strictEqual(compactExecPayload.dryRun, false);
+    assert.strictEqual(compactExecPayload.archivedTasksCount, 1);
+    assert.strictEqual(compactExecPayload.vacuumed, true);
+
+    // 3-11c. Opt-in markdownProjection via config set -> subsequent acm_task_upsert projects task.md
+    const enableProj = spawnSync(
+      process.execPath,
+      [CLI_PATH, 'config', 'set', 'storage.markdownProjection', 'true'],
+      { cwd: repoDir, encoding: 'utf-8' }
+    );
+    assert.strictEqual(enableProj.status, 0, enableProj.stderr || enableProj.stdout);
+    const optInPayload = parseToolPayload(
+      await client.sendRequest(
+        'tools/call',
+        {
+          name: 'acm_task_upsert',
+          arguments: {
+            title: 'Opt-in MCP projection verification',
+            status: 'in_progress',
+            purpose: 'Verify opt-in markdownProjection projects task.md on acm_task_upsert.',
+          },
+        },
+        22
+      )
+    );
+    const projectedTaskMd = fs.readFileSync(path.join(repoDir, '.agents', 'acm', 'task', 'task.md'), 'utf-8');
+    assert.ok(
+      projectedTaskMd.includes(`${optInPayload.task.code}.`),
+      `${optInPayload.task.code} was not projected to .agents/acm/task/task.md after opt-in`
+    );
+
     // 3-12. Error handling: unknown tool (-32602), unknown method (-32601), malformed JSON (-32700), final ping
     const unknownToolResp = await client.sendRequest(
       'tools/call',
@@ -432,7 +488,7 @@ async function runTests() {
     activeProc = null;
     assert.strictEqual(exitCode, 0, `MCP server exited with code ${exitCode}. stderr: ${client.getStderr()}`);
     assert.strictEqual(client.getStderr().trim(), '', `Unexpected stderr during clean run: ${client.getStderr()}`);
-    console.log('[PASS] All 9 MCP tools, JSON-RPC 2.0 error codes, FTS5 search, Git orphan sync, and clean shutdown verified.');
+    console.log('[PASS] All 10 MCP tools, JSON-RPC 2.0 error codes, FTS5 search, Git orphan sync, compact, and clean shutdown verified.');
 
     console.log('=== All stdio MCP Server E2E tests passed (0 errors) ===\n');
   } finally {

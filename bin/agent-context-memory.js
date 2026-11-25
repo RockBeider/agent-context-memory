@@ -8,16 +8,16 @@
 const path = require('path');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
-const { install } = require('../scripts/install-template.cjs');
-const { uninstall } = require('../scripts/uninstall-template.cjs');
-const { checkGitEnvironment, printGitNotice } = require('../scripts/check-git.cjs');
-const { normalizeStorageProvider } = require('../scripts/storage/config.cjs');
+const { install } = require('../scripts/acm/install-template.cjs');
+const { uninstall } = require('../scripts/acm/uninstall-template.cjs');
+const { checkGitEnvironment, printGitNotice } = require('../scripts/acm/check-git.cjs');
+const { normalizeStorageProvider } = require('../scripts/acm/storage/config.cjs');
 const {
   normalizeLanguage,
   parseLangFlag,
   resolveLanguage,
   createTranslator,
-} = require('../scripts/i18n.cjs');
+} = require('../scripts/acm/i18n.cjs');
 
 const pkgPath = path.resolve(__dirname, '../package.json');
 let pkgVersion = '0.2.0';
@@ -39,6 +39,7 @@ function parseCliArgs(argv = []) {
   let noBackup = false;
   let ruleFile = null;
   let storage = null;
+  let markdownProjection;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = String(argv[i] || '');
@@ -50,6 +51,10 @@ function parseCliArgs(argv = []) {
       dryRun = true;
     } else if (arg === '--no-backup') {
       noBackup = true;
+    } else if (arg === '--markdown-projection') {
+      markdownProjection = true;
+    } else if (arg === '--no-markdown-projection') {
+      markdownProjection = false;
     } else if (arg.startsWith('--rule-file=')) {
       ruleFile = arg.slice('--rule-file='.length);
     } else if (arg === '--rule-file' || arg === '-r') {
@@ -84,19 +89,27 @@ function parseCliArgs(argv = []) {
     noBackup,
     ruleFile,
     storage,
+    markdownProjection,
     targetDir: positionals[0] || '.',
   };
 }
 
 /**
- * Resolves engine script path, preferring the host project's scripts/ over the package bundle.
+ * Resolves engine script path, preferring the host project's scripts/acm/ over legacy scripts/ (only when ACM legacy marker exists) or the package bundle.
  */
 function resolveEngineScript(scriptName) {
-  const hostScript = path.resolve(process.cwd(), 'scripts', scriptName);
-  if (fs.existsSync(hostScript)) {
-    return hostScript;
+  const hostNamespacedScript = path.resolve(process.cwd(), 'scripts', 'acm', scriptName);
+  if (fs.existsSync(hostNamespacedScript)) {
+    return hostNamespacedScript;
   }
-  const bundleScript = path.resolve(__dirname, '../scripts', scriptName);
+  const hasLegacyAcmMarker = fs.existsSync(path.resolve(process.cwd(), 'scripts', 'acm-manifest.cjs'));
+  if (hasLegacyAcmMarker) {
+    const hostLegacyScript = path.resolve(process.cwd(), 'scripts', scriptName);
+    if (fs.existsSync(hostLegacyScript)) {
+      return hostLegacyScript;
+    }
+  }
+  const bundleScript = path.resolve(__dirname, '../scripts/acm', scriptName);
   if (fs.existsSync(bundleScript)) {
     return bundleScript;
   }
@@ -152,6 +165,9 @@ const DB_COMMANDS = new Set([
   'export',
   'import',
   'sync',
+  'compact',
+  'config',
+  'stats',
 ]);
 
 const KNOWN_COMMANDS = new Set([
@@ -181,6 +197,8 @@ function isImplicitInitInvocation(firstArg) {
     firstArg === '-l' ||
     firstArg === '--lang' ||
     firstArg === '--storage' ||
+    firstArg === '--markdown-projection' ||
+    firstArg === '--no-markdown-projection' ||
     firstArg === '--non-interactive' ||
     firstArg.startsWith('--rule-file=') ||
     firstArg.startsWith('--storage=') ||
@@ -259,6 +277,7 @@ async function main() {
           nonInteractive: parsed.nonInteractive,
           lang: effectiveLang,
           storage,
+          markdownProjection: parsed.markdownProjection,
         });
         if (result && result.cancelled) {
           process.exit(0);
@@ -349,7 +368,10 @@ async function main() {
     case 'migrate':
     case 'export':
     case 'import':
-    case 'sync': {
+    case 'sync':
+    case 'compact':
+    case 'config':
+    case 'stats': {
       runEngine('acm-db-cli.cjs', [command, ...args.slice(1)], effectiveLang);
       break;
     }
