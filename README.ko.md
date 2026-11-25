@@ -102,8 +102,11 @@ Node.js(`>=22.13.0`, 내장 `node:sqlite` 사용)만 있으면 **명령어 한 �
 # 대화형 설치: 언어, 저장 방식(SQLite 권장), 에이전트 규칙 파일 선택
 npx -y agent-context-memory
 
-# 묻지 않고 바로 설치 (한국어 + SQLite)
-npx -y agent-context-memory --lang=ko --storage=sqlite --non-interactive
+# 비대화형 / AI 에이전트 / CI 환경 설치 (프롬프트 멈춤 방지, 백업 복원 프롬프트 건너뛰기)
+npx -y agent-context-memory init --non-interactive --no-restore-backup
+npx -y agent-context-memory init --lang=ko --storage=sqlite --non-interactive --no-restore-backup
+# 또는 환경변수로 비대화형 강제 (CI=true 도 자동 감지)
+ACM_NON_INTERACTIVE=1 npx -y agent-context-memory init --lang=ko
 
 # SQLite를 쓰면서 task.md 파일도 함께 최신 상태로 유지하기 (기본: 끔)
 npx -y agent-context-memory init --markdown-projection
@@ -237,6 +240,8 @@ npx agent-context-memory check-git
 
 # ACM 파일만 안전하게 백업 후 제거 (미리보기: --dry-run)
 npx agent-context-memory uninstall [경로] [옵션]
+# AI 에이전트 / CI 환경 권장 (프롬프트 생략, 기본 백업 및 수정된 규칙 블록 안전 보존)
+npx -y agent-context-memory uninstall --non-interactive --backup-target=local
 ```
 
 ### 2) 로컬 DB 관리 및 소규모 팀 동기화 (`acm`)

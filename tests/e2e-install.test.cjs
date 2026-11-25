@@ -969,6 +969,126 @@ async function runTests() {
       fs.rmSync(hostScriptDir, { recursive: true, force: true });
     }
 
+    // 4-14. Stage 12: Non-interactive terminal detection, mock TTY uninstall, and readline EOF safety
+    console.log('[Stage 12] Non-interactive terminal detection, mock TTY uninstall, and readline EOF safety');
+    const {
+      isInteractiveTerminal,
+      promptConfirm: promptRuleConfirm,
+    } = require('../scripts/acm/sync-agent-rules.cjs');
+    const {
+      install: runInstallApi,
+      promptStorageProvider,
+    } = require('../scripts/acm/install-template.cjs');
+    const {
+      uninstall: runUninstallApi,
+      promptConfirm: promptUninstallConfirm,
+    } = require('../scripts/acm/uninstall-template.cjs');
+
+    {
+      const { input, output } = createMockTTY();
+      assert.strictEqual(isInteractiveTerminal({ input, output, env: {} }), true, 'Mock TTY should be interactive');
+      assert.strictEqual(
+        isInteractiveTerminal({ input, output, env: {}, nonInteractive: true, forceInteractive: true, isInteractive: true }),
+        false,
+        'nonInteractive must override forceInteractive and isInteractive'
+      );
+      assert.strictEqual(
+        isInteractiveTerminal({ input, output, env: { ACM_NON_INTERACTIVE: '1' } }),
+        false,
+        'ACM_NON_INTERACTIVE=1 should disable interactive mode'
+      );
+      assert.strictEqual(
+        isInteractiveTerminal({ input, output, env: { CI: 'true' } }),
+        false,
+        'CI=true should disable interactive mode'
+      );
+      assert.strictEqual(
+        isInteractiveTerminal({ input, output, env: { GITHUB_ACTIONS: 'true' } }),
+        false,
+        'GITHUB_ACTIONS=true should disable interactive mode'
+      );
+      assert.strictEqual(
+        isInteractiveTerminal({ input, output, env: { TERM: 'dumb' } }),
+        false,
+        'TERM=dumb should disable interactive mode'
+      );
+      assert.strictEqual(
+        isInteractiveTerminal({ input, output, env: { CI: 'true' }, forceInteractive: true }),
+        true,
+        'forceInteractive should override CI env when nonInteractive is not set'
+      );
+    }
+
+    // Mock TTY uninstall with nonInteractive: true skips prompts, creates zip backup, and preserves MODIFIED rule
+    const ttyUninstallDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-tty-noninteractive-'));
+    try {
+      await runInstallApi(ttyUninstallDir, { nonInteractive: true, noRestoreBackup: true, lang: 'en' });
+      const agentsPath = path.join(ttyUninstallDir, 'AGENTS.md');
+      const agentsContent = fs.readFileSync(agentsPath, 'utf-8');
+      fs.writeFileSync(
+        agentsPath,
+        agentsContent.replace('<!-- ACM_GOVERNANCE_END -->', '\n7. [User Custom Drift]\n<!-- ACM_GOVERNANCE_END -->'),
+        'utf-8'
+      );
+
+      const { input, output } = createMockTTY();
+      const unRes = await runUninstallApi(ttyUninstallDir, {
+        nonInteractive: true,
+        input,
+        output,
+        env: {},
+      });
+      assert.strictEqual(unRes.success, true, 'Mock TTY nonInteractive uninstall should succeed without prompt hang');
+      assert.ok(
+        unRes.stats.backups.some((b) => b.endsWith('.zip')),
+        'Mock TTY nonInteractive uninstall should create default zip backup'
+      );
+      assert.ok(
+        unRes.stats.ruleActions.some((a) => a.status === 'PRESERVED'),
+        'nonInteractive uninstall without --force must preserve MODIFIED rule block'
+      );
+      assert.ok(
+        fs.readFileSync(agentsPath, 'utf-8').includes('7. [User Custom Drift]'),
+        'Modified AGENTS.md governance block was unexpectedly deleted'
+      );
+      assert.ok(!fs.existsSync(path.join(ttyUninstallDir, '.agents', 'acm')), '.agents/acm should be removed');
+    } finally {
+      fs.rmSync(ttyUninstallDir, { recursive: true, force: true });
+    }
+
+    // Early EOF (.end()) on all readline fallback prompts resolves cleanly without hanging
+    {
+      const { input, output } = createMockTTY();
+      const p = promptLanguage({ useClack: false, input, output });
+      input.end();
+      assert.strictEqual(await p, null, 'promptLanguage fallback should return null on EOF');
+    }
+    {
+      const { input, output } = createMockTTY();
+      const p = promptStorageProvider({ useClack: false, input, output, lang: 'en' });
+      input.end();
+      assert.strictEqual(await p, null, 'promptStorageProvider fallback should return null on EOF');
+    }
+    {
+      const { input, output } = createMockTTY();
+      const p = promptCustomRuleFile({ useClack: false, input, output, silent: true, lang: 'en' });
+      input.end();
+      assert.strictEqual(await p, null, 'promptCustomRuleFile fallback should return null on EOF');
+    }
+    {
+      const { input, output } = createMockTTY();
+      const p = promptUninstallConfirm('Confirm? ', { input, output });
+      input.end();
+      assert.strictEqual(await p, false, 'uninstall promptConfirm should return false on EOF');
+    }
+    {
+      const { input, output } = createMockTTY();
+      const p = promptRuleConfirm('Confirm? ', { input, output });
+      input.end();
+      assert.strictEqual(await p, false, 'rules promptConfirm should return false on EOF');
+    }
+    console.log('[PASS] Non-interactive terminal detection, mock TTY uninstall, and readline EOF safety verified.');
+
     console.log('=== All integrity and Git E2E tests passed (0 errors) ===\n');
   } finally {
     try {

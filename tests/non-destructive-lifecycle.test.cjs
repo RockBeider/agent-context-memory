@@ -653,4 +653,71 @@ function initGitRepo(dir) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 9. CLI --non-interactive uninstall vs --force & ACM_NON_INTERACTIVE=1 init
+// ---------------------------------------------------------------------------
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-nd-noninteractive-'));
+  const directDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-nd-direct-un-'));
+  const envInitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-nd-env-init-'));
+  try {
+    // 9a. acm uninstall --non-interactive preserves MODIFIED rule block & creates backup, then --force removes it
+    const agentsPath = path.join(dir, 'AGENTS.md');
+    fs.writeFileSync(agentsPath, '# Host Rules\n\nKeep me.\n', 'utf-8');
+    assert.strictEqual(runCli(['init', '--non-interactive'], dir).status, 0);
+
+    const injected = fs.readFileSync(agentsPath, 'utf-8');
+    fs.writeFileSync(
+      agentsPath,
+      injected.replace('<!-- ACM_GOVERNANCE_END -->', '\n* Custom modified line\n<!-- ACM_GOVERNANCE_END -->'),
+      'utf-8'
+    );
+
+    const nonIntUninstall = runCli(['uninstall', '--non-interactive'], dir);
+    assert.strictEqual(nonIntUninstall.status, 0, nonIntUninstall.stderr || nonIntUninstall.stdout);
+    assert.ok(
+      fs.readdirSync(dir).some((f) => f.startsWith('.acm-backup-') && f.endsWith('.zip')),
+      '--non-interactive uninstall should still create default .zip backup'
+    );
+    assert.ok(!fs.existsSync(path.join(dir, '.agents', 'acm')), '.agents/acm should be removed');
+    assert.ok(!fs.existsSync(path.join(dir, 'scripts', 'acm')), 'scripts/acm should be removed');
+    const afterNonIntAgents = fs.readFileSync(agentsPath, 'utf-8');
+    assert.ok(afterNonIntAgents.includes('* Custom modified line'), '--non-interactive should preserve MODIFIED rule block');
+    assert.ok(afterNonIntAgents.includes('# Host Rules'), 'Host rule content lost');
+
+    const forceUninstall = runCli(['uninstall', '--force', '--no-backup'], dir);
+    assert.strictEqual(forceUninstall.status, 0, forceUninstall.stderr || forceUninstall.stdout);
+    const afterForceAgents = fs.readFileSync(agentsPath, 'utf-8');
+    assert.ok(!afterForceAgents.includes('* Custom modified line'), '--force should remove MODIFIED rule block');
+    assert.ok(afterForceAgents.includes('# Host Rules'), 'Host rule content should remain after --force cleanup');
+
+    // 9b. Direct script execution: node scripts/acm/uninstall-template.cjs <dir> --non-interactive
+    assert.strictEqual(runCli(['init', '--non-interactive'], directDir).status, 0);
+    const directRes = spawnSync(
+      process.execPath,
+      [path.join(ROOT_DIR, 'scripts', 'acm', 'uninstall-template.cjs'), directDir, '--non-interactive'],
+      { cwd: ROOT_DIR, encoding: 'utf-8' }
+    );
+    assert.strictEqual(directRes.status, 0, directRes.stderr || directRes.stdout);
+    assert.ok(!fs.existsSync(path.join(directDir, '.agents', 'acm')), 'Direct script --non-interactive uninstall failed');
+    assert.ok(fs.readdirSync(directDir).some((f) => f.startsWith('.acm-backup-') && f.endsWith('.zip')));
+
+    // 9c. ACM_NON_INTERACTIVE=1 env var triggers non-interactive init without flag
+    const envInitRes = spawnSync(process.execPath, [CLI_PATH, 'init'], {
+      cwd: envInitDir,
+      encoding: 'utf-8',
+      env: { ...process.env, ACM_NON_INTERACTIVE: '1' },
+    });
+    assert.strictEqual(envInitRes.status, 0, envInitRes.stderr || envInitRes.stdout);
+    assert.ok(fs.existsSync(path.join(envInitDir, '.agents', 'acm', 'meta.json')), 'ACM_NON_INTERACTIVE=1 init failed');
+    assert.ok(fs.existsSync(path.join(envInitDir, 'AGENTS.md')), 'ACM_NON_INTERACTIVE=1 did not create AGENTS.md');
+
+    console.log('[PASS] 9. CLI --non-interactive uninstall, direct script flag, and ACM_NON_INTERACTIVE=1 init verified.');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(directDir, { recursive: true, force: true });
+    fs.rmSync(envInitDir, { recursive: true, force: true });
+  }
+}
+
 console.log('=== All Non-Destructive Lifecycle & Collision Protection Tests Passed ===\n');

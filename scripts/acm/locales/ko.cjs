@@ -54,12 +54,12 @@ Three-Tier Context Memory Governance & Task-Centric Engine
 옵션:
   -v, --version               현재 CLI 버전 출력
   -h, --help                  도움말 출력
-  -f, --force                 확인 프롬프트 생략 및 강제 실행
+  -f, --force                 확인 프롬프트 생략 및 강제 덮어쓰기/변조 규칙 강제 제거
   -l, --lang <en|ko>          설치/실행 언어 지정 (기본값: en)
   --lang=<en|ko>              --lang <en|ko> 와 동일
   --storage=<sqlite|markdown> 초기화 시 저장소 백엔드 지정 (Node >= 22.13 기본값: sqlite)
   --markdown-projection       SQLite 모드에서 .agents/acm/task/*.md 자동 투영 활성화 (기본값: 비활성)
-  --non-interactive           대화형 프롬프트 생략 (미감지 시 en, sqlite, AGENTS.md 자동 폴백)
+  --non-interactive           init/uninstall 대화형 프롬프트 안전 생략 (ACM_NON_INTERACTIVE=1 / CI=true 자동 감지)
   --dry-run                   실제 조작 없이 결과 미리보기
   --no-backup                 (uninstall 전용) .acm-backup-* 백업 생성 생략
   --backup-format=<포맷>      (uninstall 전용) 백업 포맷: zip(기본값), tar.gz, dir
@@ -73,7 +73,7 @@ Three-Tier Context Memory Governance & Task-Centric Engine
 
 예시:
   npx agent-context-memory
-  npx agent-context-memory --lang=ko --storage=sqlite
+  npx agent-context-memory init --non-interactive --lang=ko --storage=sqlite --no-restore-backup
   npx agent-context-memory --force
   npx agent-context-memory init --storage=markdown
   npx agent-context-memory task list
@@ -85,6 +85,7 @@ Three-Tier Context Memory Governance & Task-Centric Engine
   npx agent-context-memory pull
   npx agent-context-memory audit
   npx agent-context-memory uninstall --dry-run
+  npx agent-context-memory uninstall --non-interactive
 `,
   },
 
@@ -101,7 +102,7 @@ Three-Tier Context Memory Governance & Task-Centric Engine
   --lang=<en|ko>, -l          : 템플릿 및 CLI 언어 지정 (기본값: en)
   --storage=<sqlite|markdown> : 저장소 백엔드 선택 (Node >= 22.13 기본값: sqlite)
   --markdown-projection       : SQLite 모드에서 .agents/acm/task/*.md 자동 투영 활성화 (기본값: 비활성)
-  --non-interactive           : 대화형 프롬프트 생략 (기본값: en, sqlite, AGENTS.md)
+  --non-interactive           : 대화형 프롬프트 생략 (기본값: en, sqlite, AGENTS.md; ACM_NON_INTERACTIVE=1 / CI=true 지원)
   --restore-backup[=<대상>]   : 기존 백업에서 복원 (latest, local, git, 파일명 또는 경로)
   --no-restore-backup         : 백업 자동 탐색 및 복원 프롬프트 건너뛰기
   --backup-branch=<이름>      : 백업용 Git orphan 브랜치 이름 재정의 (기본값: acm-backups)
@@ -216,7 +217,8 @@ Three-Tier Context Memory Governance & Task-Centric Engine
 
 옵션:
   --dry-run                : 실제 삭제 없이 제거 대상 시뮬레이션 출력
-  --force, -f              : 대화형 확인 프롬프트 건너뛰기
+  --non-interactive        : 프롬프트 안전 생략 (기본 백업 수행 및 수정된 규칙 블록 보존)
+  --force, -f              : 대화형 확인 프롬프트 생략 및 수정된 규칙 블록까지 강제 제거
   --no-backup              : .acm-backup-* 백업 생성 건너뛰기
   --backup-format=<포맷>   : 백업 포맷: zip(기본값), tar.gz, dir
   --backup-target=<위치>   : 백업 저장 위치: local(기본값), git, both
@@ -229,6 +231,7 @@ Three-Tier Context Memory Governance & Task-Centric Engine
 예시:
   node scripts/acm/uninstall-template.cjs .
   node scripts/acm/uninstall-template.cjs ./my-app --dry-run
+  node scripts/acm/uninstall-template.cjs ./my-app --non-interactive
   node scripts/acm/uninstall-template.cjs ./my-app --force
   node scripts/acm/uninstall-template.cjs ./my-app --force --backup-target=both --backup-format=tar.gz
 `,

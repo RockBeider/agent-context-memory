@@ -102,9 +102,11 @@ If your project already has Markdown records in `.agents/acm/` (or legacy `.agen
 # Interactive setup: choose language, storage (SQLite recommended), and rule files
 npx -y agent-context-memory
 
-# Non-interactive install (English default / Korean + SQLite)
-npx -y agent-context-memory --non-interactive
-npx -y agent-context-memory --lang=ko --storage=sqlite --non-interactive
+# Non-interactive / AI agent / CI setup (no prompts, preserves existing backups without blocking)
+npx -y agent-context-memory init --non-interactive --no-restore-backup
+npx -y agent-context-memory init --lang=ko --storage=sqlite --non-interactive --no-restore-backup
+# Or set ACM_NON_INTERACTIVE=1 (CI=true is also auto-detected)
+ACM_NON_INTERACTIVE=1 npx -y agent-context-memory init --lang=ko
 
 # Use SQLite while also keeping .agents/acm/task/*.md synced (off by default)
 npx -y agent-context-memory init --markdown-projection
@@ -238,6 +240,8 @@ npx agent-context-memory check-git
 
 # Back up and safely remove ACM files (--dry-run supported)
 npx agent-context-memory uninstall [path] [options]
+# Recommended for AI agents / CI (skips prompts, keeps default backup & modified rule blocks)
+npx -y agent-context-memory uninstall --non-interactive --backup-target=local
 ```
 
 ### 2) Local DB & Small-Team Sync (`acm`)

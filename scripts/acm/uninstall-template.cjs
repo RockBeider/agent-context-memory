@@ -38,6 +38,7 @@ const {
   pushBackupToGit,
 } = require('./backup-git.cjs');
 const {
+  isInteractiveTerminal,
   scanPresetRules,
   checkRuleContentDrift,
   removeRuleFromFile,
@@ -54,16 +55,24 @@ function printUsage(lang = DEFAULT_LANGUAGE) {
   console.log(t('uninstall.usage', {}, lang));
 }
 
-function promptConfirm(questionText) {
+function promptConfirm(questionText, options = {}) {
   return new Promise((resolve) => {
     const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
+      input: options.input || process.stdin,
+      output: options.output || process.stdout,
     });
-    rl.question(questionText, (answer) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
       rl.close();
-      const trimmed = answer.trim().toLowerCase();
-      resolve(trimmed === 'y' || trimmed === 'yes');
+      resolve(value);
+    };
+    rl.on('SIGINT', () => finish(false));
+    rl.on('close', () => finish(false));
+    rl.question(questionText, (answer) => {
+      const trimmed = String(answer || '').trim().toLowerCase();
+      finish(trimmed === 'y' || trimmed === 'yes');
     });
   });
 }
@@ -878,9 +887,7 @@ async function uninstall(targetPath = '.', options = {}) {
   const targetDir = path.resolve(process.cwd(), targetPath);
   const dryRun = Boolean(options.dryRun);
   const force = Boolean(options.force);
-  const isInteractive = typeof options.isInteractive === 'boolean'
-    ? options.isInteractive
-    : Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const isInteractive = isInteractiveTerminal(options);
 
   // Read metadata before deleting .agents/acm so language, inventory, hooks, and ruleFiles are preserved for rollback
   let meta = null;
@@ -984,7 +991,10 @@ async function uninstall(targetPath = '.', options = {}) {
   let effectiveBackupTarget = explicitBackupTarget || DEFAULT_BACKUP_TARGET;
 
   if (!dryRun && !force && isInteractive) {
-    const confirm = await promptConfirm(tr('uninstall.confirmPrompt'));
+    const confirm = await promptConfirm(tr('uninstall.confirmPrompt'), {
+      input: options.input,
+      output: options.output,
+    });
     if (!confirm) {
       console.log(tr('uninstall.cancelled'));
       return { success: false, cancelled: true };
@@ -1052,7 +1062,7 @@ async function uninstall(targetPath = '.', options = {}) {
   rollbackOwnedFiles(targetDir, options, stats, tr, context);
   rollbackPackageJson(targetDir, options, stats, tr);
   rollbackGitIgnore(targetDir, options, stats, tr, createdGitignore, meta);
-  await rollbackAgentRules(targetDir, options, stats, tr, lang, metaRuleFiles);
+  await rollbackAgentRules(targetDir, { ...options, isInteractive }, stats, tr, lang, metaRuleFiles);
 
   console.log('\n=======================================================');
   if (dryRun) {
@@ -1076,6 +1086,7 @@ function parseUninstallCliArgs(args = []) {
   const positionals = [];
   let dryRun = false;
   let force = false;
+  let nonInteractive = false;
   let noBackup = false;
   let backupFormat = null;
   let backupTarget = null;
@@ -1089,6 +1100,8 @@ function parseUninstallCliArgs(args = []) {
       dryRun = true;
     } else if (arg === '--force' || arg === '-f') {
       force = true;
+    } else if (arg === '--non-interactive') {
+      nonInteractive = true;
     } else if (arg === '--no-backup') {
       noBackup = true;
     } else if (arg.startsWith('--backup-format=')) {
@@ -1148,6 +1161,7 @@ function parseUninstallCliArgs(args = []) {
   return {
     dryRun,
     force,
+    nonInteractive,
     noBackup,
     backupFormat,
     backupTarget,
@@ -1175,6 +1189,7 @@ async function main() {
   const {
     dryRun,
     force,
+    nonInteractive,
     noBackup,
     backupFormat,
     backupTarget,
@@ -1188,6 +1203,7 @@ async function main() {
     const res = await uninstall(targetArg, {
       dryRun,
       force,
+      nonInteractive,
       noBackup,
       backupFormat,
       backupTarget,
@@ -1212,6 +1228,7 @@ if (require.main === module) {
 module.exports = {
   uninstall,
   printUsage,
+  promptConfirm,
   promptBackupConfirm,
   promptBackupTarget,
 };

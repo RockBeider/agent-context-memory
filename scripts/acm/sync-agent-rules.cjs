@@ -53,6 +53,42 @@ async function loadClack() {
   }
 }
 
+function isEnvTruthy(value) {
+  const norm = String(value || '').trim().toLowerCase();
+  return norm === '1' || norm === 'true';
+}
+
+/**
+ * Determines whether the current session can safely run interactive terminal prompts.
+ * Respects explicit flags, CI/agent non-interactive env vars, and TTY capabilities.
+ *
+ * @param {object} [options={}]
+ * @returns {boolean}
+ */
+function isInteractiveTerminal(options = {}) {
+  if (options.nonInteractive) {
+    return false;
+  }
+  if (typeof options.isInteractive === 'boolean') {
+    return options.isInteractive;
+  }
+  if (options.forceInteractive) {
+    return true;
+  }
+  const env = options.env || process.env;
+  if (
+    isEnvTruthy(env.ACM_NON_INTERACTIVE) ||
+    isEnvTruthy(env.CI) ||
+    isEnvTruthy(env.GITHUB_ACTIONS) ||
+    String(env.TERM || '').trim().toLowerCase() === 'dumb'
+  ) {
+    return false;
+  }
+  const inStream = options.input || process.stdin;
+  const outStream = options.output || process.stdout;
+  return Boolean(inStream && inStream.isTTY && outStream && outStream.isTTY);
+}
+
 const START_MARKER = ACM_MANIFEST.governanceRules.startMarker;
 const END_MARKER = ACM_MANIFEST.governanceRules.endMarker;
 const EXPECTED_BODY = ACM_MANIFEST.governanceRules.expectedBody;
@@ -157,16 +193,24 @@ function checkRuleContentDrift(filePath) {
 /**
  * Prompts the user interactively for confirmation.
  */
-function promptConfirm(questionText) {
+function promptConfirm(questionText, options = {}) {
   return new Promise((resolve) => {
     const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
+      input: options.input || process.stdin,
+      output: options.output || process.stdout,
     });
-    rl.question(questionText, (answer) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
       rl.close();
-      const trimmed = answer.trim().toLowerCase();
-      resolve(trimmed === 'y' || trimmed === 'yes');
+      resolve(value);
+    };
+    rl.on('SIGINT', () => finish(false));
+    rl.on('close', () => finish(false));
+    rl.question(questionText, (answer) => {
+      const trimmed = String(answer || '').trim().toLowerCase();
+      finish(trimmed === 'y' || trimmed === 'yes');
     });
   });
 }
@@ -181,9 +225,7 @@ async function removeRuleFromFile(filePath, options = {}) {
   const force = Boolean(options.force);
   const lang = options.lang || DEFAULT_LANGUAGE;
   const tr = createTranslator(lang);
-  const isInteractive = typeof options.isInteractive === 'boolean'
-    ? options.isInteractive
-    : Boolean(process.stdin.isTTY);
+  const isInteractive = isInteractiveTerminal(options);
 
   if (!fs.existsSync(filePath)) {
     return { file: filePath, status: 'SKIPPED', detail: tr('rules.detailNotExists') };
@@ -199,7 +241,10 @@ async function removeRuleFromFile(filePath, options = {}) {
     const relName = path.basename(filePath);
     console.log(tr('rules.driftWarn', { file: relName }));
     if (isInteractive) {
-      const confirmed = await promptConfirm(tr('rules.driftPrompt'));
+      const confirmed = await promptConfirm(tr('rules.driftPrompt'), {
+        input: options.input,
+        output: options.output,
+      });
       if (!confirmed) {
         console.log(tr('rules.driftPreservedUser', { file: relName }));
         return { file: filePath, status: 'PRESERVED', detail: tr('rules.detailUserDeclined') };
@@ -234,29 +279,40 @@ async function removeRuleFromFile(filePath, options = {}) {
 /**
  * Built-in readline fallback when @clack/prompts cannot be loaded.
  * @param {string} [lang=DEFAULT_LANGUAGE]
- * @returns {Promise<string[]>}
+ * @param {object} [options={}]
+ * @returns {Promise<string[] | null>}
  */
-function promptCustomRuleFileFallback(lang = DEFAULT_LANGUAGE) {
+function promptCustomRuleFileFallback(lang = DEFAULT_LANGUAGE, options = {}) {
   const tr = createTranslator(lang);
   return new Promise((resolve) => {
     const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
+      input: options.input || process.stdin,
+      output: options.output || process.stdout,
     });
-
-    console.log(tr('rules.fallbackNoRules'));
-    console.log(tr('rules.fallbackExamples'));
-    rl.question(tr('rules.fallbackPrompt'), (answer) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
       rl.close();
-      const trimmed = answer.trim();
+      resolve(value);
+    };
+    rl.on('SIGINT', () => finish(null));
+    rl.on('close', () => finish(null));
+
+    if (!options.silent) {
+      console.log(tr('rules.fallbackNoRules'));
+      console.log(tr('rules.fallbackExamples'));
+    }
+    rl.question(tr('rules.fallbackPrompt'), (answer) => {
+      const trimmed = String(answer || '').trim();
       if (!trimmed) {
-        return resolve(['AGENTS.md']);
+        return finish(['AGENTS.md']);
       }
       const files = trimmed
         .split(',')
         .map((f) => f.trim())
         .filter((f) => f.length > 0);
-      resolve(files.length > 0 ? files : ['AGENTS.md']);
+      finish(files.length > 0 ? files : ['AGENTS.md']);
     });
   });
 }
@@ -272,7 +328,7 @@ async function promptCustomRuleFile(options = {}) {
   const tr = createTranslator(lang);
   const clack = options.useClack === false ? null : await loadClack();
   if (!clack) {
-    return promptCustomRuleFileFallback(lang);
+    return promptCustomRuleFileFallback(lang, options);
   }
 
   const ioOpts = {};
@@ -357,9 +413,7 @@ async function resolveTargetRuleFiles(targetDir, options = {}) {
   }
 
   if (targetFiles.length === 0) {
-    const isInteractive =
-      Boolean(options.forceInteractive || (process.stdin.isTTY && process.stdout.isTTY)) &&
-      !options.nonInteractive;
+    const isInteractive = isInteractiveTerminal(options);
     if (isInteractive) {
       const selected = await promptCustomRuleFile({ ...options, lang });
       if (selected === null) {
@@ -449,11 +503,13 @@ module.exports = {
   END_MARKER,
   EXPECTED_BODY,
   GOVERNANCE_SNIPPET,
+  isInteractiveTerminal,
   loadClack,
   normalizeText,
   scanPresetRules,
   injectRuleToFile,
   checkRuleContentDrift,
+  promptConfirm,
   removeRuleFromFile,
   removeGovernanceRules,
   promptCustomRuleFile,

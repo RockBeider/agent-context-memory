@@ -14,6 +14,7 @@ const path = require('path');
 const readline = require('readline');
 const { checkGitEnvironment, printGitNotice } = require('./check-git.cjs');
 const {
+  isInteractiveTerminal,
   loadClack,
   scanPresetRules,
   resolveTargetRuleFiles,
@@ -84,16 +85,24 @@ function promptLanguageFallback(options = {}) {
       input: options.input || process.stdin,
       output: options.output || process.stdout,
     });
-    rl.question(t('install.langPromptFallback'), (answer) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
       rl.close();
+      resolve(value);
+    };
+    rl.on('SIGINT', () => finish(null));
+    rl.on('close', () => finish(null));
+    rl.question(t('install.langPromptFallback'), (answer) => {
       const trimmed = String(answer || '').trim();
       if (!trimmed || trimmed === '1') {
-        return resolve('en');
+        return finish('en');
       }
       if (trimmed === '2') {
-        return resolve('ko');
+        return finish('ko');
       }
-      resolve(normalizeLanguage(trimmed) || DEFAULT_LANGUAGE);
+      finish(normalizeLanguage(trimmed) || DEFAULT_LANGUAGE);
     });
   });
 }
@@ -150,16 +159,24 @@ function promptStorageFallback(options = {}) {
       input: options.input || process.stdin,
       output: options.output || process.stdout,
     });
-    rl.question(t('install.storagePromptFallback', {}, lang), (answer) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
       rl.close();
+      resolve(value);
+    };
+    rl.on('SIGINT', () => finish(null));
+    rl.on('close', () => finish(null));
+    rl.question(t('install.storagePromptFallback', {}, lang), (answer) => {
       const trimmed = String(answer || '').trim();
       if (!trimmed || trimmed === '1') {
-        return resolve('sqlite');
+        return finish('sqlite');
       }
       if (trimmed === '2') {
-        return resolve('markdown');
+        return finish('markdown');
       }
-      resolve(normalizeStorageProvider(trimmed) || 'sqlite');
+      finish(normalizeStorageProvider(trimmed) || 'sqlite');
     });
   });
 }
@@ -1108,9 +1125,7 @@ async function install(targetPath = '.', options = {}) {
     fs.existsSync(path.join(targetDir, '.agents', 'acm', 'ACM_GOVERNANCE.md')) ||
     fs.existsSync(path.join(targetDir, '.agents', 'acm', 'meta.json'));
 
-  const isInteractive =
-    Boolean(options.forceInteractive || (process.stdin.isTTY && process.stdout.isTTY)) &&
-    !options.nonInteractive;
+  const isInteractive = isInteractiveTerminal(options);
   const clack = isInteractive ? await loadClack() : null;
 
   let lang = null;

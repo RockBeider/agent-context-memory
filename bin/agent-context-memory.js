@@ -395,6 +395,7 @@ async function main() {
       try {
         const result = await uninstall(parsed.targetDir, {
           force: parsed.force,
+          nonInteractive: parsed.nonInteractive,
           dryRun: parsed.dryRun,
           noBackup: parsed.noBackup,
           backupFormat: parsed.backupFormat,

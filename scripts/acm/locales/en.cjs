@@ -54,12 +54,12 @@ Commands:
 Options:
   -v, --version               Print CLI version
   -h, --help                  Show help
-  -f, --force                 Skip confirmation prompts and force overwrite
+  -f, --force                 Skip prompts and force overwrite / strip modified rule blocks
   -l, --lang <en|ko>          Set installation/runtime language (default: en)
   --lang=<en|ko>              Same as --lang <en|ko>
   --storage=<sqlite|markdown> Select storage backend during init (default: sqlite on Node >= 22.13)
   --markdown-projection       Enable .agents/acm/task/*.md projection in SQLite mode (default: disabled)
-  --non-interactive           Skip interactive prompts (auto-defaults to en, sqlite, AGENTS.md)
+  --non-interactive           Skip prompts on init/uninstall safely (also via ACM_NON_INTERACTIVE=1 / CI=true)
   --dry-run                   Preview actions without modifying files
   --no-backup                 (uninstall only) Skip creating .acm-backup-* backup
   --backup-format=<fmt>       (uninstall only) Backup format: zip (default), tar.gz, dir
@@ -73,7 +73,7 @@ Options:
 
 Examples:
   npx agent-context-memory
-  npx agent-context-memory --lang=ko --storage=sqlite
+  npx agent-context-memory init --non-interactive --lang=ko --storage=sqlite --no-restore-backup
   npx agent-context-memory --force
   npx agent-context-memory init --storage=markdown
   npx agent-context-memory task list
@@ -85,6 +85,7 @@ Examples:
   npx agent-context-memory pull
   npx agent-context-memory audit
   npx agent-context-memory uninstall --dry-run
+  npx agent-context-memory uninstall --non-interactive
 `,
   },
 
@@ -101,7 +102,7 @@ Options:
   --lang=<en|ko>, -l          : Select template & CLI language (default: en)
   --storage=<sqlite|markdown> : Select storage backend (default: sqlite on Node >= 22.13)
   --markdown-projection       : Enable .agents/acm/task/*.md projection in SQLite mode (default: disabled)
-  --non-interactive           : Skip interactive prompts (default: en, sqlite, AGENTS.md)
+  --non-interactive           : Skip interactive prompts (default: en, sqlite, AGENTS.md; also ACM_NON_INTERACTIVE=1 / CI=true)
   --restore-backup[=<ref>]    : Restore existing backup (latest, local, git, filename, or path)
   --no-restore-backup         : Skip backup detection and restore prompts
   --backup-branch=<name>      : Override Git backup orphan branch (default: acm-backups)
@@ -216,7 +217,8 @@ Usage:
 
 Options:
   --dry-run                : Simulate removal without deleting or modifying files
-  --force, -f              : Skip interactive confirmation prompts
+  --non-interactive        : Skip prompts safely (keeps default backup and preserves modified rule blocks)
+  --force, -f              : Skip prompts and force-remove modified rule blocks
   --no-backup              : Skip creating .acm-backup-* backup
   --backup-format=<fmt>    : Backup format: zip (default), tar.gz, dir
   --backup-target=<target> : Backup destination: local (default), git, both
@@ -229,6 +231,7 @@ Options:
 Examples:
   node scripts/acm/uninstall-template.cjs .
   node scripts/acm/uninstall-template.cjs ./my-app --dry-run
+  node scripts/acm/uninstall-template.cjs ./my-app --non-interactive
   node scripts/acm/uninstall-template.cjs ./my-app --force
   node scripts/acm/uninstall-template.cjs ./my-app --force --backup-target=both --backup-format=tar.gz
 `,
