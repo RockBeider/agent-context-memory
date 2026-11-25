@@ -487,7 +487,17 @@ async function runTests() {
     const exitCode = await client.close();
     activeProc = null;
     assert.strictEqual(exitCode, 0, `MCP server exited with code ${exitCode}. stderr: ${client.getStderr()}`);
-    assert.strictEqual(client.getStderr().trim(), '', `Unexpected stderr during clean run: ${client.getStderr()}`);
+    const unexpectedStderr = client
+      .getStderr()
+      .split(/\r?\n/)
+      .filter(
+        (line) =>
+          line.trim() !== '' &&
+          !/ExperimentalWarning:\s*SQLite is an experimental feature/i.test(line) &&
+          !/Use `node --trace-warnings \.\.\.` to show where the warning was created/i.test(line)
+      )
+      .join('\n');
+    assert.strictEqual(unexpectedStderr, '', `Unexpected stderr during clean run: ${client.getStderr()}`);
     console.log('[PASS] All 10 MCP tools, JSON-RPC 2.0 error codes, FTS5 search, Git orphan sync, compact, and clean shutdown verified.');
 
     console.log('=== All stdio MCP Server E2E tests passed (0 errors) ===\n');
