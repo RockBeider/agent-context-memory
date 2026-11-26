@@ -33,6 +33,7 @@ const {
   toDisplayStatus,
 } = require('./storage/id-utils.cjs');
 const { parseLangFlag, resolveLanguage, createTranslator } = require('./i18n.cjs');
+const { isInteractiveTerminal } = require('./sync-agent-rules.cjs');
 
 const BULLET_TASK_HEADER_RE = new RegExp(
   `^-\\s*\\[([^\\]]*)\\]\\s*\\*\\*(?:(${TASK_ID_REGEX_SOURCE})[\\.:]\\s*)(.+?)\\*\\*`,
@@ -1479,6 +1480,7 @@ function main() {
   const isDryRun = args.includes('--dry-run') || args.includes('--status');
   const isCompact = args.includes('--compact') || args.includes('--summary');
   const isAll = args.includes('--all');
+  const isNonInteractive = args.includes('--non-interactive');
   const commitArg = args.find((a) => a.startsWith('--commit='));
 
   const { groups, totalFiles, isNonGit } = classifyChanges();
@@ -1666,7 +1668,7 @@ function main() {
     process.exit(0);
   }
 
-  if (!process.stdin.isTTY) {
+  if (!isInteractiveTerminal({ nonInteractive: isNonInteractive })) {
     console.log(tr('groupStatus.nonInteractiveSkip1'));
     console.log(tr('groupStatus.nonInteractiveSkip2'));
     process.exit(0);
@@ -1676,11 +1678,28 @@ function main() {
     input: process.stdin,
     output: process.stdout,
   });
+  let settled = false;
+  const abortPrompt = () => {
+    if (settled) return;
+    settled = true;
+    rl.close();
+    if (typeof process.stdin.pause === 'function') {
+      process.stdin.pause();
+    }
+    console.log(tr('groupStatus.promptCancelled'));
+    process.exit(0);
+  };
+  rl.on('SIGINT', abortPrompt);
+  rl.on('close', abortPrompt);
 
   rl.question(tr('groupStatus.promptSelect'), (answer) => {
-    const trimmed = answer.trim().toLowerCase();
+    if (settled) return;
+    settled = true;
+    const trimmed = String(answer || '').trim().toLowerCase();
     rl.close();
-    process.stdin.pause();
+    if (typeof process.stdin.pause === 'function') {
+      process.stdin.pause();
+    }
 
     if (trimmed === 'q' || trimmed === '') {
       console.log(tr('groupStatus.promptCancelled'));

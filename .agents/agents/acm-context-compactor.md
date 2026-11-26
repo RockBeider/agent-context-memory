@@ -42,10 +42,20 @@ When invoked after completing a milestone, trim bloat from active tasks and cano
 
 ---
 
-## 2. Execution Workflow
-1. Inspect sizes and structural consistency of `task.md`, `patterns-index.md`, and `project-changelog.md`.
-2. Select items to archive/compact and apply edits cleanly.
+## 2. SQLite Mode Standard Compaction (`.agents/acm/config.json` `storage.provider = "sqlite"`)
+1. **Preview Candidates (Dry-Run)**:
+   - Run `npm run acm -- stats` and `npm run acm -- compact --dry-run` (or MCP `acm_status` / `acm_compact` with `{ "dryRun": true }`) to inspect `doneTaskFtsDays`, `syncLogMaxRows`, and `dbSizeBytes`.
+2. **Execute Compaction**:
+   - Run `npm run acm -- compact --export-archive` (or MCP `acm_compact` with `{ "dryRun": false, "exportArchive": true }`) to archive aged done tasks into `.agents/acm/memory/archive/tasks-YYYY.jsonl`, prune excess `sync_log` rows, and run FTS5 optimize + WAL truncate checkpoint + `VACUUM`.
+   - When `markdownProjection: true`, `task.md` and `task-completed.md` views re-project automatically; do not manually edit or delete SQLite rows or `task.md` views in `sqlite` mode.
+
+---
+
+## 3. Execution Workflow
+1. Check `.agents/acm/config.json` (`storage.provider`). In `sqlite` mode, follow Section 2 via CLI/MCP; in `markdown` mode, inspect sizes and structural consistency of `task.md`, `patterns-index.md`, and `project-changelog.md`.
+2. Select items to archive/compact and apply edits or `compact` cleanly.
 3. Report bytes saved and updated memory metrics.
+4. **Runtime Fallback (No `.agents/agents/` Subagent Auto-Mount)**: If the host IDE/runtime does not auto-mount `.agents/agents/*.md` subagents, the main agent reads this file directly and executes the same procedure.
 
 ---
 

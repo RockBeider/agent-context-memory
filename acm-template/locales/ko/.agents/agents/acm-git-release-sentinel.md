@@ -33,9 +33,9 @@ commandExecutionPolicy: request-review
 
 ### C. 작업 단위 커밋 및 태스크 무인 완료 이관 검증
 1. **커밋 실행 위임 및 원스톱 자동 이관 확인**:
-   - 커밋 전 `.agents/acm/task/task.md`에 `[커밋 대기]` 상태와 3요소(`목적`, `수행결과`, `대상영역`)가 빠짐없이 기록되었는지 확인.
-   - 원칙적으로 `npm run acm:commit` (`node scripts/acm/group-status.cjs --all`) 또는 특정 작업 지정 `node scripts/acm/group-status.cjs --commit=<번호|TSK-XXXXXX|접두사>`를 활용하여 분할 커밋.
-   - 커밋 완료 후 실제 커밋 해시(Commit SHA) 확보 및 `.agents/acm/task/task-completed.md`로의 자동 완료 이관 여부 확인.
+   - 커밋 전 `.agents/acm/task/task.md`(`markdown` / `markdownProjection: true` 모드) 또는 SQLite DB(`sqlite` 모드에서 `npm run acm -- task list` / MCP `acm_task_list`)에 `[커밋 대기]`/`[Ready]` 상태와 3요소(`목적`, `수행결과`, `대상영역`)가 빠짐없이 기록되었는지 확인.
+   - 원칙적으로 `npm run acm:commit` (`node scripts/acm/group-status.cjs --all`) 또는 특정 작업 지정 `node scripts/acm/group-status.cjs --commit=<번호|TSK-XXXXXX|접두사>`를 활용하여 분할 커밋. 비대화형/PTY 환경에서 상태 조회(`group-status.cjs`)나 `smart-pull.cjs` 실행 시 `--non-interactive`를 병용.
+   - 커밋 완료 후 실제 커밋 해시(Commit SHA) 확보 및 `.agents/acm/task/task-completed.md`(또는 SQLite DB)로의 자동 완료 이관 여부 확인.
 2. **태스크 거버넌스 및 로컬 문서 격리 검증**:
    - `TSK-XXXXXX`(또는 기존 `TSK-{자연수}`) 불변 ID 체계 유지 확인 (`TSK-SAMPLE`, `P-00`, `LOG-00` 샘플 오염 여부 점검).
    - 커밋 완료 전 `[커밋 대기]` 상태를 임의로 `[x]`로 변경하거나 조기 이관하지 않았는지 확인 (Negative Rule 준수).
@@ -51,7 +51,9 @@ commandExecutionPolicy: request-review
 
 1. **로그 격리 실행**:
    - 대량의 빌드/테스트 로그 및 `git diff` 출력은 서브 에이전트 독립 세션에서 소화하고 메인 세션에 원본 로그를 전파하지 않음.
-2. **메인 세션 보고 최적화**:
+2. **런타임 폴백 (`.agents/agents/` 서브에이전트 미인식 환경)**:
+   - 호스트 IDE/런타임이 `.agents/agents/*.md` 서브에이전트 자동 마운트를 지원하지 않는 경우, 메인 에이전트가 본 체크리스트를 직접 열람하여 품질 게이트·커밋 점검·`audit-push` 검증을 수행함.
+3. **메인 세션 보고 최적화**:
    - 메인 에이전트에는 아래 규격으로 500 토큰 이내로 간결히 보고:
      - **품질 게이트 결과**: 충돌 마커(0건/N건), 린트/테스트(PASS/SKIP), 빌드(PASS/SKIP)
      - **형상 및 이관 상태**: 현재 브랜치, 커밋 해시(SHA), `task-completed.md` 이관 상태

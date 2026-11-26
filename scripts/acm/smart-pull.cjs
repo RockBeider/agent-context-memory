@@ -15,6 +15,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const readline = require('readline');
 const { parseLangFlag, resolveLanguage, createTranslator } = require('./i18n.cjs');
+const { isInteractiveTerminal } = require('./sync-agent-rules.cjs');
 
 const ROOT_DIR = process.env.ACM_ROOT_DIR ? path.resolve(process.env.ACM_ROOT_DIR) : path.resolve(__dirname, '..', '..');
 const ACTIVE_LANG = resolveLanguage(ROOT_DIR, parseLangFlag(process.argv.slice(2)).lang);
@@ -531,34 +532,44 @@ function runQualityGates() {
 /**
  * 7. Interactive manual conflict resolver prompt.
  */
-function promptUserResolution(ours, theirs, filePath, chunkIdx) {
+function promptUserResolution(ours, theirs, filePath, chunkIdx, options = {}) {
   return new Promise((resolve) => {
-    console.log('\n-------------------------------------------------------');
-    console.log(tr('smartPull.manualNeeded', { filePath, chunkIdx }));
-    console.log('-------------------------------------------------------');
-    console.log(tr('smartPull.manualOurs', { ours }));
-    console.log(tr('smartPull.manualTheirs', { theirs }));
-    console.log('-------------------------------------------------------');
-    console.log(tr('smartPull.manualPromptTitle'));
-    console.log(tr('smartPull.manualChoice1'));
-    console.log(tr('smartPull.manualChoice2'));
-    console.log(tr('smartPull.manualChoice3'));
-    console.log(tr('smartPull.manualChoice4'));
-    console.log(tr('smartPull.manualChoice5'));
+    if (!options.silent) {
+      console.log('\n-------------------------------------------------------');
+      console.log(tr('smartPull.manualNeeded', { filePath, chunkIdx }));
+      console.log('-------------------------------------------------------');
+      console.log(tr('smartPull.manualOurs', { ours }));
+      console.log(tr('smartPull.manualTheirs', { theirs }));
+      console.log('-------------------------------------------------------');
+      console.log(tr('smartPull.manualPromptTitle'));
+      console.log(tr('smartPull.manualChoice1'));
+      console.log(tr('smartPull.manualChoice2'));
+      console.log(tr('smartPull.manualChoice3'));
+      console.log(tr('smartPull.manualChoice4'));
+      console.log(tr('smartPull.manualChoice5'));
+    }
 
     const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
+      input: options.input || process.stdin,
+      output: options.output || process.stdout,
     });
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      rl.close();
+      resolve(value);
+    };
+    rl.on('SIGINT', () => finish(null));
+    rl.on('close', () => finish(null));
 
     rl.question(tr('smartPull.manualQuestion'), (answer) => {
-      rl.close();
-      const choice = answer.trim();
-      if (choice === '1') resolve(ours);
-      else if (choice === '2') resolve(theirs);
-      else if (choice === '3') resolve(`${ours.trim()}\n\n${theirs.trim()}`);
-      else if (choice === '4') resolve(`${theirs.trim()}\n\n${ours.trim()}`);
-      else resolve(null);
+      const choice = String(answer || '').trim();
+      if (choice === '1') return finish(ours);
+      if (choice === '2') return finish(theirs);
+      if (choice === '3') return finish(`${ours.trim()}\n\n${theirs.trim()}`);
+      if (choice === '4') return finish(`${theirs.trim()}\n\n${ours.trim()}`);
+      finish(null);
     });
   });
 }
@@ -572,6 +583,8 @@ async function main() {
   const isResolveMode = args.includes('--resolve') || args.includes('-r');
   const isDryRun = args.includes('--dry-run');
   const skipBuild = args.includes('--no-build');
+  const isNonInteractive = args.includes('--non-interactive');
+  const canPrompt = isInteractiveTerminal({ nonInteractive: isNonInteractive });
 
   console.log('=======================================================');
   console.log(tr('smartPull.bannerTitle'));
@@ -668,7 +681,7 @@ async function main() {
       } else {
         console.log(tr('smartPull.partialResolve', { resolved: res.resolvedCount, total: res.count }));
         for (const d of res.details) {
-          if (d.unresolved && !isDryRun && process.stdin.isTTY) {
+          if (d.unresolved && !isDryRun && canPrompt) {
             const chosen = await promptUserResolution(d.ours, d.theirs, file, d.index);
             if (chosen !== null) {
               const absPath = path.join(ROOT_DIR, file);
@@ -800,7 +813,7 @@ async function main() {
     } else {
       console.log(tr('smartPull.partialResolvePull', { resolved: res.resolvedCount, total: res.count }));
       for (const d of res.details) {
-        if (d.unresolved && !isDryRun && process.stdin.isTTY) {
+        if (d.unresolved && !isDryRun && canPrompt) {
           const chosen = await promptUserResolution(d.ours, d.theirs, file, d.index);
           if (chosen !== null) {
             const absPath = path.join(ROOT_DIR, file);
@@ -873,4 +886,5 @@ module.exports = {
   tryResolveExportsOrImports,
   tryResolveJsonKeyValues,
   resolveConflictChunk,
+  promptUserResolution,
 };

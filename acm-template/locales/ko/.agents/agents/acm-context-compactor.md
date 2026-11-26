@@ -42,10 +42,20 @@ commandExecutionPolicy: request-review
 
 ---
 
-## 2. 작업 수행 절차
-1. `task.md`, `patterns-index.md`, `project-changelog.md`의 크기 및 정합성 분석.
-2. 이관/압축 대상 항목 선별 및 정제 반영.
+## 2. SQLite 모드 표준 압축 절차 (`.agents/acm/config.json` `storage.provider = "sqlite"`)
+1. **압축 대상 미리보기 (Dry-Run)**:
+   - `npm run acm -- stats` 및 `npm run acm -- compact --dry-run` (또는 MCP `acm_status` / `acm_compact` `{ "dryRun": true }`)로 `doneTaskFtsDays`, `syncLogMaxRows`, `dbSizeBytes`를 점검합니다.
+2. **DB 압축 및 아카이브 실행**:
+   - `npm run acm -- compact --export-archive` (또는 MCP `acm_compact` `{ "dryRun": false, "exportArchive": true }`)를 실행하여 오래된 완료 태스크를 `.agents/acm/memory/archive/tasks-YYYY.jsonl`로 이관하고 초과 `sync_log` 정리 및 FTS5 optimize + WAL truncate + `VACUUM`을 수행합니다.
+   - `markdownProjection: true` 환경에서는 `task.md`/`task-completed.md` 뷰가 자동 재투영되므로 `sqlite` 모드에서 수기 파일 편집이나 임의 삭제를 수행하지 마십시오.
+
+---
+
+## 3. 작업 수행 절차
+1. `.agents/acm/config.json`(`storage.provider`)을 확인하여 `sqlite` 모드에서는 2장 CLI/MCP 절차를 따르고, `markdown` 모드에서는 `task.md`, `patterns-index.md`, `project-changelog.md`의 크기 및 정합성을 분석합니다.
+2. 이관/압축 대상 항목 선별 및 정제 또는 `compact` 실행.
 3. 압축 수행 후 감소된 바이트 수와 현재 상태를 보고서로 출력.
+4. **런타임 폴백 (`.agents/agents/` 서브에이전트 미인식 환경)**: 호스트 IDE/런타임이 `.agents/agents/*.md` 서브에이전트 자동 마운트를 지원하지 않는 경우, 메인 에이전트가 본 문서를 직접 열람해 동일한 절차를 수행합니다.
 
 ---
 

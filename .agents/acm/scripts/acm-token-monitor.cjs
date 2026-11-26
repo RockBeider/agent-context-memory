@@ -16,12 +16,16 @@ const MESSAGES = {
   en: {
     alert: (sizeKB, estTokens) =>
       `[Context Saturation Alert] Session log reached ~${sizeKB}KB (~${estTokens.toLocaleString()} tokens). Wrapping up the current task, updating task.md, and starting a new session is strongly recommended.`,
+    alertSqlite: (sizeKB, estTokens) =>
+      `[Context Saturation Alert] Session log reached ~${sizeKB}KB (~${estTokens.toLocaleString()} tokens). Wrapping up the current task, updating task state via \`npm run acm -- task update\` (or MCP \`acm_task_upsert\`), and starting a new session is strongly recommended.`,
     warn: (sizeKB) =>
       `[Context Notice] Session log reached ~${sizeKB}KB. Avoid full-file reads and stick to sliced reads (lines 1-35) where possible.`,
   },
   ko: {
     alert: (sizeKB, estTokens) =>
       `[컨텍스트 포화 경고] 세션 누적 로그가 약 ${sizeKB}KB (약 ${estTokens.toLocaleString()} 토큰)에 도달했습니다. 현재 작업 일단락 후 /태스크(task.md) 정리 및 새 세션 분리를 강력히 권장합니다.`,
+    alertSqlite: (sizeKB, estTokens) =>
+      `[컨텍스트 포화 경고] 세션 누적 로그가 약 ${sizeKB}KB (약 ${estTokens.toLocaleString()} 토큰)에 도달했습니다. 현재 작업 일단락 후 \`npm run acm -- task update\`(또는 MCP \`acm_task_upsert\`)로 태스크 상태를 갱신하고 새 세션 분리를 강력히 권장합니다.`,
     warn: (sizeKB) =>
       `[컨텍스트 주의] 세션 누적 로그가 약 ${sizeKB}KB에 진입했습니다. 파일 전체 읽기를 지양하고 상위 30~40라인 슬라이스 조회를 유지하십시오.`,
   },
@@ -56,6 +60,35 @@ function resolveHookLanguage() {
     } catch (_) {}
   }
   return 'en';
+}
+
+function resolveHookStorageMode() {
+  const workspaceRoot = path.resolve(__dirname, '..', '..', '..');
+  const candidates = [
+    path.join(workspaceRoot, '.agents', 'acm', 'config.json'),
+    path.join(workspaceRoot, '.agents', 'config.json'),
+  ];
+  for (const filePath of candidates) {
+    try {
+      if (fs.existsSync(filePath)) {
+        const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        const provider = data && data.storage && String(data.storage.provider || '').trim().toLowerCase();
+        if (provider === 'sqlite') {
+          return data.storage.markdownProjection === true ? 'markdown' : 'sqlite-only';
+        }
+        if (provider === 'markdown') {
+          return 'markdown';
+        }
+      }
+    } catch (_) {}
+  }
+  if (
+    fs.existsSync(path.join(workspaceRoot, '.agents', 'acm', 'local', 'memory.db')) ||
+    fs.existsSync(path.join(workspaceRoot, '.agents', 'local', 'memory.db'))
+  ) {
+    return 'sqlite-only';
+  }
+  return 'markdown';
 }
 
 function getStateFilePath(transcriptPath) {
@@ -128,11 +161,16 @@ function main() {
 
       if (currentLevel === 'alert') {
         const estTokens = Math.round((sizeKB / 4.5) * 1000);
+        const storageMode = resolveHookStorageMode();
+        const alertText =
+          storageMode === 'sqlite-only' && typeof msgMap.alertSqlite === 'function'
+            ? msgMap.alertSqlite(sizeKB, estTokens)
+            : msgMap.alert(sizeKB, estTokens);
         console.log(
           JSON.stringify({
             injectSteps: [
               {
-                ephemeralMessage: msgMap.alert(sizeKB, estTokens),
+                ephemeralMessage: alertText,
               },
             ],
           })

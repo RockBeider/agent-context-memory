@@ -4,7 +4,7 @@
     "PreInvocation": [
       {
         "type": "command",
-        "command": "node -e \"const fs=require('fs'),path=require('path');const p=fs.existsSync('./.agents/acm/scripts/acm-token-monitor.cjs')?'./.agents/acm/scripts/acm-token-monitor.cjs':fs.existsSync('./acm/scripts/acm-token-monitor.cjs')?'./acm/scripts/acm-token-monitor.cjs':'../.agents/acm/scripts/acm-token-monitor.cjs';require(path.resolve(p));\"",
+        "command": "node -e \"try{const fs=require('fs'),path=require('path');let dir=process.cwd(),found=null;while(true){for(const rel of ['.agents/acm/scripts/acm-token-monitor.cjs','acm/scripts/acm-token-monitor.cjs','.agents/scripts/token-monitor.cjs']){const c=path.join(dir,rel);if(fs.existsSync(c)){found=c;break;}}if(found)break;const next=path.dirname(dir);if(next===dir)break;dir=next;}if(found){require(found);}else{console.log('{}');}}catch(_){console.log('{}');}\"",
         "timeout": 5
       }
     ]

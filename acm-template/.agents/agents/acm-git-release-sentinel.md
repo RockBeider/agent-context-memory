@@ -33,8 +33,8 @@ Enforce root project rules (`AGENTS.md`, `GEMINI.md`, etc.), [ACM_GOVERNANCE.md]
 
 ### C. Task-Centric Commit & Auto-Archive Verification
 1. **Commit Delegation & Auto-Archive Check**:
-   - Confirm `.agents/acm/task/task.md` (or SQLite store) has `[Ready]` status and all 3 elements (`Purpose`, `Results`, `Targets`) before committing.
-   - Commit via `npm run acm:commit` (`node scripts/acm/group-status.cjs --all`) or `node scripts/acm/group-status.cjs --commit=<num|TSK-XXXXXX|prefix>`.
+   - Confirm `.agents/acm/task/task.md` (in `markdown` / `markdownProjection: true` mode) or SQLite DB (`npm run acm -- task list` / MCP `acm_task_list` in `sqlite` mode) has `[Ready]` status and all 3 elements (`Purpose`, `Results`, `Targets`) before committing.
+   - Commit via `npm run acm:commit` (`node scripts/acm/group-status.cjs --all`) or `node scripts/acm/group-status.cjs --commit=<num|TSK-XXXXXX|prefix>`. In non-interactive/PTY environments, pass `--non-interactive` when inspecting status (`node scripts/acm/group-status.cjs --non-interactive`) or running `smart-pull.cjs`.
    - Verify a real Commit SHA was captured and the task was auto-archived into `.agents/acm/task/task-completed.md` (or SQLite).
 2. **Governance & Local Isolation Check**:
    - Verify immutable `TSK-XXXXXX` (or legacy `TSK-{N}`) IDs (no `TSK-SAMPLE`, `P-00`, or `LOG-00` sample leakage).
@@ -51,7 +51,9 @@ Enforce root project rules (`AGENTS.md`, `GEMINI.md`, etc.), [ACM_GOVERNANCE.md]
 
 1. **Log Isolation**:
    - Absorb verbose build, test, and `git diff` logs inside your isolated session; never dump raw logs back to the parent session.
-2. **Concise Main-Session Summary (<= 500 tokens)**:
+2. **Runtime Fallback (No `.agents/agents/` Subagent Auto-Mount)**:
+   - If the host IDE/runtime does not auto-mount `.agents/agents/*.md` subagents, the main agent reads this checklist directly and runs the same quality gates, commit checks, and `audit-push` verification.
+3. **Concise Main-Session Summary (<= 500 tokens)**:
    - **Quality Gates**: Conflict markers (0 / N), Lint/Test (PASS/SKIP), Build (PASS/SKIP)
    - **VCS & Archive Status**: Branch, Commit SHA, `task-completed.md` archive state
    - **Push Decision**: `READY TO PUSH` or `BLOCK (reason & required remediation)`

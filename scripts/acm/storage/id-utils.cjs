@@ -364,10 +364,14 @@ function normalizeTaskStatus(raw) {
   const trimmed = String(raw).trim();
   if (!trimmed) return 'todo';
 
-  const lower = trimmed.toLowerCase();
+  const unwrapped = trimmed.replace(/^\[(.*)\]$/, '$1').trim();
+  const stripped = unwrapped.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  if (!stripped) return 'todo';
+
+  const lower = stripped.toLowerCase();
   if (VALID_CANONICAL_STATUSES.has(lower)) return lower;
 
-  if (lower === 'x' || lower === 'done' || lower === 'completed' || trimmed === '완료') {
+  if (lower === 'x' || lower === 'done' || lower === 'completed' || stripped === '완료') {
     return 'done';
   }
   if (
@@ -376,8 +380,8 @@ function normalizeTaskStatus(raw) {
     lower === 'ready to commit' ||
     lower === 'ready-to-commit' ||
     lower === 'commit-ready' ||
-    trimmed === '커밋 대기' ||
-    trimmed === '검증 완료'
+    stripped === '커밋 대기' ||
+    stripped === '검증 완료'
   ) {
     return 'ready';
   }
@@ -389,17 +393,17 @@ function normalizeTaskStatus(raw) {
     lower.startsWith('in progress') ||
     lower.startsWith('in_progress') ||
     lower.startsWith('in-progress') ||
-    trimmed === '진행 중' ||
-    trimmed === '진행중' ||
-    trimmed.startsWith('진행 중') ||
-    trimmed.startsWith('진행중')
+    stripped === '진행 중' ||
+    stripped === '진행중' ||
+    stripped.startsWith('진행 중') ||
+    stripped.startsWith('진행중')
   ) {
     return 'in_progress';
   }
-  if (lower === 'paused' || lower === 'blocked' || lower === 'on hold' || trimmed === '보류') {
+  if (lower === 'paused' || lower === 'blocked' || lower === 'on hold' || stripped === '보류') {
     return 'paused';
   }
-  if (lower === 'todo' || lower === 'pending' || trimmed === '진행 대기' || trimmed === '대기') {
+  if (lower === 'todo' || lower === 'pending' || stripped === '진행 대기' || stripped === '대기') {
     return 'todo';
   }
   return 'todo';

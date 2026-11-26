@@ -636,4 +636,106 @@ console.log('=== Starting ACM Local SQLite Storage & Commit Engine Integration T
   }
 }
 
+// ---------------------------------------------------------------------------
+// 9. MarkdownProvider owner roundtrip & file-backed lease verification
+// ---------------------------------------------------------------------------
+{
+  assert.strictEqual(normalizeTaskStatus('[Ready (Agent: agent-worker-1)]'), 'ready');
+  assert.strictEqual(normalizeTaskStatus('[커밋 대기 (Agent: agent-worker-1)]'), 'ready');
+  assert.strictEqual(normalizeTaskStatus('[In Progress (Agent: w1)]'), 'in_progress');
+  assert.strictEqual(normalizeTaskStatus('[Paused (Agent: w1)]'), 'paused');
+
+  const mdDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-md-owner-lease-'));
+  let mdStore = null;
+  try {
+    saveConfig(mdDir, { language: 'en', storage: { provider: 'markdown' } });
+    mdStore = createMemoryStore(mdDir, { lang: 'en' });
+    assert.strictEqual(mdStore.providerName, 'markdown');
+
+    const tTodo = mdStore.upsertTask({
+      title: 'Markdown todo with owner',
+      status: 'todo',
+      owner: 'agent-worker-1',
+    });
+    const tProg = mdStore.upsertTask({
+      title: 'Markdown in-progress with owner',
+      status: 'in_progress',
+      owner: 'agent-worker-2',
+    });
+    const tReady = mdStore.upsertTask({
+      title: 'Markdown ready with owner',
+      status: 'ready',
+      owner: 'agent-worker-1',
+      purpose: 'Verify owner and lease persistence in markdown mode',
+      results: ['Updated bridge and provider'],
+      targets: ['scripts/acm/storage/markdown-provider.cjs'],
+    });
+
+    const { taskFile } = resolveTaskFiles(mdDir);
+    const taskMdText = fs.readFileSync(taskFile, 'utf-8');
+    assert.ok(taskMdText.includes('[Todo (Agent: agent-worker-1)]'), 'Todo owner missing in task.md');
+    assert.ok(taskMdText.includes('[In Progress (Agent: agent-worker-2)]'), 'In Progress owner missing in task.md');
+    assert.ok(taskMdText.includes('[Ready (Agent: agent-worker-1)]'), 'Ready owner missing in task.md');
+
+    mdStore.close();
+    mdStore = createMemoryStore(mdDir, { lang: 'en' });
+    assert.strictEqual(mdStore.getTask(tTodo.code).owner, 'agent-worker-1');
+    assert.strictEqual(mdStore.getTask(tProg.code).owner, 'agent-worker-2');
+    assert.strictEqual(mdStore.getTask(tReady.code).owner, 'agent-worker-1');
+    assert.strictEqual(mdStore.getTask(tReady.code).status, 'ready');
+
+    // Lease acquisition, contention, mismatch rejection, force release, and completeTask cleanup
+    const lease1 = mdStore.acquireLease(tReady.code, 'agent-alpha', 300);
+    assert.strictEqual(lease1.acquired, true);
+    assert.strictEqual(lease1.owner, 'agent-alpha');
+    const leasesFile = path.join(mdDir, '.agents', 'acm', 'local', 'leases.json');
+    assert.ok(fs.existsSync(leasesFile), 'leases.json should be created on acquireLease');
+    assert.strictEqual(mdStore.getTask(tReady.code).leaseOwner, 'agent-alpha');
+
+    const leaseConflict = mdStore.acquireLease(tReady.code, 'agent-beta', 300);
+    assert.strictEqual(leaseConflict.acquired, false);
+    assert.strictEqual(leaseConflict.holder, 'agent-alpha');
+
+    const badRelease = mdStore.releaseLease(tReady.code, 'agent-beta');
+    assert.strictEqual(badRelease.released, false);
+    assert.strictEqual(badRelease.holder, 'agent-alpha');
+
+    const forcedRelease = mdStore.releaseLease(tReady.code, 'agent-beta', { force: true });
+    assert.strictEqual(forcedRelease.released, true);
+    assert.strictEqual(mdStore.getTask(tReady.code).leaseOwner, null);
+
+    const lease2 = mdStore.acquireLease(tReady.code, 'agent-beta', 300);
+    assert.strictEqual(lease2.acquired, true);
+    mdStore.completeTask(tReady.code, 'deadbeef');
+    assert.strictEqual(mdStore.getTask(tReady.code).leaseOwner, null);
+    const leasesAfterComplete = JSON.parse(fs.readFileSync(leasesFile, 'utf-8'));
+    assert.strictEqual(leasesAfterComplete[tReady.code], undefined, 'completeTask should clear task lease');
+
+    // Korean owner roundtrip + explicit Owner property line parsing
+    mdStore.close();
+    saveConfig(mdDir, { language: 'ko', storage: { provider: 'markdown' } });
+    mdStore = createMemoryStore(mdDir, { lang: 'ko' });
+    const tKo = mdStore.upsertTask({
+      title: '한글 소유자 테스트',
+      status: 'in_progress',
+      owner: '에이전트-1',
+    });
+    assert.ok(fs.readFileSync(taskFile, 'utf-8').includes('[진행 중 (Agent: 에이전트-1)]'));
+    assert.strictEqual(mdStore.getTask(tKo.code).owner, '에이전트-1');
+
+    fs.appendFileSync(
+      taskFile,
+      '- [ ] **TSK-M2K9Q4. Owner property line**\n  - **Owner**: explicit-prop-agent\n',
+      'utf-8'
+    );
+    const parsedWithProp = parseTaskMdFile(taskFile).find((t) => t.code === 'TSK-M2K9Q4');
+    assert.ok(parsedWithProp && parsedWithProp.owner === 'explicit-prop-agent', 'Explicit Owner line parsing failed');
+
+    console.log('[PASS] 9. MarkdownProvider owner roundtrip & file-backed lease verified.');
+  } finally {
+    if (mdStore) mdStore.close();
+    fs.rmSync(mdDir, { recursive: true, force: true });
+  }
+}
+
 console.log('=== All SQLite storage unit & integration tests passed (0 errors) ===\n');
