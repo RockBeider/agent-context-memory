@@ -288,7 +288,7 @@ npx agent-context-memory sync
 
 ### 3) 별도 서버 없이 바로 쓰는 MCP 연동 (`acm mcp`)
 
-외부 패키지나 백그라운드 서버 없이 Node.js 표준 입출력(stdio JSON-RPC 2.0)으로 9개의 도구(`acm_status`, `acm_search`, `acm_task_list`, `acm_task_upsert`, `acm_task_complete`, `acm_pattern_save`, `acm_pattern_get`, `acm_adr_add`, `acm_sync`)를 바로 연결할 수 있습니다.
+외부 패키지나 백그라운드 서버 없이 Node.js 표준 입출력(stdio JSON-RPC 2.0)으로 12개의 도구(`acm_status`, `acm_search`, `acm_task_list`, `acm_task_upsert`, `acm_task_complete`, `acm_pattern_save`, `acm_pattern_get`, `acm_adr_add`, `acm_sync`, `acm_compact`, `ui://acm/viewer.html` 기반 IDE 사이드 패널 `acm_viewer`, 앱 전용 `acm_viewer_data`)를 바로 연결할 수 있습니다.
 
 ```bash
 # Antigravity, Claude Code, Cursor 등에 바로 붙여넣을 MCP 설정 출력

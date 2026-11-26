@@ -15,8 +15,34 @@ const { createMemoryStore } = require('./storage/memory-store.cjs');
 const { isValidRefName, syncWithGitOrphan } = require('./storage/git-orphan-sync.cjs');
 const { checkGitEnvironment } = require('./check-git.cjs');
 const { parseLangFlag, resolveLanguage, createTranslator } = require('./i18n.cjs');
+const {
+  getViewerOverview,
+  listViewerItems,
+  searchViewerItems,
+  getViewerItemDetail,
+  upsertViewerTask,
+  runViewerCompact,
+} = require('./viewer/read-model.cjs');
+const { renderViewerHtml } = require('./viewer/ui-template.cjs');
 
 const DEFAULT_PROTOCOL_VERSION = '2024-11-05';
+const ACM_VIEWER_RESOURCE_URI = 'ui://acm/viewer.html';
+const ACM_VIEWER_MIME_TYPE = 'text/html;profile=mcp-app';
+
+const RESOURCES = [
+  {
+    uri: ACM_VIEWER_RESOURCE_URI,
+    name: 'ACM Memory Viewer',
+    description:
+      'Interactive local memory viewer for ACM tasks, patterns, ADRs, and cold archive.',
+    mimeType: ACM_VIEWER_MIME_TYPE,
+    _meta: {
+      ui: {
+        prefersBorder: false,
+      },
+    },
+  },
+];
 
 const ROOT_DIR_PROPERTY = {
   type: 'string',
@@ -367,6 +393,101 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'acm_viewer',
+    title: 'ACM Memory',
+    description:
+      'Open interactive ACM Memory Viewer (tasks, patterns, ADRs, archive) in the IDE side pane, sidebar, or inline. Returns a concise text summary for non-UI MCP clients.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tab: {
+          type: 'string',
+          enum: ['tasks', 'patterns', 'adrs', 'archive'],
+          description: 'Initial active viewer tab (default: tasks).',
+        },
+        status: {
+          type: 'string',
+          enum: ['all', 'active', 'todo', 'in_progress', 'ready', 'paused', 'done'],
+          description: 'Initial task status filter (default: all).',
+        },
+        query: {
+          type: 'string',
+          description: 'Optional search query to pre-filter records.',
+        },
+        readOnly: {
+          type: 'boolean',
+          description: 'Disable lightweight write controls in the UI (default: false).',
+        },
+        rootDir: ROOT_DIR_PROPERTY,
+      },
+      additionalProperties: false,
+    },
+    _meta: {
+      ui: {
+        resourceUri: ACM_VIEWER_RESOURCE_URI,
+      },
+      'ui/resourceUri': ACM_VIEWER_RESOURCE_URI,
+      'com.google.antigravity/ui': {
+        entrypoints: [
+          { type: 'aux_pane', title: 'ACM Memory' },
+          { type: 'global', title: 'ACM Memory' },
+        ],
+      },
+    },
+  },
+  {
+    name: 'acm_viewer_data',
+    title: 'ACM Viewer Data',
+    description:
+      'App-only data bridge for ACM Memory Viewer UI (overview, items, search, detail, task_upsert, compact).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['overview', 'items', 'search', 'detail', 'task_upsert', 'compact'],
+          description: 'Viewer operation to execute.',
+        },
+        tab: {
+          type: 'string',
+          description: 'Target tab for items action (tasks, patterns, adrs, archive).',
+        },
+        status: {
+          type: 'string',
+          description: 'Task status filter for items action.',
+        },
+        query: {
+          type: 'string',
+          description: 'Search query string for search action.',
+        },
+        kind: {
+          type: 'string',
+          description: 'Record kind filter for search or detail action.',
+        },
+        idOrCode: {
+          type: 'string',
+          description: 'Record UID, code, or unambiguous prefix for detail action.',
+        },
+        limit: {
+          type: 'integer',
+          description: 'Optional result limit.',
+        },
+        payload: {
+          type: 'object',
+          description: 'Payload object for task_upsert or compact actions.',
+        },
+        rootDir: ROOT_DIR_PROPERTY,
+      },
+      required: ['action'],
+      additionalProperties: false,
+    },
+    _meta: {
+      ui: {
+        visibility: ['app'],
+      },
+    },
+  },
 ];
 
 const TOOLS_BY_NAME = new Map(TOOLS.map((tool) => [tool.name, tool]));
@@ -502,6 +623,102 @@ function executeToolCall(name, rawArgs, ctx) {
       autoScrub: args.autoScrub !== undefined ? Boolean(args.autoScrub) : undefined,
       lang: effectiveLang,
     });
+  }
+
+  if (name === 'acm_viewer') {
+    const tab = args.tab || 'tasks';
+    const status = args.status || 'all';
+    const query = typeof args.query === 'string' ? args.query.trim() : '';
+    const readOnly = Boolean(args.readOnly);
+    const overview = getViewerOverview(effectiveRootDir, { lang: effectiveLang });
+    const listRes = query
+      ? searchViewerItems(effectiveRootDir, {
+          query,
+          kind: tab === 'archive' ? 'archive' : 'all',
+          limit: 100,
+          lang: effectiveLang,
+        })
+      : listViewerItems(effectiveRootDir, {
+          tab,
+          status,
+          limit: 100,
+          lang: effectiveLang,
+        });
+
+    const topLines = (listRes.items || [])
+      .slice(0, 5)
+      .map((it) => `- ${it.code} [${it.statusLabel || it.status}] ${it.title}`);
+    const summaryText = [
+      `[ACM Viewer] provider=${overview.provider} tasks=${overview.counts.tasks.visible} (active=${overview.counts.tasks.active}, ready=${overview.counts.tasks.ready}) patterns=${overview.counts.patterns.total} adrs=${overview.counts.adrs.total} archive=${overview.counts.archive}`,
+      `Tab=${tab} (${listRes.total} total)${query ? ` query="${query}"` : ''}:`,
+      ...topLines,
+    ].join('\n');
+
+    return {
+      __mcpStructured: true,
+      text: summaryText,
+      structuredContent: {
+        ok: true,
+        rootDir: effectiveRootDir,
+        readOnly,
+        tab,
+        status,
+        query,
+        overview,
+        items: listRes.items,
+        total: listRes.total,
+      },
+    };
+  }
+
+  if (name === 'acm_viewer_data') {
+    const action = String(args.action || '').trim();
+    const payload = args.payload && typeof args.payload === 'object' ? args.payload : {};
+    let data;
+    switch (action) {
+      case 'overview':
+        data = getViewerOverview(effectiveRootDir, { lang: effectiveLang });
+        break;
+      case 'items':
+        data = listViewerItems(effectiveRootDir, {
+          tab: args.tab || 'tasks',
+          status: args.status || 'all',
+          limit: args.limit !== undefined ? Number(args.limit) : 200,
+          lang: effectiveLang,
+        });
+        break;
+      case 'search':
+        data = searchViewerItems(effectiveRootDir, {
+          query: args.query || '',
+          kind: args.kind || 'all',
+          limit: args.limit !== undefined ? Number(args.limit) : 50,
+          lang: effectiveLang,
+        });
+        break;
+      case 'detail':
+        data = {
+          ok: true,
+          item: getViewerItemDetail(effectiveRootDir, {
+            kind: args.kind || '',
+            idOrCode: args.idOrCode || '',
+            lang: effectiveLang,
+          }),
+        };
+        break;
+      case 'task_upsert':
+        data = upsertViewerTask(effectiveRootDir, payload, { lang: effectiveLang });
+        break;
+      case 'compact':
+        data = runViewerCompact(effectiveRootDir, payload, { lang: effectiveLang });
+        break;
+      default:
+        throw new Error(`Unknown viewer data action: ${action}`);
+    }
+    return {
+      __mcpStructured: true,
+      text: JSON.stringify(data, null, 2),
+      structuredContent: data,
+    };
   }
 
   const config = loadConfig(effectiveRootDir);
@@ -741,6 +958,7 @@ function handleJsonRpcMessage(msg, ctx) {
           protocolVersion: requestedVersion,
           capabilities: {
             tools: {},
+            resources: {},
           },
           serverInfo: {
             name: 'agent-context-memory',
@@ -768,6 +986,54 @@ function handleJsonRpcMessage(msg, ctx) {
       };
     }
 
+    case 'resources/list': {
+      return {
+        jsonrpc: '2.0',
+        id,
+        result: {
+          resources: RESOURCES,
+        },
+      };
+    }
+
+    case 'resources/read': {
+      const uri = params && typeof params.uri === 'string' ? params.uri : '';
+      if (uri !== ACM_VIEWER_RESOURCE_URI) {
+        return {
+          jsonrpc: '2.0',
+          id,
+          error: {
+            code: -32602,
+            message: `Unknown resource URI: ${uri}`,
+          },
+        };
+      }
+      const html = renderViewerHtml({
+        mode: 'mcp-app',
+        lang: ctx.lang,
+        readOnly: false,
+        hostLabel: 'MCP App',
+      });
+      return {
+        jsonrpc: '2.0',
+        id,
+        result: {
+          contents: [
+            {
+              uri: ACM_VIEWER_RESOURCE_URI,
+              mimeType: ACM_VIEWER_MIME_TYPE,
+              text: html,
+              _meta: {
+                ui: {
+                  prefersBorder: false,
+                },
+              },
+            },
+          ],
+        },
+      };
+    }
+
     case 'tools/call': {
       const toolName = params && typeof params.name === 'string' ? params.name : '';
       if (!toolName || !TOOLS_BY_NAME.has(toolName)) {
@@ -783,6 +1049,21 @@ function handleJsonRpcMessage(msg, ctx) {
 
       try {
         const payload = executeToolCall(toolName, params.arguments, ctx);
+        if (payload && payload.__mcpStructured) {
+          return {
+            jsonrpc: '2.0',
+            id,
+            result: {
+              content: [
+                {
+                  type: 'text',
+                  text: payload.text,
+                },
+              ],
+              structuredContent: payload.structuredContent,
+            },
+          };
+        }
         return {
           jsonrpc: '2.0',
           id,
@@ -939,6 +1220,9 @@ if (require.main === module) {
 
 module.exports = {
   TOOLS,
+  RESOURCES,
+  ACM_VIEWER_RESOURCE_URI,
+  ACM_VIEWER_MIME_TYPE,
   DEFAULT_PROTOCOL_VERSION,
   parseMcpArgs,
   buildMcpConfigSnippets,

@@ -9,6 +9,7 @@ const path = require('path');
 const assert = require('assert');
 const os = require('os');
 const readline = require('readline');
+const vm = require('vm');
 const { spawn, spawnSync, execSync } = require('child_process');
 
 console.log('=== Starting Agent Context Memory Stdio MCP Server E2E Tests ===');
@@ -219,6 +220,7 @@ async function runTests() {
     assert.strictEqual(initRpc.id, 1);
     assert.strictEqual(initRpc.result.serverInfo.name, 'agent-context-memory');
     assert.ok(initRpc.result.capabilities && initRpc.result.capabilities.tools, 'capabilities.tools missing');
+    assert.ok(initRpc.result.capabilities && initRpc.result.capabilities.resources, 'capabilities.resources missing');
 
     client.sendNotification('notifications/initialized', {});
     const pingRpc = await client.sendRequest('ping', {}, 2);
@@ -239,11 +241,19 @@ async function runTests() {
       'acm_adr_add',
       'acm_sync',
       'acm_compact',
+      'acm_viewer',
+      'acm_viewer_data',
     ];
     assert.deepStrictEqual(toolNames, expectedTools, `Tool list mismatch: ${JSON.stringify(toolNames)}`);
     for (const tool of listRpc.result.tools) {
       assert.strictEqual(tool.inputSchema.type, 'object', `Invalid schema for ${tool.name}`);
     }
+    const viewerToolMeta = listRpc.result.tools.find((t) => t.name === 'acm_viewer')._meta;
+    assert.strictEqual(viewerToolMeta.ui.resourceUri, 'ui://acm/viewer.html');
+    const entryTypes = viewerToolMeta['com.google.antigravity/ui'].entrypoints.map((e) => e.type);
+    assert.ok(entryTypes.includes('aux_pane') && entryTypes.includes('global'), 'acm_viewer missing aux_pane/global entrypoints');
+    const viewerDataMeta = listRpc.result.tools.find((t) => t.name === 'acm_viewer_data')._meta;
+    assert.deepStrictEqual(viewerDataMeta.ui.visibility, ['app']);
 
     // 3-3. acm_status
     const statusPayload = parseToolPayload(
@@ -539,6 +549,125 @@ async function runTests() {
     assert.strictEqual(invalidRootResp.result.isError, true, 'Invalid rootDir should return isError=true');
     const invalidRootPayload = parseToolPayload(invalidRootResp);
     assert.ok(invalidRootPayload.error.includes('Invalid rootDir'), `Unexpected error: ${invalidRootPayload.error}`);
+
+    // 3-11e. Phase B: MCP Apps resources/list, resources/read, acm_viewer, acm_viewer_data
+    const resListRpc = await client.sendRequest('resources/list', {}, 29);
+    assert.ok(Array.isArray(resListRpc.result.resources));
+    assert.strictEqual(resListRpc.result.resources[0].uri, 'ui://acm/viewer.html');
+    assert.strictEqual(resListRpc.result.resources[0].mimeType, 'text/html;profile=mcp-app');
+
+    const resReadRpc = await client.sendRequest('resources/read', { uri: 'ui://acm/viewer.html' }, 30);
+    const uiContent = resReadRpc.result.contents[0];
+    assert.strictEqual(uiContent.mimeType, 'text/html;profile=mcp-app');
+    assert.ok(!/<script[^>]+src=/i.test(uiContent.text), 'MCP App HTML must not include external script src');
+    assert.ok(!/<link[^>]+href=/i.test(uiContent.text), 'MCP App HTML must not include external link href');
+    assert.ok(uiContent.text.includes('ui/initialize'), 'MCP App HTML missing ui/initialize');
+    assert.ok(uiContent.text.includes('com.google.antigravity/toggle-aux-pane'), 'MCP App HTML missing toggle-aux-pane');
+    const scriptMatch = uiContent.text.match(/<script>([\s\S]*?)<\/script>/);
+    assert.ok(scriptMatch, 'MCP App HTML missing inline script');
+    new vm.Script(scriptMatch[1]);
+
+    const resUnknownRpc = await client.sendRequest('resources/read', { uri: 'ui://acm/missing.html' }, 31);
+    assert.strictEqual(resUnknownRpc.error.code, -32602);
+
+    const viewerResp = await client.sendRequest('tools/call', { name: 'acm_viewer', arguments: {} }, 32);
+    assert.ok(viewerResp.result.content[0].text.includes('[ACM Viewer]'));
+    assert.ok(viewerResp.result.structuredContent && viewerResp.result.structuredContent.overview);
+    assert.strictEqual(
+      path.resolve(viewerResp.result.structuredContent.rootDir),
+      path.resolve(repoDir)
+    );
+
+    const viewerBResp = await client.sendRequest(
+      'tools/call',
+      { name: 'acm_viewer', arguments: { rootDir: repoB } },
+      33
+    );
+    assert.strictEqual(
+      path.resolve(viewerBResp.result.structuredContent.rootDir),
+      path.resolve(repoB)
+    );
+    assert.ok(
+      viewerBResp.result.structuredContent.items.some((i) => i.code === taskBCode),
+      'acm_viewer with rootDir=repoB must return RepoB tasks'
+    );
+
+    const dataOv = (
+      await client.sendRequest('tools/call', { name: 'acm_viewer_data', arguments: { action: 'overview' } }, 34)
+    ).result.structuredContent;
+    assert.strictEqual(dataOv.provider, 'sqlite');
+
+    const dataItemsTasks = (
+      await client.sendRequest(
+        'tools/call',
+        { name: 'acm_viewer_data', arguments: { action: 'items', tab: 'tasks' } },
+        35
+      )
+    ).result.structuredContent;
+    assert.ok(Array.isArray(dataItemsTasks.items));
+
+    const dataItemsPat = (
+      await client.sendRequest(
+        'tools/call',
+        { name: 'acm_viewer_data', arguments: { action: 'items', tab: 'patterns' } },
+        36
+      )
+    ).result.structuredContent;
+    assert.ok(dataItemsPat.items.length >= 1);
+
+    const dataItemsAdr = (
+      await client.sendRequest(
+        'tools/call',
+        { name: 'acm_viewer_data', arguments: { action: 'items', tab: 'adrs' } },
+        37
+      )
+    ).result.structuredContent;
+    assert.ok(dataItemsAdr.items.length >= 1);
+
+    const dataSearch = (
+      await client.sendRequest(
+        'tools/call',
+        { name: 'acm_viewer_data', arguments: { action: 'search', query: 'Stdio' } },
+        38
+      )
+    ).result.structuredContent;
+    assert.ok(dataSearch.items.length >= 1);
+
+    const dataBlockedDone = await client.sendRequest(
+      'tools/call',
+      {
+        name: 'acm_viewer_data',
+        arguments: { action: 'task_upsert', payload: { title: 'Blocked', status: 'done' } },
+      },
+      39
+    );
+    assert.strictEqual(dataBlockedDone.result.isError, true, 'acm_viewer_data must block status=done');
+
+    const dataCreated = (
+      await client.sendRequest(
+        'tools/call',
+        {
+          name: 'acm_viewer_data',
+          arguments: { action: 'task_upsert', payload: { title: 'Created From MCP App', status: 'todo' } },
+        },
+        40
+      )
+    ).result.structuredContent;
+    assert.strictEqual(dataCreated.ok, true);
+    assert.strictEqual(dataCreated.task.status, 'todo');
+
+    const dataCompact = (
+      await client.sendRequest(
+        'tools/call',
+        {
+          name: 'acm_viewer_data',
+          arguments: { action: 'compact', payload: { dryRun: true } },
+        },
+        41
+      )
+    ).result.structuredContent;
+    assert.strictEqual(dataCompact.ok, true);
+    assert.strictEqual(dataCompact.result.dryRun, true);
 
     // 3-12. Error handling: unknown tool (-32602), unknown method (-32601), malformed JSON (-32700), final ping
     const unknownToolResp = await client.sendRequest(

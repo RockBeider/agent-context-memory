@@ -92,6 +92,7 @@ const SUITES = [
     matches: [
       'bin/',
       'scripts/acm/mcp-server.cjs',
+      'scripts/acm/viewer/',
       'scripts/acm/acm-manifest.cjs',
       'scripts/acm/storage/',
     ],

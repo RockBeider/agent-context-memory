@@ -288,7 +288,7 @@ npx agent-context-memory sync
 
 ### 3) Zero-Setup Stdio MCP Server (`acm mcp`)
 
-Expose 9 structured tools (`acm_status`, `acm_search`, `acm_task_list`, `acm_task_upsert`, `acm_task_complete`, `acm_pattern_save`, `acm_pattern_get`, `acm_adr_add`, `acm_sync`) over standard stdio JSON-RPC 2.0—no background daemon or extra packages needed:
+Expose 12 structured tools (`acm_status`, `acm_search`, `acm_task_list`, `acm_task_upsert`, `acm_task_complete`, `acm_pattern_save`, `acm_pattern_get`, `acm_adr_add`, `acm_sync`, `acm_compact`, `acm_viewer` IDE side-pane UI via `ui://acm/viewer.html`, and app-only `acm_viewer_data`) over standard stdio JSON-RPC 2.0—no background daemon or extra packages needed:
 
 ```bash
 # Print ready-to-paste MCP config JSON for Antigravity, Claude Code, Cursor, etc.

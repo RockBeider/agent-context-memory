@@ -48,6 +48,7 @@ const UI_COPY = {
     selectHint: 'Select a record to inspect details.',
     copyId: 'Copy ID',
     copyPath: 'Copy',
+    openFile: 'Open',
     copied: 'Copied',
     editTask: 'Edit Task',
     purpose: 'Purpose',
@@ -115,6 +116,7 @@ const UI_COPY = {
     selectHint: '항목을 선택하면 상세 정보가 표시됩니다.',
     copyId: 'ID 복사',
     copyPath: '복사',
+    openFile: '열기',
     copied: '복사됨',
     editTask: '태스크 편집',
     purpose: '목적',
@@ -534,6 +536,7 @@ function renderViewerHtml({
       const CFG = window.__ACM_CONFIG__;
       const T = CFG.copy;
       const state = {
+        rootDir: '',
         overview: CFG.snapshot ? CFG.snapshot.overview : null,
         tab: CFG.initialTab || 'tasks',
         statusFilter: 'all',
@@ -599,11 +602,169 @@ function renderViewerHtml({
         return data;
       }
 
+      function applyReadOnlyUi() {
+        const roBadge = document.getElementById('roBadge');
+        const newBtn = document.getElementById('newTaskBtn');
+        const cmpBtn = document.getElementById('compactBtn');
+        if (roBadge) roBadge.classList.toggle('hidden', !CFG.readOnly);
+        if (newBtn) newBtn.classList.toggle('hidden', CFG.readOnly);
+        if (cmpBtn) cmpBtn.classList.toggle('hidden', CFG.readOnly);
+      }
+
+      const mcpBridge = (function createMcpBridge() {
+        if (CFG.mode !== 'mcp-app') return null;
+        let nextId = 1;
+        let initialResultReceived = false;
+        const pending = new Map();
+
+        function applyHostContext(hostCtx) {
+          if (!hostCtx || typeof hostCtx !== 'object') return;
+          if (hostCtx.theme === 'dark' || hostCtx.theme === 'light') {
+            document.documentElement.setAttribute('data-theme', hostCtx.theme);
+          }
+          if (hostCtx.styles && hostCtx.styles.variables && typeof hostCtx.styles.variables === 'object') {
+            for (const [k, v] of Object.entries(hostCtx.styles.variables)) {
+              if (k && v !== undefined && v !== null) {
+                document.documentElement.style.setProperty(String(k), String(v));
+              }
+            }
+          }
+        }
+
+        function applyToolResult(sc) {
+          if (!sc || typeof sc !== 'object') return;
+          initialResultReceived = true;
+          if (sc.rootDir) state.rootDir = String(sc.rootDir);
+          if (sc.readOnly !== undefined) {
+            CFG.readOnly = Boolean(sc.readOnly);
+            applyReadOnlyUi();
+          }
+          if (sc.overview) state.overview = sc.overview;
+          if (sc.tab) state.tab = sc.tab;
+          if (sc.status) state.statusFilter = sc.status;
+          if (sc.query !== undefined) {
+            state.query = String(sc.query || '');
+            const si = document.getElementById('searchInput');
+            if (si && si.value !== state.query) si.value = state.query;
+          }
+          if (Array.isArray(sc.items)) state.items = sc.items;
+          renderHeader();
+          renderTabs();
+          renderList();
+        }
+
+        window.addEventListener('message', (event) => {
+          const msg = event && event.data;
+          if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0') return;
+          if (msg.id !== undefined && msg.method === undefined && pending.has(msg.id)) {
+            const entry = pending.get(msg.id);
+            pending.delete(msg.id);
+            clearTimeout(entry.timer);
+            if (msg.error) entry.reject(new Error(msg.error.message || 'MCP App RPC error'));
+            else entry.resolve(msg.result);
+            return;
+          }
+          if (msg.method === 'ping' && msg.id !== undefined) {
+            window.parent.postMessage({ jsonrpc: '2.0', id: msg.id, result: {} }, '*');
+            return;
+          }
+          if (msg.method === 'ui/notifications/host-context-changed') {
+            applyHostContext(msg.params);
+            return;
+          }
+          if (msg.method === 'ui/notifications/tool-result') {
+            if (msg.params && msg.params.structuredContent) {
+              applyToolResult(msg.params.structuredContent);
+            }
+          }
+        });
+
+        function request(method, params) {
+          return new Promise((resolve, reject) => {
+            const id = nextId++;
+            const timer = setTimeout(() => {
+              pending.delete(id);
+              reject(new Error('MCP App bridge timeout: ' + method));
+            }, 15000);
+            pending.set(id, { resolve, reject, timer });
+            window.parent.postMessage({ jsonrpc: '2.0', id, method, params: params || {} }, '*');
+          });
+        }
+
+        function notify(method, params) {
+          window.parent.postMessage({ jsonrpc: '2.0', method, params: params || {} }, '*');
+        }
+
+        function toFileUri(rootDir, relPath) {
+          const base = String(rootDir || '').replace(/\\\\/g, '/').replace(/\\/+$/, '');
+          const rel = String(relPath || '').replace(/\\\\/g, '/').replace(/^\\.?\\/+/, '');
+          const joined = base ? base + '/' + rel : rel;
+          const encoded = joined
+            .split('/')
+            .map((seg, idx) => (idx === 0 && /^[A-Za-z]:$/.test(seg) ? seg : encodeURIComponent(seg)))
+            .join('/');
+          return /^[A-Za-z]:\\//.test(joined) ? 'file:///' + encoded : 'file://' + (encoded.startsWith('/') ? '' : '/') + encoded;
+        }
+
+        return {
+          hasInitialToolResult: () => initialResultReceived,
+          async connect() {
+            const initRes = await request('ui/initialize', {
+              protocolVersion: '2026-01-26',
+              appInfo: { name: 'agent-context-memory', version: '0.2.0' },
+              appCapabilities: {},
+            });
+            applyHostContext(initRes && initRes.hostContext);
+            notify('ui/notifications/initialized', {});
+            if (typeof ResizeObserver === 'function' && document.body) {
+              let lastH = 0;
+              const ro = new ResizeObserver(() => {
+                const h = Math.ceil(document.body.scrollHeight);
+                if (h && h !== lastH) {
+                  lastH = h;
+                  notify('ui/notifications/size-changed', { height: h });
+                }
+              });
+              ro.observe(document.body);
+            }
+            return initRes;
+          },
+          async callServerTool(name, args) {
+            const res = await request('tools/call', { name, arguments: args || {} });
+            if (res && res.isError) {
+              const txt = res.content && res.content[0] && res.content[0].text;
+              let errMsg = txt || 'Tool call failed';
+              try {
+                const parsed = JSON.parse(txt);
+                if (parsed && parsed.error) errMsg = parsed.error;
+              } catch (_) {}
+              throw new Error(errMsg);
+            }
+            if (res && res.structuredContent) return res.structuredContent;
+            const text = res && res.content && res.content[0] && res.content[0].text;
+            return text ? JSON.parse(text) : {};
+          },
+          openWorkspaceFile(relPath) {
+            if (!state.rootDir || !relPath) return;
+            const uri = toFileUri(state.rootDir, relPath);
+            request('com.google.antigravity/toggle-aux-pane', {
+              tabType: 'fileView',
+              uri,
+            }).catch(() => {});
+          },
+        };
+      })();
+
       const transport = {
         async loadOverview() {
           if (CFG.mode === 'snapshot') return CFG.snapshot.overview;
           if (CFG.mode === 'http') return apiGet('/api/overview');
-          if (CFG.mode === 'mcp-app') return state.overview;
+          if (CFG.mode === 'mcp-app' && mcpBridge) {
+            return mcpBridge.callServerTool('acm_viewer_data', {
+              action: 'overview',
+              rootDir: state.rootDir || undefined,
+            });
+          }
           return state.overview;
         },
         async loadItems(tab, statusFilter, query) {
@@ -644,15 +805,45 @@ function renderViewerHtml({
             }
             return apiGet('/api/items?tab=' + encodeURIComponent(tab) + '&status=' + encodeURIComponent(statusFilter));
           }
-          // Phase B: mcp-app bridge stub
+          if (CFG.mode === 'mcp-app' && mcpBridge) {
+            const q = String(query || '').trim();
+            if (q) {
+              return mcpBridge.callServerTool('acm_viewer_data', {
+                action: 'search',
+                query: q,
+                kind: tab === 'archive' ? 'archive' : 'all',
+                rootDir: state.rootDir || undefined,
+              });
+            }
+            return mcpBridge.callServerTool('acm_viewer_data', {
+              action: 'items',
+              tab,
+              status: statusFilter,
+              rootDir: state.rootDir || undefined,
+            });
+          }
           return { items: [], total: 0 };
         },
         async saveTask(payload) {
           if (CFG.mode === 'http') return apiPost('/api/tasks', payload);
+          if (CFG.mode === 'mcp-app' && mcpBridge && !CFG.readOnly) {
+            return mcpBridge.callServerTool('acm_viewer_data', {
+              action: 'task_upsert',
+              payload,
+              rootDir: state.rootDir || undefined,
+            });
+          }
           throw new Error('Read-only mode');
         },
         async runCompact(opts) {
           if (CFG.mode === 'http') return apiPost('/api/compact', opts);
+          if (CFG.mode === 'mcp-app' && mcpBridge && !CFG.readOnly) {
+            return mcpBridge.callServerTool('acm_viewer_data', {
+              action: 'compact',
+              payload: opts,
+              rootDir: state.rootDir || undefined,
+            });
+          }
           throw new Error('Read-only mode');
         },
       };
@@ -798,10 +989,15 @@ function renderViewerHtml({
               item.results.map((r) => '<li>' + esc(r) + '</li>').join('') + '</ul></div>';
           }
           if (item.targets && item.targets.length) {
+            const canOpenFile = CFG.mode === 'mcp-app' && Boolean(state.rootDir);
             sections += '<div><div class="section-title">' + esc(T.targets) + '</div><div>' +
               item.targets.map((tg) =>
                 '<span class="target-row"><span>' + esc(tg) + '</span>' +
-                '<button class="mini-btn copy-target-btn" data-path="' + esc(tg) + '">' + esc(T.copyPath) + '</button></span>'
+                '<button class="mini-btn copy-target-btn" data-path="' + esc(tg) + '">' + esc(T.copyPath) + '</button>' +
+                (canOpenFile
+                  ? '<button class="mini-btn open-target-btn" data-path="' + esc(tg) + '">' + esc(T.openFile) + '</button>'
+                  : '') +
+                '</span>'
               ).join('') + '</div></div>';
           }
         } else if (item.kind === 'pattern') {
@@ -842,6 +1038,11 @@ function renderViewerHtml({
         if (copyBtn) copyBtn.addEventListener('click', () => copyText(item.code, copyBtn));
         panel.querySelectorAll('.copy-target-btn').forEach((btn) => {
           btn.addEventListener('click', () => copyText(btn.dataset.path, btn));
+        });
+        panel.querySelectorAll('.open-target-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            if (mcpBridge) mcpBridge.openWorkspaceFile(btn.dataset.path);
+          });
         });
         const editBtn = document.getElementById('editTaskBtn');
         if (editBtn) editBtn.addEventListener('click', () => openTaskModal(item));
@@ -966,7 +1167,10 @@ function renderViewerHtml({
           window.location.href = '/api/export?format=json';
           return;
         }
-        const blob = new Blob([JSON.stringify(CFG.snapshot || {}, null, 2)], { type: 'application/json' });
+        const payload = CFG.mode === 'snapshot'
+          ? (CFG.snapshot || {})
+          : { overview: state.overview, tab: state.tab, items: state.items };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = 'acm-snapshot.json';
@@ -1001,7 +1205,17 @@ function renderViewerHtml({
         }, 160);
       });
 
-      refreshAll();
+      if (CFG.mode === 'mcp-app' && mcpBridge) {
+        mcpBridge.connect()
+          .then(() => {
+            if (!mcpBridge.hasInitialToolResult()) {
+              return refreshAll();
+            }
+          })
+          .catch((err) => showBanner(err.message, true));
+      } else {
+        refreshAll();
+      }
     })();
   </script>
 </body>
