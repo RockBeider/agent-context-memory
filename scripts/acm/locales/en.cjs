@@ -24,7 +24,7 @@ Three-Tier Context Memory Governance & Task-Centric Engine
 
 Usage:
   npx agent-context-memory [command] [options]
-  npx acm [command] [options]
+  npm run acm -- [db-command] [options]  (or: node scripts/acm/acm-db-cli.cjs [db-command])
   Or local: node bin/agent-context-memory.js [command] [options]
 
 Commands:
@@ -59,7 +59,7 @@ Options:
   --lang=<en|ko>              Same as --lang <en|ko>
   --storage=<sqlite|markdown> Select storage backend during init (default: sqlite on Node >= 22.13)
   --markdown-projection       Enable .agents/acm/task/*.md projection in SQLite mode (default: disabled)
-  --non-interactive           Skip prompts on init/uninstall safely (also via ACM_NON_INTERACTIVE=1 / CI=true)
+  --non-interactive           Skip prompts on init/uninstall/status/pull/resolve safely (also ACM_NON_INTERACTIVE=1 / CI=true)
   --dry-run                   Preview actions without modifying files
   --no-backup                 (uninstall only) Skip creating .acm-backup-* backup
   --backup-format=<fmt>       (uninstall only) Backup format: zip (default), tar.gz, dir
@@ -188,7 +188,7 @@ Examples:
     hooksMerged: '  [MERGE] {{file}} (preserved host hooks, synced ACM key(s): {{keys}})',
     hooksKept: '  [KEEP] {{file}} (ACM hook already registered)',
     hooksParseError: '  [Warn] Failed to parse existing {{file}} as JSON object; preserving original file untouched.',
-    pkgPostinstallSkip: '\n[Hook 1/2] postinstall mode: host package.json left untouched (run "npx acm init" to inject acm:* scripts).',
+    pkgPostinstallSkip: '\n[Hook 1/2] postinstall mode: host package.json left untouched (run "npx agent-context-memory init" to inject acm / acm:* scripts).',
     pkgSyncStart: '\n[Hook 1/2] Configuring target package.json scripts...',
     pkgParseWarn: '  [Warn] Failed to parse existing package.json. Skipping script injection.',
     pkgSynced: '  -> Synced {{count}} acm:* script(s) into package.json.',
@@ -199,7 +199,7 @@ Examples:
     gitignoreAppended: '  [SYNC] .gitignore (appended {{entries}})',
     nextCd: 'Move to project: cd "{{dir}}"',
     nextTask: 'Check working memory: .agents/acm/task/task.md',
-    nextDbTip: 'Manage local memory DB: npx acm task list / npx acm search "<query>" (export MD: npx acm export --format=md)',
+    nextDbTip: 'Manage local memory DB: npm run acm -- task list / npm run acm -- search "<query>" (export MD: npm run acm -- export --format=md)',
     nextRules: 'Inspect governance rules: {{files}} and .agents/acm/ACM_GOVERNANCE.md',
     nextGitStatus: 'Check task-centric commit status: npm run acm:status',
     nextNonGitNote: '[Note] Git is unavailable; commit tools run in limited mode.',

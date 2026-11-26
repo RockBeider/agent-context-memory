@@ -53,8 +53,8 @@ Verify proportional to change impact:
 Never run bulk `git add .` across unrelated files. Follow **"Document `[Ready]` + 3 elements -> Run `npm run acm:commit` ONCE after explicit user approval"**:
 
 1. **Record `[Ready]` with 3 Required Elements**:
-   - In **`sqlite` mode** (`markdownProjection: false` default): register or update the task via `acm task add` / `acm task update --stdin` or `acm_task_upsert` with `status: "ready"` and all 3 elements (`purpose`, `results`, `targets`) directly in `.agents/acm/local/memory.db` (do not hand-create `task.md`).
-   - In **`markdown` mode** (or when `markdownProjection: true`): register or update the task in `.agents/acm/task/task.md` (via `acm task add` / `acm id` / MCP) with status `[Ready]` and all 3 elements (`Purpose`, `Results`, `Targets`) so `group-status.cjs` can build the commit message and auto-archive:
+   - In **`sqlite` mode** (`markdownProjection: false` default): register or update the task via `npm run acm -- task add` / `npm run acm -- task update --stdin` (or `acm` / `node scripts/acm/acm-db-cli.cjs` / MCP `acm_task_upsert`) with `status: "ready"` and all 3 elements (`purpose`, `results`, `targets`) directly in `.agents/acm/local/memory.db` (do not hand-create `task.md`).
+   - In **`markdown` mode** (or when `markdownProjection: true`): register or update the task in `.agents/acm/task/task.md` (via `npm run acm -- task add` / `npm run acm -- id` / `node scripts/acm/acm-db-cli.cjs` / MCP) with status `[Ready]` and all 3 elements (`Purpose`, `Results`, `Targets`) so `group-status.cjs` can build the commit message and auto-archive:
      ```markdown
      ### [Task Group Title]
      - [Ready] **TSK-XXXXXX. Concise task summary title**

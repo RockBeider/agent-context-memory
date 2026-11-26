@@ -107,26 +107,73 @@ class MarkdownProvider {
     // No persistent file handles held
   }
 
+  _getLeasesPath() {
+    return path.join(this.rootDir, '.agents', 'acm', 'local', 'leases.json');
+  }
+
+  _readLeases() {
+    const leasesPath = this._getLeasesPath();
+    if (!fs.existsSync(leasesPath)) return {};
+    try {
+      const parsed = JSON.parse(fs.readFileSync(leasesPath, 'utf-8'));
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      const nowMs = Date.now();
+      const active = {};
+      for (const [code, entry] of Object.entries(parsed)) {
+        if (!entry || typeof entry !== 'object') continue;
+        const owner = entry.owner ? String(entry.owner).trim() : '';
+        const expMs = entry.expiresAt ? Date.parse(entry.expiresAt) : NaN;
+        if (owner && Number.isFinite(expMs) && expMs > nowMs) {
+          active[code] = { owner, expiresAt: entry.expiresAt };
+        }
+      }
+      return active;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  _writeLeases(leases) {
+    const leasesPath = this._getLeasesPath();
+    fs.mkdirSync(path.dirname(leasesPath), { recursive: true });
+    fs.writeFileSync(leasesPath, JSON.stringify(leases || {}, null, 2) + '\n', 'utf-8');
+  }
+
+  _clearTaskLease(code) {
+    if (!code) return;
+    const leasesPath = this._getLeasesPath();
+    if (!fs.existsSync(leasesPath)) return;
+    const leases = this._readLeases();
+    if (Object.prototype.hasOwnProperty.call(leases, code)) {
+      delete leases[code];
+      this._writeLeases(leases);
+    }
+  }
+
   _loadAllTasks() {
     const { taskFile, completedFile } = resolveTaskFiles(this.rootDir);
-    const active = parseTaskMdFile(taskFile).map((task) => ({
-      uid: task.code,
-      ...task,
-      owner: '',
-      leaseOwner: null,
-      leaseExpiresAt: null,
-      commitSha: null,
-      completedAt: null,
-      scope: 'local',
-      provenance: 'user',
-      createdAt: task.registeredDate ? `${task.registeredDate}T00:00:00.000Z` : new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      deletedAt: null,
-    }));
+    const activeLeases = this._readLeases();
+    const active = parseTaskMdFile(taskFile).map((task) => {
+      const lease = activeLeases[task.code] || null;
+      return {
+        uid: task.code,
+        ...task,
+        owner: task.owner || '',
+        leaseOwner: lease ? lease.owner : null,
+        leaseExpiresAt: lease ? lease.expiresAt : null,
+        commitSha: null,
+        completedAt: null,
+        scope: 'local',
+        provenance: 'user',
+        createdAt: task.registeredDate ? `${task.registeredDate}T00:00:00.000Z` : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      };
+    });
     const done = parseTaskCompletedMdFile(completedFile).map((task) => ({
       uid: task.code,
       ...task,
-      owner: '',
+      owner: task.owner || '',
       leaseOwner: null,
       leaseExpiresAt: null,
       scope: 'local',
@@ -241,6 +288,7 @@ class MarkdownProvider {
     else all.push(updated);
 
     const viewStore = {
+      providerName: 'markdown',
       listTasks: () => all,
       listPatterns: () => this.listPatterns(),
       listAdrs: () => this.listAdrs(),
@@ -250,7 +298,7 @@ class MarkdownProvider {
         },
       }),
     };
-    projectTasksToMarkdown(this.rootDir, viewStore, { lang });
+    projectTasksToMarkdown(this.rootDir, viewStore, { lang, fullExport: true });
     return updated;
   }
 
@@ -259,6 +307,7 @@ class MarkdownProvider {
     if (!task) {
       throw new Error(t('storage.taskNotFoundComplete', { id: idOrCode }));
     }
+    this._clearTaskLease(task.code);
     return this.upsertTask(
       {
         uid: task.uid,
@@ -272,21 +321,65 @@ class MarkdownProvider {
   }
 
   acquireLease(idOrCode, owner, ttlSeconds = 600) {
+    if (!owner || !String(owner).trim()) {
+      throw new Error(t('storage.leaseOwnerRequired'));
+    }
+    const normOwner = String(owner).trim();
+    const ttl = Math.max(1, Math.min(3600, Number(ttlSeconds) || 600));
     const task = this.getTask(idOrCode);
-    if (!task) throw new Error(t('storage.taskNotFound', { id: idOrCode }));
+    if (!task || task.deletedAt) {
+      throw new Error(t('storage.leaseTaskNotFoundSet', { id: idOrCode }));
+    }
+
+    const leases = this._readLeases();
+    const existing = leases[task.code];
+    if (existing && existing.owner !== normOwner) {
+      return {
+        acquired: false,
+        uid: task.uid,
+        code: task.code,
+        holder: existing.owner,
+        expiresAt: existing.expiresAt,
+      };
+    }
+
+    const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
+    leases[task.code] = { owner: normOwner, expiresAt };
+    this._writeLeases(leases);
     return {
       acquired: true,
       uid: task.uid,
       code: task.code,
-      owner,
-      expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
+      owner: normOwner,
+      expiresAt,
     };
   }
 
-  releaseLease(idOrCode) {
+  releaseLease(idOrCode, owner, options = {}) {
     const task = this.getTask(idOrCode);
-    if (!task) throw new Error(t('storage.taskNotFound', { id: idOrCode }));
-    return { released: true, uid: task.uid, code: task.code };
+    if (!task || task.deletedAt) {
+      throw new Error(t('storage.leaseTaskNotFoundRelease', { id: idOrCode }));
+    }
+    const leases = this._readLeases();
+    const existing = leases[task.code];
+    const normOwner = owner ? String(owner).trim() : '';
+    if (normOwner && existing && existing.owner !== normOwner && !options.force) {
+      return {
+        released: false,
+        uid: task.uid,
+        code: task.code,
+        holder: existing.owner,
+      };
+    }
+    if (existing) {
+      delete leases[task.code];
+      this._writeLeases(leases);
+    }
+    return {
+      released: true,
+      uid: task.uid,
+      code: task.code,
+    };
   }
 
   listPatterns({ category } = {}) {
@@ -351,6 +444,7 @@ class MarkdownProvider {
     exportStoreToMarkdown(
       this.rootDir,
       {
+        providerName: 'markdown',
         listTasks: () => this._loadAllTasks(),
         listPatterns: () => all,
         listAdrs: () => this.listAdrs(),
@@ -426,6 +520,7 @@ class MarkdownProvider {
     exportStoreToMarkdown(
       this.rootDir,
       {
+        providerName: 'markdown',
         listTasks: () => this._loadAllTasks(),
         listPatterns: () => this.listPatterns(),
         listAdrs: () => all,
@@ -706,6 +801,7 @@ class MarkdownProvider {
     exportStoreToMarkdown(
       this.rootDir,
       {
+        providerName: 'markdown',
         listTasks: () => finalTasks,
         listPatterns: () => finalPatterns,
         listAdrs: () => finalAdrs,

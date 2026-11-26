@@ -46,6 +46,12 @@ const ADR_DETAIL_HEADER_RE = new RegExp(
   'i'
 );
 
+function extractOwnerFromStatus(statusText) {
+  if (!statusText) return '';
+  const match = String(statusText).match(/\((?:Agent|Owner|담당자?)\s*:\s*([^)]+)\)/i);
+  return match ? match[1].trim() : '';
+}
+
 function getLocalDateString(dateObj = new Date()) {
   const y = dateObj.getFullYear();
   const m = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -169,6 +175,7 @@ function parseTaskMdFile(filePath) {
         purpose: '',
         results: [],
         targets: [],
+        owner: extractOwnerFromStatus(statusRaw),
         groupName: pendingGroupName,
         registeredDate: '',
       };
@@ -187,7 +194,20 @@ function parseTaskMdFile(filePath) {
 
     const statusPropMatch = line.match(/^\s*-\s*\*\*(?:Status|상태)\*\*:\s*\[?([^\]\r\n]+)\]?/i);
     if (statusPropMatch) {
-      currentTask.status = normalizeTaskStatus(statusPropMatch[1].trim());
+      const rawProp = statusPropMatch[1].trim();
+      currentTask.status = normalizeTaskStatus(rawProp);
+      const propOwner = extractOwnerFromStatus(rawProp);
+      if (propOwner) {
+        currentTask.owner = propOwner;
+      }
+      continue;
+    }
+
+    const ownerMatch = line.match(/^\s*-\s*\*\*(?:Owner|Agent|담당자?)\*\*:\s*(.+)$/i);
+    if (ownerMatch) {
+      inTargetSection = false;
+      inDetailSection = false;
+      currentTask.owner = ownerMatch[1].trim();
       continue;
     }
 
@@ -644,7 +664,7 @@ function projectTasksToMarkdown(rootDir, store, options = {}) {
   const { taskDir, taskFile, completedFile } = resolveTaskFiles(resolvedRoot);
   fs.mkdirSync(taskDir, { recursive: true });
 
-  const fullExport = Boolean(options && options.fullExport);
+  const fullExport = Boolean((options && options.fullExport) || (store && store.providerName === 'markdown'));
   let limit = -1;
   if (!fullExport) {
     if (options && options.doneTaskProjectionLimit !== undefined) {
@@ -742,7 +762,9 @@ function projectTasksToMarkdown(rootDir, store, options = {}) {
         lastGroup = t.groupName;
       }
       const cb = toMarkdownCheckbox(t.status, lang);
-      taskLines.push(`- [${cb}] **${t.code}. ${t.title}**`);
+      const statusToken = cb.trim() ? cb : isKo ? '진행 대기' : 'Todo';
+      const headerCheckbox = t.owner ? `${statusToken} (Agent: ${t.owner})` : cb;
+      taskLines.push(`- [${headerCheckbox}] **${t.code}. ${t.title}**`);
       if (t.purpose) {
         taskLines.push(`  - **${purposeLabel}**: ${t.purpose}`);
       }
@@ -791,7 +813,7 @@ function projectTasksToMarkdown(rootDir, store, options = {}) {
   compLines.push('', '---');
 
   if (projectedDone.length === 0) {
-    if (doneTasks.length > 0) {
+    if (doneTasks.length > 0 && !(store && store.providerName === 'markdown')) {
       compLines.push(
         isKo
           ? `(SQLite DB에 완료 태스크 ${doneTasks.length}건이 보관되어 있습니다 — \`acm task list --done\`, \`acm search\`, \`acm stats\`로 조회하십시오)`

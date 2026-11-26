@@ -138,6 +138,8 @@ function initGitRepo(dir) {
     const restoredPkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf-8'));
     assert.strictEqual(restoredPkg.scripts.build, 'node scripts/build.cjs');
     assert.strictEqual(restoredPkg.scripts['git:status'], 'echo custom host git status');
+    assert.strictEqual(restoredPkg.scripts['acm'], undefined);
+    assert.strictEqual(restoredPkg.scripts['acm:mcp'], undefined);
     assert.strictEqual(restoredPkg.scripts['acm:commit'], undefined);
 
     const restoredGi = fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8').replace(/\r\n/g, '\n');

@@ -7,7 +7,7 @@
 ## 1. 3대 정본 및 고유 식별자 규격
 1. **작업 기억 (L1)**: `.agents/acm/task/task.md`
    - 단일 활성 작업 정본 (Single Source of Truth), 상시 **5KB 이하** 유지 (단, 사용자의 커밋 승인을 대기 중인 복수의 `[커밋 대기]` 태스크 누적으로 인한 일시적 5KB 초과는 예외로 허용하며 커밋 직후 자동 이관으로 해소).
-   - 식별자: 영구 불변 6자리 단축 ID(`TSK-XXXXXX`, 영문자 시작 Crockford Base32, `acm task add` / `acm id` / MCP 발급; 기존 `TSK-{N}` 호환). 임의 수기 채번을 금지하며 초기 샘플 `TSK-SAMPLE`은 파싱·실행에서 제외한다.
+   - 식별자: 영구 불변 6자리 단축 ID(`TSK-XXXXXX`, 영문자 시작 Crockford Base32, `acm` / `npm run acm --` / `node scripts/acm/acm-db-cli.cjs` `task add` / `id` 또는 MCP 발급; 기존 `TSK-{N}` 호환). 임의 수기 채번을 금지하며 초기 샘플 `TSK-SAMPLE`은 파싱·실행에서 제외한다.
    - 서식 지원: 불릿형(`- [상태] **TSK-XXXXXX. 작업명**`) 또는 블록형(`### TSK-XXXXXX. 작업명` 하위 `- **상태**: [상태]`).
 2. **장기 지식 (L2)**: `.agents/acm/memory/patterns-index.md` / `patterns/`
    - 패턴 식별자: `P-XXXXXX` (`acm pattern add` / `acm id pattern` / MCP 발급; 기존 `P-{NN}` 호환; `P-00` 샘플 제외).
@@ -72,7 +72,7 @@
    - Markdown 출력이 필요할 때는 `acm export --format=md`로 온디맨드 내보내기를 실행하거나, `--markdown-projection` / `acm config set storage.markdownProjection true`로 상시 태스크 투영을 명시적으로 활성화합니다.
    - 구버전 Node.js 또는 레거시 워크플로에서는 `--storage=markdown` 모드로 무장애 폴백하며, 추후 온라인/클라우드 저장소는 `registerProvider()` 확장 슬롯을 통해 선택 연동됩니다.
 2. **구조화 CLI 및 무의존성 Stdio MCP 접근**:
-   - `sqlite` 모드에서는 Markdown 파일 수기 편집 대신 `--json` / `--stdin`을 지원하는 `acm` DB CLI(`id`, `task`, `pattern`, `adr`, `search`, `compact`, `config`, `stats`, `migrate`, `export`, `import`) 또는 순수 JSON-RPC 2.0 stdio MCP 서버(`acm mcp`, `acm mcp --print-config`)를 통해 메모리를 조회·갱신합니다.
+   - `sqlite` 모드에서는 Markdown 파일 수기 편집 대신 `--json` / `--stdin`을 지원하는 `acm` DB CLI(PATH 미등록 시 `npm run acm -- <cmd>` 또는 `node scripts/acm/acm-db-cli.cjs <cmd>`: `id`, `task`, `pattern`, `adr`, `search`, `compact`, `config`, `stats`, `migrate`, `export`, `import`) 또는 순수 JSON-RPC 2.0 stdio MCP 서버(`acm mcp`, `npm run acm:mcp`, `node scripts/acm/mcp-server.cjs --print-config`)를 통해 메모리를 조회·갱신합니다.
    - 노출된 10개 MCP 도구: `acm_status`, `acm_search`, `acm_task_list`, `acm_task_upsert`, `acm_task_complete`, `acm_pattern_save`, `acm_pattern_get`, `acm_adr_add`, `acm_sync`, `acm_compact`.
 3. **Git Orphan 브랜치 협업 (`acm sync`)**:
    - 공유 패턴·ADR·완료 태스크는 순수 Git Plumbing(`GIT_INDEX_FILE`)과 결정적 JSONL, LWW/비충돌 단축 ID 해소 병합을 통해 코드 브랜치를 오염시키지 않고 전용 orphan 브랜치(`acm-memory`)로 동기화됩니다.

@@ -53,8 +53,8 @@ description: 작업 단위(Task-Centric) 자동 분류 커밋, 지능형 3-Way �
 무관한 파일을 한꺼번에 묶는 임의 커밋(`git add .`)을 금지하고, **"`[커밋 대기]`/`[Ready]` 3요소 기록 -> 사용자 명시적 커밋 승인 후 `npm run acm:commit` 원스톱 실행"** 순서로 완결합니다.
 
 1. **`[커밋 대기]` 선행 기록 및 3요소 작성 (필수)**:
-   - **`sqlite` 모드**(`markdownProjection: false` 기본값): `task.md`를 임의로 생성하지 않고 `acm task add` / `acm task update --stdin` 또는 MCP `acm_task_upsert`로 `status: "ready"`와 3요소(`purpose`, `results`, `targets`)를 `.agents/acm/local/memory.db`에 직접 기록합니다.
-   - **`markdown` 모드**(또는 `markdownProjection: true` 활성화 시): 커밋할 작업을 `.agents/acm/task/task.md`에 `[커밋 대기] TSK-XXXXXX` 상태로 등록(`acm task add` / `acm id` / MCP 발급) 또는 갱신하며 아래 **3요소(목적 / 수행결과 / 대상영역)**를 빠짐없이 작성합니다:
+   - **`sqlite` 모드**(`markdownProjection: false` 기본값): `task.md`를 임의로 생성하지 않고 `npm run acm -- task add` / `npm run acm -- task update --stdin` (또는 `acm` / `node scripts/acm/acm-db-cli.cjs` / MCP `acm_task_upsert`)로 `status: "ready"`와 3요소(`purpose`, `results`, `targets`)를 `.agents/acm/local/memory.db`에 직접 기록합니다.
+   - **`markdown` 모드**(또는 `markdownProjection: true` 활성화 시): 커밋할 작업을 `.agents/acm/task/task.md`에 `[커밋 대기] TSK-XXXXXX` 상태로 등록(`npm run acm -- task add` / `npm run acm -- id` / `node scripts/acm/acm-db-cli.cjs` / MCP 발급) 또는 갱신하며 아래 **3요소(목적 / 수행결과 / 대상영역)**를 빠짐없이 작성합니다:
      ```markdown
      ### [작업 소제목]
      - [커밋 대기] **TSK-XXXXXX. 핵심 작업 요약 제목**

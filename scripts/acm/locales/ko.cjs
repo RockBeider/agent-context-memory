@@ -24,7 +24,7 @@ Three-Tier Context Memory Governance & Task-Centric Engine
 
 사용법:
   npx agent-context-memory [명령어] [옵션]
-  npx acm [명령어] [옵션]
+  npm run acm -- [DB 명령어] [옵션]  (또는: node scripts/acm/acm-db-cli.cjs [DB 명령어])
   또는 로컬 실행: node bin/agent-context-memory.js [명령어] [옵션]
 
 명령어:
@@ -59,7 +59,7 @@ Three-Tier Context Memory Governance & Task-Centric Engine
   --lang=<en|ko>              --lang <en|ko> 와 동일
   --storage=<sqlite|markdown> 초기화 시 저장소 백엔드 지정 (Node >= 22.13 기본값: sqlite)
   --markdown-projection       SQLite 모드에서 .agents/acm/task/*.md 자동 투영 활성화 (기본값: 비활성)
-  --non-interactive           init/uninstall 대화형 프롬프트 안전 생략 (ACM_NON_INTERACTIVE=1 / CI=true 자동 감지)
+  --non-interactive           init/uninstall/status/pull/resolve 대화형 프롬프트 안전 생략 (ACM_NON_INTERACTIVE=1 / CI=true 감지)
   --dry-run                   실제 조작 없이 결과 미리보기
   --no-backup                 (uninstall 전용) .acm-backup-* 백업 생성 생략
   --backup-format=<포맷>      (uninstall 전용) 백업 포맷: zip(기본값), tar.gz, dir
@@ -188,7 +188,7 @@ Three-Tier Context Memory Governance & Task-Centric Engine
     hooksMerged: '  [병합] {{file}} (기존 호스트 훅 보존, ACM 키 동기화: {{keys}})',
     hooksKept: '  [보존] {{file}} (ACM 훅이 이미 등록되어 있음)',
     hooksParseError: '  [경고] 기존 {{file}} 파일을 JSON 객체로 파싱할 수 없어 원본을 변경하지 않고 보존합니다.',
-    pkgPostinstallSkip: '\n[추가 연동 1/2] postinstall 환경: 호스트 package.json 보호를 위해 스크립트 주입은 npx acm init 실행 시 수행됩니다.',
+    pkgPostinstallSkip: '\n[추가 연동 1/2] postinstall 환경: 호스트 package.json 보호를 위해 스크립트 주입은 "npx agent-context-memory init" 실행 시 수행됩니다.',
     pkgSyncStart: '\n[추가 연동 1/2] 대상 package.json 스크립트 설정 중...',
     pkgParseWarn: '  [경고] 기존 package.json 파싱 실패. 스크립트 주입을 건너뜁니다.',
     pkgSynced: '  -> package.json 내 acm:* 스크립트 {{count}}개 항목 동기화 완료.',
@@ -199,7 +199,7 @@ Three-Tier Context Memory Governance & Task-Centric Engine
     gitignoreAppended: '  [동기화] .gitignore ({{entries}} 등록 추가)',
     nextCd: '대상 프로젝트 이동: cd "{{dir}}"',
     nextTask: '작업 기억 정본 확인: .agents/acm/task/task.md',
-    nextDbTip: '로컬 메모리 DB 관리: npx acm task list / npx acm search "<검색어>" (Markdown 내보내기: npx acm export --format=md)',
+    nextDbTip: '로컬 메모리 DB 관리: npm run acm -- task list / npm run acm -- search "<검색어>" (Markdown 내보내기: npm run acm -- export --format=md)',
     nextRules: '거버넌스 규칙 점검: {{files}} 및 .agents/acm/ACM_GOVERNANCE.md',
     nextGitStatus: '작업 단위 커밋 상태 확인: npm run acm:status',
     nextNonGitNote: '[주의] Git 미설치 환경이므로 Git 커밋 도구는 제한 모드입니다.',

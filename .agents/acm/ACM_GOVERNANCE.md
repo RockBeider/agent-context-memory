@@ -7,7 +7,7 @@
 ## 1. Three Canonical Stores & Immutable IDs
 1. **Working Memory (L1)**: `.agents/acm/task/task.md`
    - Single Source of Truth for active tasks, kept at **<= 5KB** (temporary overflow is allowed only while multiple `[Ready]` tasks await commit approval, resolved automatically upon commit).
-   - ID format: `TSK-XXXXXX` (immutable 6-char Crockford Base32 starting with an alpha char, issued via `acm task add` / `acm id` / MCP; legacy `TSK-{N}` supported). Never invent random IDs manually; exclude `TSK-SAMPLE` from parsing and execution.
+   - ID format: `TSK-XXXXXX` (immutable 6-char Crockford Base32 starting with an alpha char, issued via `acm` / `npm run acm --` / `node scripts/acm/acm-db-cli.cjs` `task add` / `id` or MCP; legacy `TSK-{N}` supported). Never invent random IDs manually; exclude `TSK-SAMPLE` from parsing and execution.
    - Supported formats: bullet style (`- [Status] **TSK-XXXXXX. Title**`) or heading style (`### TSK-XXXXXX. Title` with `- **Status**: [Status]`).
 2. **Long-Term Knowledge (L2)**: `.agents/acm/memory/patterns-index.md` / `patterns/`
    - Pattern ID: `P-XXXXXX` (issued via `acm pattern add` / `acm id pattern` / MCP; legacy `P-{NN}` supported; exclude `P-00` sample).
@@ -72,7 +72,7 @@
    - Generate Markdown snapshots on demand via `acm export --format=md`, or explicitly opt in to continuous task projection via `acm init --markdown-projection` or `acm config set storage.markdownProjection true`.
    - Legacy projects or older Node.js runtimes operate transparently in `markdown` mode (`--storage=markdown`), and future remote/cloud backends plug into `registerProvider()`.
 2. **Structured CLI & Daemonless Stdio MCP Access**:
-   - In `sqlite` mode, use `acm` DB subcommands (`id`, `task`, `pattern`, `adr`, `search`, `compact`, `config`, `stats`, `migrate`, `export`, `import`) with `--json` / `--stdin`, or run the zero-dependency JSON-RPC 2.0 stdio MCP server (`acm mcp`, `acm mcp --print-config`) instead of hand-editing Markdown files.
+   - In `sqlite` mode, use `acm` DB subcommands (`npm run acm -- <cmd>` or `node scripts/acm/acm-db-cli.cjs <cmd>` when `acm` is not in PATH: `id`, `task`, `pattern`, `adr`, `search`, `compact`, `config`, `stats`, `migrate`, `export`, `import`) with `--json` / `--stdin`, or run the zero-dependency JSON-RPC 2.0 stdio MCP server (`acm mcp`, `npm run acm:mcp`, `node scripts/acm/mcp-server.cjs --print-config`) instead of hand-editing Markdown files.
    - Exposed MCP tools: `acm_status`, `acm_search`, `acm_task_list`, `acm_task_upsert`, `acm_task_complete`, `acm_pattern_save`, `acm_pattern_get`, `acm_adr_add`, `acm_sync`, `acm_compact`.
 3. **Git Orphan Branch Collaboration (`acm sync`)**:
    - Shared patterns, ADRs, and archived tasks sync across clones via a dedicated orphan branch (`acm-memory`) using pure Git Plumbing (`GIT_INDEX_FILE`), deterministic JSONL, and structural LWW / fallback short-id collision resolution without touching code branches.

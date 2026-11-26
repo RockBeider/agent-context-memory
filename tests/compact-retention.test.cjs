@@ -382,6 +382,50 @@ try {
   saveConfig(workDir, { ...loadConfig(workDir), retention: { ...DEFAULT_CONFIG.retention } });
   assert.strictEqual(loadConfig(workDir).retention.doneTaskProjectionLimit, 50);
 
+  // MarkdownProvider must preserve all >50 completed tasks without doneTaskProjectionLimit truncation
+  const mdStore = createMemoryStore(workDir, { skipProjection: false });
+  try {
+    assert.strictEqual(mdStore.providerName, 'markdown');
+    for (let i = 1; i <= 54; i++) {
+      mdStore.upsertTask(
+        {
+          title: `Markdown retention bulk task ${i}`,
+          status: 'done',
+          purpose: 'Verify >50 completed tasks are never truncated in markdown mode',
+          results: [`step ${i}`],
+          targets: ['src/app.js'],
+          commitSha: `sha${String(i).padStart(4, '0')}`,
+        },
+        { skipValidation: true }
+      );
+    }
+    const readyTask = mdStore.upsertTask({
+      title: 'Markdown retention task 55',
+      status: 'ready',
+      purpose: 'Verify completeTask preserves >50 completed tasks',
+      results: ['final step'],
+      targets: ['src/final.js'],
+    });
+    mdStore.completeTask(readyTask.code, 'sha0055');
+    mdStore.upsertTask({
+      title: 'Markdown active task after 60 done',
+      status: 'todo',
+    });
+  } finally {
+    mdStore.close();
+  }
+  const allMdDone = parseTaskCompletedMdFile(completedMdPath);
+  assert.strictEqual(
+    allMdDone.length,
+    60,
+    `Markdown mode must preserve all 60 completed tasks (>50 cap), got ${allMdDone.length}`
+  );
+  const completedMdTextAfterBulk = fs.readFileSync(completedMdPath, 'utf-8');
+  assert.ok(
+    !completedMdTextAfterBulk.includes('Projection Policy'),
+    'Markdown mode should not emit SQLite Projection Policy banner'
+  );
+
   console.log('=== All ACM Phase 1 Retention & Compaction tests passed (0 errors) ===\n');
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });

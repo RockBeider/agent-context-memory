@@ -229,6 +229,8 @@ async function runTests() {
     assert.ok(Array.isArray(metaObj.hooks && metaObj.hooks.keys) && metaObj.hooks.keys.includes('acm-token-monitor'), 'meta.json hooks.keys missing acm-token-monitor');
     assert.ok(Array.isArray(metaObj.gitignoreEntries) && metaObj.gitignoreEntries.includes('/.agents/hooks.json'), 'meta.json gitignoreEntries missing /.agents/hooks.json');
     assert.ok(Array.isArray(metaObj.packageScripts) && metaObj.packageScripts.includes('acm:commit'), 'meta.json packageScripts missing acm:commit');
+    assert.ok(metaObj.packageScripts.includes('acm'), 'meta.json packageScripts missing acm');
+    assert.ok(metaObj.packageScripts.includes('acm:mcp'), 'meta.json packageScripts missing acm:mcp');
 
     const cfgObj = JSON.parse(fs.readFileSync(path.join(tempDir, '.agents', 'acm', 'config.json'), 'utf-8'));
     assert.strictEqual(cfgObj.storage.provider, 'sqlite', '.agents/acm/config.json storage.provider should default to sqlite');
@@ -244,8 +246,19 @@ async function runTests() {
     assert.ok(!/^\/\.acm-backup-\*\/$/m.test(gitignoreContent), 'Legacy /.acm-backup-*/ should be replaced by /.acm-backup-*');
 
     const injectedPkg = JSON.parse(fs.readFileSync(path.join(tempDir, 'package.json'), 'utf-8'));
+    assert.strictEqual(injectedPkg.scripts['acm'], 'node scripts/acm/acm-db-cli.cjs', 'acm script missing');
+    assert.strictEqual(injectedPkg.scripts['acm:mcp'], 'node scripts/acm/mcp-server.cjs', 'acm:mcp script missing');
     assert.ok(injectedPkg.scripts['acm:status'], 'acm:status script missing');
     assert.ok(injectedPkg.scripts['acm:commit'], 'acm:commit script missing');
+
+    const localDbCliRes = spawnSync(
+      process.execPath,
+      [path.join(tempDir, 'scripts', 'acm', 'acm-db-cli.cjs'), 'stats', '--json'],
+      { cwd: tempDir, encoding: 'utf-8' }
+    );
+    assert.strictEqual(localDbCliRes.status, 0, `Host local acm-db-cli.cjs stats failed: ${localDbCliRes.stderr || localDbCliRes.stdout}`);
+    const localStats = JSON.parse(localDbCliRes.stdout);
+    assert.strictEqual(localStats.ok, true, 'Host local acm-db-cli.cjs stats returned ok != true');
     console.log('[PASS] English default init, locale overlay isolation, .gitignore, and package.json scripts verified.');
 
     // 4-3. check-git diagnostics
@@ -1086,6 +1099,113 @@ async function runTests() {
       const p = promptRuleConfirm('Confirm? ', { input, output });
       input.end();
       assert.strictEqual(await p, false, 'rules promptConfirm should return false on EOF');
+    }
+
+    // smart-pull promptUserResolution EOF safety & group-status non-interactive check
+    const { promptUserResolution } = require('../scripts/acm/smart-pull.cjs');
+    {
+      const { input, output } = createMockTTY();
+      const p = promptUserResolution('ours', 'theirs', 'src/a.js', 1, { input, output, silent: true });
+      input.end();
+      assert.strictEqual(await p, null, 'promptUserResolution should return null on EOF');
+    }
+
+    const hookAndStatusDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-hook-status-'));
+    const emptyHookDir = fs.mkdtempSync(path.join(os.tmpdir(), 'acm-hook-empty-'));
+    const createdStateFiles = [];
+    try {
+      execSync('git init', { cwd: hookAndStatusDir, stdio: 'ignore' });
+      execSync('git config user.name "Test Runner"', { cwd: hookAndStatusDir, stdio: 'ignore' });
+      execSync('git config user.email "test@example.com"', { cwd: hookAndStatusDir, stdio: 'ignore' });
+      fs.writeFileSync(path.join(hookAndStatusDir, 'README.md'), '# Hook Test\n', 'utf-8');
+      execSync('git add . && git commit -m "init"', { cwd: hookAndStatusDir, stdio: 'ignore' });
+
+      await runInstallApi(hookAndStatusDir, { nonInteractive: true, noRestoreBackup: true, lang: 'en' });
+      fs.writeFileSync(path.join(hookAndStatusDir, 'README.md'), '# Hook Test Dirty\n', 'utf-8');
+
+      const gsNonInt = spawnSync(
+        process.execPath,
+        [path.join(hookAndStatusDir, 'scripts', 'acm', 'group-status.cjs'), '--non-interactive'],
+        { cwd: hookAndStatusDir, encoding: 'utf-8' }
+      );
+      assert.strictEqual(gsNonInt.status, 0, `group-status --non-interactive failed: ${gsNonInt.stderr || gsNonInt.stdout}`);
+
+      const gsEnvNonInt = spawnSync(
+        process.execPath,
+        [path.join(hookAndStatusDir, 'scripts', 'acm', 'group-status.cjs')],
+        { cwd: hookAndStatusDir, env: { ...process.env, ACM_NON_INTERACTIVE: '1' }, encoding: 'utf-8' }
+      );
+      assert.strictEqual(gsEnvNonInt.status, 0, `group-status ACM_NON_INTERACTIVE=1 failed: ${gsEnvNonInt.stderr || gsEnvNonInt.stdout}`);
+
+      // hooks.json command works from nested a/b/c subdir and detects sqlite-only vs markdown mode
+      const hooksJson = JSON.parse(fs.readFileSync(path.join(hookAndStatusDir, '.agents', 'hooks.json'), 'utf-8'));
+      const hookCmd = hooksJson['acm-token-monitor'].PreInvocation[0].command;
+      const nestedDir = path.join(hookAndStatusDir, 'a', 'b', 'c');
+      fs.mkdirSync(nestedDir, { recursive: true });
+
+      const sqliteTranscript = path.join(hookAndStatusDir, 'transcript-sqlite.jsonl');
+      fs.writeFileSync(sqliteTranscript, Buffer.alloc(600 * 1024, 'a'));
+      const crypto = require('crypto');
+      createdStateFiles.push(
+        path.join(os.tmpdir(), `acm_token_monitor_${crypto.createHash('md5').update(sqliteTranscript).digest('hex').slice(0, 12)}.json`)
+      );
+
+      const hookSqliteRes = spawnSync(hookCmd, {
+        cwd: nestedDir,
+        input: JSON.stringify({ transcriptPath: sqliteTranscript }),
+        encoding: 'utf-8',
+        shell: true,
+      });
+      assert.strictEqual(hookSqliteRes.status, 0, `hooks.json command failed in nested dir: ${hookSqliteRes.stderr}`);
+      const hookSqliteOut = JSON.parse(hookSqliteRes.stdout.trim());
+      assert.ok(
+        hookSqliteOut.injectSteps &&
+          hookSqliteOut.injectSteps[0].ephemeralMessage.includes('acm_task_upsert') &&
+          !hookSqliteOut.injectSteps[0].ephemeralMessage.includes('updating task.md'),
+        `Expected sqlite-only hook message, got: ${hookSqliteRes.stdout}`
+      );
+
+      // Switch to ko + markdown mode and verify markdown alert branch
+      fs.writeFileSync(
+        path.join(hookAndStatusDir, '.agents', 'acm', 'config.json'),
+        JSON.stringify({ version: 1, language: 'ko', storage: { provider: 'markdown', markdownProjection: false } }),
+        'utf-8'
+      );
+      const mdTranscript = path.join(hookAndStatusDir, 'transcript-md.jsonl');
+      fs.writeFileSync(mdTranscript, Buffer.alloc(600 * 1024, 'b'));
+      createdStateFiles.push(
+        path.join(os.tmpdir(), `acm_token_monitor_${crypto.createHash('md5').update(mdTranscript).digest('hex').slice(0, 12)}.json`)
+      );
+      const hookMdRes = spawnSync(hookCmd, {
+        cwd: nestedDir,
+        input: JSON.stringify({ transcriptPath: mdTranscript }),
+        encoding: 'utf-8',
+        shell: true,
+      });
+      assert.strictEqual(hookMdRes.status, 0, `hooks.json markdown command failed: ${hookMdRes.stderr}`);
+      const hookMdOut = JSON.parse(hookMdRes.stdout.trim());
+      assert.ok(
+        hookMdOut.injectSteps && hookMdOut.injectSteps[0].ephemeralMessage.includes('/태스크(task.md)'),
+        `Expected Korean markdown hook message, got: ${hookMdRes.stdout}`
+      );
+
+      // Running hooks.json command in directory without ACM must exit 0 with valid JSON ({})
+      const hookEmptyRes = spawnSync(hookCmd, {
+        cwd: emptyHookDir,
+        input: JSON.stringify({}),
+        encoding: 'utf-8',
+        shell: true,
+      });
+      assert.strictEqual(hookEmptyRes.status, 0, `hooks.json empty fallback failed: ${hookEmptyRes.stderr}`);
+      assert.doesNotThrow(() => JSON.parse(hookEmptyRes.stdout.trim()), 'hooks.json fallback must emit valid JSON');
+    } finally {
+      for (const sf of createdStateFiles) {
+        try {
+          if (fs.existsSync(sf)) fs.unlinkSync(sf);
+        } catch (_) {}
+      }
+      fs.rmSync(hookAndStatusDir, { recursive: true, force: true });
+      fs.rmSync(emptyHookDir, { recursive: true, force: true });
     }
     console.log('[PASS] Non-interactive terminal detection, mock TTY uninstall, and readline EOF safety verified.');
 

@@ -44,11 +44,15 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "node tests/e2e-install.test.cjs && node tests/non-git-compatibility.test.cjs && node tests/sqlite-storage.test.cjs && node tests/cli-db-commands.test.cjs && node tests/git-orphan-sync.test.cjs && node tests/mcp-server.test.cjs && node tests/compact-retention.test.cjs && node tests/non-destructive-lifecycle.test.cjs",
+    "test": "node tests/run-tests.cjs",
+    "test:changed": "node tests/run-tests.cjs --changed",
+    "test:serial": "node tests/run-tests.cjs --serial",
     "prepublishOnly": "npm test",
     "postinstall": "node scripts/acm/install-template.cjs --postinstall",
     "init": "node bin/agent-context-memory.js init",
     "check-git": "node scripts/acm/check-git.cjs",
+    "acm": "node scripts/acm/acm-db-cli.cjs",
+    "acm:mcp": "node scripts/acm/mcp-server.cjs",
     "acm:install": "node scripts/acm/install-template.cjs",
     "acm:uninstall": "node scripts/acm/uninstall-template.cjs",
     "acm:status": "node scripts/acm/group-status.cjs --dry-run",

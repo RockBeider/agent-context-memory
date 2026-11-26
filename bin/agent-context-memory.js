@@ -2,7 +2,7 @@
 /**
  * bin/agent-context-memory.js
  *
- * Agent Context Memory unified CLI entry point (npx agent-context-memory / npx acm)
+ * Agent Context Memory unified CLI entry point (npx agent-context-memory / acm / npm run acm --)
  */
 
 const path = require('path');
