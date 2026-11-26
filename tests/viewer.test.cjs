@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const http = require('http');
+const vm = require('vm');
 const assert = require('assert');
 const { spawnSync } = require('child_process');
 
@@ -237,6 +238,19 @@ async function runTests() {
     assert.ok(!exportedHtml.includes('</script><img'), 'Raw </script> XSS payload must be escaped in inline JSON');
     assert.ok(exportedHtml.includes('\\u003c/script\\u003e'), 'Serialized inline JSON must unicode-escape </script>');
 
+    // Verify single offline bundle integrity, size cap, and single <script> vm.Script execution
+    const bundlePath = path.join(ROOT_DIR, 'scripts', 'acm', 'viewer', 'ui-bundle.cjs');
+    assert.ok(fs.existsSync(bundlePath), 'ui-bundle.cjs must exist');
+    assert.ok(
+      fs.statSync(bundlePath).size < 150 * 1024,
+      `ui-bundle.cjs must stay under 150KB (actual: ${fs.statSync(bundlePath).size} bytes)`
+    );
+    const exportedScripts = exportedHtml.match(/<script>/g) || [];
+    assert.strictEqual(exportedScripts.length, 1, 'Exported HTML must contain exactly one inline <script>');
+    const exportedScriptMatch = exportedHtml.match(/<script>([\s\S]*?)<\/script>/);
+    assert.ok(exportedScriptMatch, 'Exported HTML must have extractable inline script');
+    new vm.Script(exportedScriptMatch[1]);
+
     const htmlRawOutPath = path.join(sqliteDir, 'out', 'viewer-raw.html');
     const exportRawRes = spawnSync(
       process.execPath,
@@ -255,6 +269,11 @@ async function runTests() {
       assert.strictEqual(rootRes.status, 200);
       assert.ok(rootRes.headers['content-security-policy'], 'CSP header must be present');
       assert.ok(rootRes.text.includes('ACM Local Viewer'));
+      assert.ok(!/<script[^>]+src=/i.test(rootRes.text), 'Viewer HTML must have zero external script src');
+      assert.ok(!/<link[^>]+href=/i.test(rootRes.text), 'Viewer HTML must have zero external link href');
+      const rootScriptMatch = rootRes.text.match(/<script>([\s\S]*?)<\/script>/);
+      assert.ok(rootScriptMatch, 'Viewer HTML must contain inline script');
+      new vm.Script(rootScriptMatch[1]);
 
       const ovRes = await requestHttp(`${srv.url}/api/overview`);
       assert.strictEqual(ovRes.status, 200);

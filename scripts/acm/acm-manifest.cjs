@@ -79,6 +79,7 @@ const ACM_MANIFEST = {
     { path: 'scripts/acm/cli-viewer.cjs', parentDirCleanup: true },
     { path: 'scripts/acm/ui-viewer.cjs', parentDirCleanup: true },
     { path: 'scripts/acm/viewer/read-model.cjs', parentDirCleanup: true },
+    { path: 'scripts/acm/viewer/ui-bundle.cjs', parentDirCleanup: true },
     { path: 'scripts/acm/viewer/ui-template.cjs', parentDirCleanup: true },
     { path: 'scripts/acm/storage/id-utils.cjs', parentDirCleanup: true },
     { path: 'scripts/acm/storage/config.cjs', parentDirCleanup: true },

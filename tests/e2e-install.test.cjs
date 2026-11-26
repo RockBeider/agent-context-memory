@@ -37,6 +37,7 @@ const requiredFiles = [
   'scripts/acm/cli-viewer.cjs',
   'scripts/acm/ui-viewer.cjs',
   'scripts/acm/viewer/read-model.cjs',
+  'scripts/acm/viewer/ui-bundle.cjs',
   'scripts/acm/viewer/ui-template.cjs',
   'scripts/acm/group-status.cjs',
   'scripts/acm/smart-pull.cjs',
