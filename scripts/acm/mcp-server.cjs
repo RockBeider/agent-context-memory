@@ -6,6 +6,7 @@
  * Transport: Newline-delimited JSON-RPC 2.0 over stdin/stdout (diagnostics strictly to stderr).
  */
 
+const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { ACM_MANIFEST } = require('./acm-manifest.cjs');
@@ -17,6 +18,12 @@ const { parseLangFlag, resolveLanguage, createTranslator } = require('./i18n.cjs
 
 const DEFAULT_PROTOCOL_VERSION = '2024-11-05';
 
+const ROOT_DIR_PROPERTY = {
+  type: 'string',
+  description:
+    'Optional absolute path to target ACM workspace root (overrides server default rootDir for multi-workspace sessions).',
+};
+
 const TOOLS = [
   {
     name: 'acm_status',
@@ -24,7 +31,9 @@ const TOOLS = [
       'Inspect Agent Context Memory workspace status, storage backend, record counts, active tasks summary, Git availability, and sync metadata.',
     inputSchema: {
       type: 'object',
-      properties: {},
+      properties: {
+        rootDir: ROOT_DIR_PROPERTY,
+      },
       additionalProperties: false,
     },
   },
@@ -55,6 +64,7 @@ const TOOLS = [
           minimum: 0,
           description: 'Optional approximate token budget cap (0 = unlimited).',
         },
+        rootDir: ROOT_DIR_PROPERTY,
       },
       required: ['query'],
       additionalProperties: false,
@@ -75,6 +85,7 @@ const TOOLS = [
           type: 'boolean',
           description: 'Whether to include completed tasks when status is omitted (default: false).',
         },
+        rootDir: ROOT_DIR_PROPERTY,
       },
       additionalProperties: false,
     },
@@ -130,6 +141,7 @@ const TOOLS = [
           type: 'boolean',
           description: 'Skip strict 3-element [Ready] validation (default: false).',
         },
+        rootDir: ROOT_DIR_PROPERTY,
       },
       additionalProperties: false,
     },
@@ -149,6 +161,7 @@ const TOOLS = [
           type: 'string',
           description: 'Optional Git commit SHA or completion reference.',
         },
+        rootDir: ROOT_DIR_PROPERTY,
       },
       required: ['idOrCode'],
       additionalProperties: false,
@@ -208,6 +221,7 @@ const TOOLS = [
           enum: ['shared', 'local'],
           description: 'Record sharing scope (default: shared).',
         },
+        rootDir: ROOT_DIR_PROPERTY,
       },
       required: ['title'],
       additionalProperties: false,
@@ -223,6 +237,7 @@ const TOOLS = [
           type: 'string',
           description: 'Pattern UID, code (e.g. P-M3N8Q2 or legacy P-01), or unambiguous prefix.',
         },
+        rootDir: ROOT_DIR_PROPERTY,
       },
       required: ['idOrCode'],
       additionalProperties: false,
@@ -279,6 +294,7 @@ const TOOLS = [
           enum: ['shared', 'local'],
           description: 'Record sharing scope (default: shared).',
         },
+        rootDir: ROOT_DIR_PROPERTY,
       },
       required: ['title'],
       additionalProperties: false,
@@ -312,6 +328,7 @@ const TOOLS = [
           type: 'boolean',
           description: 'Enable outbound secret scrubbing before push (default: true).',
         },
+        rootDir: ROOT_DIR_PROPERTY,
       },
       additionalProperties: false,
     },
@@ -345,6 +362,7 @@ const TOOLS = [
           type: 'boolean',
           description: 'Write archived completed tasks to .agents/acm/memory/archive/tasks-YYYY.jsonl (default: false).',
         },
+        rootDir: ROOT_DIR_PROPERTY,
       },
       additionalProperties: false,
     },
@@ -423,12 +441,47 @@ function buildMcpConfigSnippets(rootDir = process.cwd()) {
         },
       },
     },
+    globalMultiWorkspace: {
+      mcpServers: {
+        'agent-context-memory': {
+          command: 'npx',
+          args: ['-y', 'agent-context-memory', 'mcp'],
+        },
+      },
+      note: 'Omit fixed ACM_ROOT_DIR / --root and pass optional rootDir per tool call to isolate multiple workspaces safely.',
+    },
   };
+}
+
+function resolveEffectiveRootDir(rawRootDir, defaultRootDir) {
+  if (rawRootDir === undefined || rawRootDir === null) {
+    return defaultRootDir;
+  }
+  const trimmed = String(rawRootDir).trim();
+  if (!trimmed) {
+    return defaultRootDir;
+  }
+  const resolved = path.resolve(trimmed);
+  let isDir = false;
+  try {
+    isDir = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory();
+  } catch (_) {
+    isDir = false;
+  }
+  if (!isDir) {
+    throw new Error(`Invalid rootDir: "${rawRootDir}" does not exist or is not a directory.`);
+  }
+  return resolved;
 }
 
 function executeToolCall(name, rawArgs, ctx) {
   const args = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? rawArgs : {};
-  const { rootDir, lang, tr } = ctx;
+  const effectiveRootDir = resolveEffectiveRootDir(args.rootDir, ctx.rootDir);
+  const isDefaultRoot = effectiveRootDir === ctx.rootDir;
+  const effectiveLang = isDefaultRoot
+    ? ctx.lang
+    : resolveLanguage(effectiveRootDir, ctx.explicitLang || null);
+  const effectiveTr = isDefaultRoot ? ctx.tr : createTranslator(effectiveLang);
 
   if (name === 'acm_sync') {
     const direction = args.direction || 'status';
@@ -436,27 +489,27 @@ function executeToolCall(name, rawArgs, ctx) {
       throw new Error(`Invalid sync direction: "${direction}". Expected both, pull, push, or status.`);
     }
     if (args.branch !== undefined && !isValidRefName(args.branch)) {
-      throw new Error(tr('dbCli.syncInvalidRef', { ref: args.branch }));
+      throw new Error(effectiveTr('dbCli.syncInvalidRef', { ref: args.branch }));
     }
     if (args.remote !== undefined && !isValidRefName(args.remote)) {
-      throw new Error(tr('dbCli.syncInvalidRef', { ref: args.remote }));
+      throw new Error(effectiveTr('dbCli.syncInvalidRef', { ref: args.remote }));
     }
-    return syncWithGitOrphan(rootDir, {
+    return syncWithGitOrphan(effectiveRootDir, {
       direction,
       dryRun: Boolean(args.dryRun),
       branch: args.branch,
       remote: args.remote,
       autoScrub: args.autoScrub !== undefined ? Boolean(args.autoScrub) : undefined,
-      lang,
+      lang: effectiveLang,
     });
   }
 
-  const config = loadConfig(rootDir);
+  const config = loadConfig(effectiveRootDir);
   const skipProjForCall =
     name !== 'acm_task_upsert' && name !== 'acm_task_complete' && name !== 'acm_compact';
-  const store = createMemoryStore(rootDir, {
+  const store = createMemoryStore(effectiveRootDir, {
     config,
-    lang,
+    lang: effectiveLang,
     skipProjection: skipProjForCall,
   });
 
@@ -472,10 +525,10 @@ function executeToolCall(name, rawArgs, ctx) {
           owner: task.owner || '',
           groupName: task.groupName || '',
         }));
-        const gitEnv = checkGitEnvironment(rootDir);
+        const gitEnv = checkGitEnvironment(effectiveRootDir);
         const payload = {
           provider: stats.provider,
-          rootDir,
+          rootDir: effectiveRootDir,
           stats,
           retention: config.retention,
           activeTasks,
@@ -493,7 +546,7 @@ function executeToolCall(name, rawArgs, ctx) {
       case 'acm_search': {
         const query = typeof args.query === 'string' ? args.query.trim() : '';
         if (!query) {
-          throw new Error(tr('dbCli.missingArg', { arg: 'query' }));
+          throw new Error(effectiveTr('dbCli.missingArg', { arg: 'query' }));
         }
         const results = store.search(query, {
           kind: args.kind || 'all',
@@ -524,7 +577,7 @@ function executeToolCall(name, rawArgs, ctx) {
         if (args.idOrCode !== undefined && args.idOrCode !== null && String(args.idOrCode).trim()) {
           existing = store.getTask(String(args.idOrCode).trim());
           if (!existing || existing.deletedAt) {
-            throw new Error(tr('dbCli.notFound', { id: args.idOrCode }));
+            throw new Error(effectiveTr('dbCli.notFound', { id: args.idOrCode }));
           }
         }
 
@@ -544,7 +597,7 @@ function executeToolCall(name, rawArgs, ctx) {
 
         const task = store.upsertTask(payload, {
           skipValidation: Boolean(args.skipValidation),
-          lang,
+          lang: effectiveLang,
         });
         return {
           action: existing ? 'updated' : 'created',
@@ -555,13 +608,13 @@ function executeToolCall(name, rawArgs, ctx) {
       case 'acm_task_complete': {
         const idOrCode = typeof args.idOrCode === 'string' ? args.idOrCode.trim() : '';
         if (!idOrCode) {
-          throw new Error(tr('dbCli.missingArg', { arg: 'idOrCode' }));
+          throw new Error(effectiveTr('dbCli.missingArg', { arg: 'idOrCode' }));
         }
         const commitSha =
           args.commitSha !== undefined && args.commitSha !== null && String(args.commitSha).trim()
             ? String(args.commitSha).trim()
             : null;
-        const task = store.completeTask(idOrCode, commitSha, { lang });
+        const task = store.completeTask(idOrCode, commitSha, { lang: effectiveLang });
         return {
           completed: true,
           task,
@@ -582,7 +635,7 @@ function executeToolCall(name, rawArgs, ctx) {
           'author',
           'scope',
         ]);
-        const pattern = store.upsertPattern(payload, { lang });
+        const pattern = store.upsertPattern(payload, { lang: effectiveLang });
         return {
           saved: true,
           pattern,
@@ -592,11 +645,11 @@ function executeToolCall(name, rawArgs, ctx) {
       case 'acm_pattern_get': {
         const idOrCode = typeof args.idOrCode === 'string' ? args.idOrCode.trim() : '';
         if (!idOrCode) {
-          throw new Error(tr('dbCli.missingArg', { arg: 'idOrCode' }));
+          throw new Error(effectiveTr('dbCli.missingArg', { arg: 'idOrCode' }));
         }
         const pattern = store.getPattern(idOrCode);
         if (!pattern || pattern.deletedAt) {
-          throw new Error(tr('dbCli.notFound', { id: idOrCode }));
+          throw new Error(effectiveTr('dbCli.notFound', { id: idOrCode }));
         }
         return { pattern };
       }
@@ -615,7 +668,7 @@ function executeToolCall(name, rawArgs, ctx) {
           'author',
           'scope',
         ]);
-        const adr = store.upsertAdr(payload, { lang });
+        const adr = store.upsertAdr(payload, { lang: effectiveLang });
         return {
           saved: true,
           adr,
@@ -628,7 +681,7 @@ function executeToolCall(name, rawArgs, ctx) {
           dryRun,
           vacuum: args.vacuum !== undefined ? Boolean(args.vacuum) : true,
           exportArchive: Boolean(args.exportArchive),
-          lang,
+          lang: effectiveLang,
         };
         if (args.doneTaskFtsDays !== undefined) {
           compactOpts.doneTaskFtsDays = Number(args.doneTaskFtsDays);
@@ -778,9 +831,10 @@ function createMcpServer(options = {}) {
   const rootDir = path.resolve(
     options.rootDir || process.env.ACM_ROOT_DIR || process.cwd()
   );
-  const lang = resolveLanguage(rootDir, options.lang || null);
+  const explicitLang = options.explicitLang !== undefined ? options.explicitLang : options.lang || null;
+  const lang = resolveLanguage(rootDir, explicitLang);
   const tr = createTranslator(lang);
-  const ctx = { rootDir, lang, tr };
+  const ctx = { rootDir, lang, explicitLang, tr };
 
   const input = options.input || process.stdin;
   const output = options.output || process.stdout;
@@ -875,7 +929,7 @@ function main(argv = process.argv.slice(2)) {
     process.exit(0);
   }
 
-  const server = createMcpServer({ rootDir, lang });
+  const server = createMcpServer({ rootDir, lang, explicitLang: parsedLang || null });
   server.done.then((code) => process.exit(code));
 }
 

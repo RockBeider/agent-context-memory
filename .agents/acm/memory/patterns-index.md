@@ -4,7 +4,7 @@
 > **Zero-Token On-Demand Search Principle (Just-In-Time Grep)**:
 > 1. AI agents must never eagerly read this entire file or all files under `patterns/`.
 > 2. Run `grep_search` on the Summary column by keyword and load ONLY matched sharded files (`patterns/P-XX-*.md`).
-> 3. When distilling a new reusable solution, create the next immutable `P-03` sharded file and append 1 row below.
+> 3. When distilling a new reusable solution, create a new immutable `P-XXXXXX` sharded file (via `npm run acm -- pattern add` / `id pattern` / MCP) and append 1 row below.
 
 | ID | Category | Summary | File Link |
 | :--- | :--- | :--- | :--- |

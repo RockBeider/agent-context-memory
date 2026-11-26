@@ -155,6 +155,14 @@ async function runTests() {
         snippets.localNodeScript.mcpServers['agent-context-memory'].args[0].endsWith('/scripts/acm/mcp-server.cjs'),
       'Invalid localNodeScript config snippet (expected scripts/acm/mcp-server.cjs)'
     );
+    assert.ok(
+      snippets.globalMultiWorkspace &&
+        snippets.globalMultiWorkspace.mcpServers &&
+        snippets.globalMultiWorkspace.mcpServers['agent-context-memory'] &&
+        snippets.globalMultiWorkspace.mcpServers['agent-context-memory'].args.includes('mcp') &&
+        !snippets.globalMultiWorkspace.mcpServers['agent-context-memory'].env,
+      'Invalid globalMultiWorkspace config snippet'
+    );
 
     const printHumanRes = spawnSync(process.execPath, [CLI_PATH, 'mcp', '--print-config'], {
       cwd: ROOT_DIR,
@@ -465,6 +473,72 @@ async function runTests() {
       projectedTaskMd.includes(`${optInPayload.task.code}.`),
       `${optInPayload.task.code} was not projected to .agents/acm/task/task.md after opt-in`
     );
+
+    // 3-11d. Multi-workspace rootDir isolation on the same MCP server instance
+    const repoB = path.join(tempRoot, 'repo-b');
+    fs.mkdirSync(repoB, { recursive: true });
+    fs.writeFileSync(
+      path.join(repoB, 'package.json'),
+      JSON.stringify({ name: 'mcp-host-app-b', version: '1.0.0', scripts: {} }, null, 2)
+    );
+    const initBRes = spawnSync(
+      process.execPath,
+      [CLI_PATH, 'init', '--force', '--non-interactive', '--storage=sqlite', '--lang=ko'],
+      { cwd: repoB, encoding: 'utf-8' }
+    );
+    assert.strictEqual(initBRes.status, 0, `repoB init failed: ${initBRes.stderr || initBRes.stdout}`);
+
+    const statusBPayload = parseToolPayload(
+      await client.sendRequest('tools/call', { name: 'acm_status', arguments: { rootDir: repoB } }, 23)
+    );
+    assert.strictEqual(path.resolve(statusBPayload.rootDir), path.resolve(repoB));
+    assert.strictEqual(statusBPayload.stats.tasks.total, 0);
+
+    const upsertBPayload = parseToolPayload(
+      await client.sendRequest(
+        'tools/call',
+        {
+          name: 'acm_task_upsert',
+          arguments: {
+            rootDir: repoB,
+            title: 'Isolated RepoB MultiWorkspace Task',
+            status: 'in_progress',
+            purpose: 'Verify rootDir isolates RepoB from RepoA',
+          },
+        },
+        24
+      )
+    );
+    const taskBCode = upsertBPayload.task.code;
+
+    const listBPayload = parseToolPayload(
+      await client.sendRequest('tools/call', { name: 'acm_task_list', arguments: { rootDir: repoB } }, 25)
+    );
+    assert.strictEqual(listBPayload.count, 1);
+    assert.strictEqual(listBPayload.tasks[0].code, taskBCode);
+
+    const searchBPayload = parseToolPayload(
+      await client.sendRequest(
+        'tools/call',
+        { name: 'acm_search', arguments: { rootDir: repoB, query: 'MultiWorkspace' } },
+        26
+      )
+    );
+    assert.ok(searchBPayload.results.some((r) => r.code === taskBCode), 'RepoB search did not find RepoB task');
+
+    const listAPayload = parseToolPayload(
+      await client.sendRequest('tools/call', { name: 'acm_task_list', arguments: { includeDone: true } }, 27)
+    );
+    assert.ok(!listAPayload.tasks.some((t) => t.code === taskBCode), 'RepoB task leaked into RepoA');
+
+    const invalidRootResp = await client.sendRequest(
+      'tools/call',
+      { name: 'acm_status', arguments: { rootDir: path.join(tempRoot, 'nonexistent-workspace') } },
+      28
+    );
+    assert.strictEqual(invalidRootResp.result.isError, true, 'Invalid rootDir should return isError=true');
+    const invalidRootPayload = parseToolPayload(invalidRootResp);
+    assert.ok(invalidRootPayload.error.includes('Invalid rootDir'), `Unexpected error: ${invalidRootPayload.error}`);
 
     // 3-12. Error handling: unknown tool (-32602), unknown method (-32601), malformed JSON (-32700), final ping
     const unknownToolResp = await client.sendRequest(

@@ -3,7 +3,7 @@
 > [!IMPORTANT]
 > **Zero-Token On-Demand & Index-First Principle**:
 > 1. This document records macro Architecture Decision Records (ADRs) and major system changes only.
-> 2. For each new decision, assign `LOG-{N}` and simultaneously: **1) prepend 1 row to `ADR Index Map`**, and **2) prepend a detail block under `Architecture Decision Details`**.
+> 2. For each new decision, assign `LOG-XXXXXX` (via `npm run acm -- adr add` / `id adr` / MCP) and simultaneously: **1) prepend 1 row to `ADR Index Map`**, and **2) prepend a detail block under `Architecture Decision Details`**.
 > 3. Do not read this file routinely. Only during global infra changes, regression tracing, or large merges, slice-read lines 1-35 (`ADR Index Map`) or `grep_search` to pinpoint `[LOG-XX]`.
 
 ## 1. ADR Index Map
