@@ -273,6 +273,11 @@ npx agent-context-memory config show
 npx agent-context-memory config set storage.markdownProjection true
 npx agent-context-memory stats
 
+# Local Viewer (terminal text/TUI, one-shot browser UI, and offline HTML snapshot)
+npx agent-context-memory view --tab=tasks
+npx agent-context-memory ui
+npx agent-context-memory export --format=html --out=.agents/acm/viewer-snapshot.html
+
 # Share patterns, ADRs, and done tasks across machines or teammates via orphan branch 'acm-memory'
 # Uses isolated Git plumbing (GIT_INDEX_FILE) so your working branch stays clean, with automatic secret scrubbing
 npx agent-context-memory sync --status

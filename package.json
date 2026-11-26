@@ -53,6 +53,8 @@
     "check-git": "node scripts/acm/check-git.cjs",
     "acm": "node scripts/acm/acm-db-cli.cjs",
     "acm:mcp": "node scripts/acm/mcp-server.cjs",
+    "acm:view": "node scripts/acm/cli-viewer.cjs",
+    "acm:ui": "node scripts/acm/ui-viewer.cjs",
     "acm:install": "node scripts/acm/install-template.cjs",
     "acm:uninstall": "node scripts/acm/uninstall-template.cjs",
     "acm:status": "node scripts/acm/group-status.cjs --dry-run",

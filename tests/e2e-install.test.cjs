@@ -34,6 +34,10 @@ const requiredFiles = [
   'scripts/acm/backup-git.cjs',
   'scripts/acm/acm-db-cli.cjs',
   'scripts/acm/mcp-server.cjs',
+  'scripts/acm/cli-viewer.cjs',
+  'scripts/acm/ui-viewer.cjs',
+  'scripts/acm/viewer/read-model.cjs',
+  'scripts/acm/viewer/ui-template.cjs',
   'scripts/acm/group-status.cjs',
   'scripts/acm/smart-pull.cjs',
   'scripts/acm/audit-push.cjs',
@@ -231,6 +235,8 @@ async function runTests() {
     assert.ok(Array.isArray(metaObj.packageScripts) && metaObj.packageScripts.includes('acm:commit'), 'meta.json packageScripts missing acm:commit');
     assert.ok(metaObj.packageScripts.includes('acm'), 'meta.json packageScripts missing acm');
     assert.ok(metaObj.packageScripts.includes('acm:mcp'), 'meta.json packageScripts missing acm:mcp');
+    assert.ok(metaObj.packageScripts.includes('acm:view'), 'meta.json packageScripts missing acm:view');
+    assert.ok(metaObj.packageScripts.includes('acm:ui'), 'meta.json packageScripts missing acm:ui');
 
     const cfgObj = JSON.parse(fs.readFileSync(path.join(tempDir, '.agents', 'acm', 'config.json'), 'utf-8'));
     assert.strictEqual(cfgObj.storage.provider, 'sqlite', '.agents/acm/config.json storage.provider should default to sqlite');
@@ -248,6 +254,8 @@ async function runTests() {
     const injectedPkg = JSON.parse(fs.readFileSync(path.join(tempDir, 'package.json'), 'utf-8'));
     assert.strictEqual(injectedPkg.scripts['acm'], 'node scripts/acm/acm-db-cli.cjs', 'acm script missing');
     assert.strictEqual(injectedPkg.scripts['acm:mcp'], 'node scripts/acm/mcp-server.cjs', 'acm:mcp script missing');
+    assert.strictEqual(injectedPkg.scripts['acm:view'], 'node scripts/acm/cli-viewer.cjs', 'acm:view script missing');
+    assert.strictEqual(injectedPkg.scripts['acm:ui'], 'node scripts/acm/ui-viewer.cjs', 'acm:ui script missing');
     assert.ok(injectedPkg.scripts['acm:status'], 'acm:status script missing');
     assert.ok(injectedPkg.scripts['acm:commit'], 'acm:commit script missing');
 

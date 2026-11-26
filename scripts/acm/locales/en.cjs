@@ -43,12 +43,14 @@ Commands:
   adr [subcommand]            Manage architecture decision records (list, add, show)
   search <query> [options]    Full-text search across tasks, patterns, and ADRs
   migrate [options]           Migrate storage between sqlite and markdown (--to=sqlite|markdown)
-  export [options]            Export full memory store as JSON or Markdown
+  export [options]            Export full memory store as JSON, Markdown, or static HTML
   import <file> [options]     Import a JSON snapshot into memory store
   sync [options]              Sync shared memories with Git orphan branch (acm-memory)
   compact [options]           Archive aged completed tasks, prune sync_log, and vacuum SQLite DB
   config [show|get|set]       Inspect or update retention and storage settings (.agents/acm/config.json)
   stats [--json]              Display memory store counts, DB size, and active retention policy
+  view [options]              Inspect local memory in terminal text or interactive TUI (-i)
+  ui [options]                Open one-shot local loopback browser viewer (http://127.0.0.1:43821)
   mcp [--print-config]        Start zero-dependency stdio MCP server (or print client JSON config)
 
 Options:
@@ -710,10 +712,11 @@ Options:
 Usage: acm export [options]
 
 Options:
-  --format=json|md    Export format (default: json)
-  --out=<path>        Output file (json) or directory (md)
-  --include-deleted   Include soft-deleted records (json only)
-  --json              Output machine-readable JSON summary
+  --format=json|md|html  Export format (default: json)
+  --out=<path>           Output file (json/html) or directory (md)
+  --include-deleted      Include soft-deleted records (json only)
+  --no-scrub             Disable Secret Scrubber on html export (not recommended)
+  --json                 Output machine-readable JSON summary
 `,
     importHelp: `
 Usage: acm import <file|-> [options]
@@ -728,7 +731,7 @@ Options:
     missingArg: '[Error] Missing required argument: {{arg}}',
     invalidJsonStdin: '[Error] Failed to parse JSON input from stdin: {{message}}',
     invalidStrategy: '[Error] Invalid import strategy: "{{strategy}}". Expected merge, skip, or replace.',
-    invalidFormat: '[Error] Invalid export format: "{{format}}". Expected json or md.',
+    invalidFormat: '[Error] Invalid export format: "{{format}}". Expected json, md, or html.',
     invalidTargetProvider: '[Error] Invalid migration target: "{{to}}". Expected sqlite or markdown.',
     fileNotFound: '[Error] Input file not found: {{file}}',
     notFound: '[Error] Record not found: {{id}}',
@@ -751,6 +754,7 @@ Options:
     migrateAlready: '[Info] Storage provider is already configured as "{{to}}"; refreshed records.',
     exportJsonDone: '[Exported JSON] Wrote snapshot to {{out}}',
     exportMdDone: '[Exported Markdown] Wrote Markdown views to {{out}}',
+    exportHtmlDone: '[Exported HTML] Wrote offline viewer snapshot to {{out}}',
     importDone: '[Imported] Strategy={{strategy}}: tasks={{tasks}}, patterns={{patterns}}, adrs={{adrs}}, skipped={{skipped}}',
     syncHelp: `
 Usage: acm sync [options]
@@ -835,5 +839,43 @@ Options:
 `,
     printConfigHeader: '[ACM MCP] Ready-to-paste MCP client configuration snippets (workspace: {{rootDir}}):',
     printConfigNote: 'Tip: Merge either "mcpServers" entry into your MCP client config (Antigravity, Claude Code, Cursor, etc.). Diagnostics log to stderr; stdio speaks JSON-RPC 2.0.',
+  },
+
+  viewer: {
+    viewHelp: `
+Usage: acm view [options]
+
+Options:
+  --tab=<tasks|patterns|adrs|archive>  Select viewer tab (default: tasks)
+  --status=<all|active|ready|done|...> Filter task status (default: all)
+  --search=<query>, -q <query>         Search records across store
+  --id=<code|uid>                      Show detailed view for a single record
+  --limit=<N>                          Maximum records to display (default: 50)
+  -i, --interactive                    Run interactive terminal UI (TTY only)
+  --read-only                          Disable write actions in interactive TUI
+  --no-color                           Disable ANSI color output
+  --json                               Output machine-readable JSON
+`,
+    uiHelp: `
+Usage: acm ui [options]
+
+Options:
+  --port=<N>                           Loopback HTTP port (default: 43821, auto-fallback)
+  --no-open                            Do not auto-open system browser
+  --read-only                          Disable task edit and compact actions in UI
+  --tab=<tasks|patterns|adrs|archive>  Initial active tab (default: tasks)
+  -l, --lang <en|ko>                   Viewer UI language
+`,
+    invalidTab: '[Error] Invalid viewer tab: "{{tab}}". Expected tasks, patterns, adrs, or archive.',
+    invalidStatus: '[Error] Invalid task status filter or value: "{{status}}".',
+    invalidPort: '[Error] Invalid port number: "{{port}}". Expected an integer between 0 and 65535.',
+    doneTransitionBlocked: '[Error] Viewer cannot transition tasks directly to "done". Run an explicit Git commit (npm run acm:commit).',
+    doneTaskImmutable: '[Error] Completed task {{code}} is immutable in the viewer.',
+    readOnlyBlocked: '[Error] Viewer is running in read-only mode.',
+    nonTtyFallback: '[Notice] Non-interactive terminal detected; showing static view output instead of TUI.',
+    serverStarted: '[ACM UI] Local loopback viewer listening at {{url}}',
+    serverReadOnlyNote: '         Mode: Read-Only (--read-only)',
+    serverStopHint: '         Press Ctrl+C to stop the server.',
+    serverClosed: '[ACM UI] Viewer server stopped.',
   },
 };

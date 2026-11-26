@@ -254,6 +254,8 @@ const KNOWN_COMMANDS = new Set([
   'audit',
   'audit-push',
   ...DB_COMMANDS,
+  'view',
+  'ui',
   'mcp',
   'help',
   'version',
@@ -322,7 +324,14 @@ async function main() {
     process.exit(1);
   }
 
-  if (args[0] === 'help' || (!DB_COMMANDS.has(args[0]) && args[0] !== 'mcp' && (args.includes('-h') || args.includes('--help')))) {
+  if (
+    args[0] === 'help' ||
+    (!DB_COMMANDS.has(args[0]) &&
+      args[0] !== 'mcp' &&
+      args[0] !== 'view' &&
+      args[0] !== 'ui' &&
+      (args.includes('-h') || args.includes('--help')))
+  ) {
     printHelp(parsedLang);
     process.exit(0);
   }
@@ -480,6 +489,16 @@ async function main() {
     case 'config':
     case 'stats': {
       runEngine('acm-db-cli.cjs', [command, ...args.slice(1)], effectiveLang);
+      break;
+    }
+
+    case 'view': {
+      runEngine('cli-viewer.cjs', args.slice(1), effectiveLang);
+      break;
+    }
+
+    case 'ui': {
+      runEngine('ui-viewer.cjs', args.slice(1), effectiveLang);
       break;
     }
 

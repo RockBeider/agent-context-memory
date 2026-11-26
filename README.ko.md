@@ -273,6 +273,11 @@ npx agent-context-memory config show
 npx agent-context-memory config set storage.markdownProjection true
 npx agent-context-memory stats
 
+# 로컬 뷰어 (터미널 텍스트/TUI, 일회성 브라우저 UI, 오프라인 HTML 스냅샷)
+npx agent-context-memory view --tab=tasks
+npx agent-context-memory ui
+npx agent-context-memory export --format=html --out=.agents/acm/viewer-snapshot.html
+
 # 별도 Git 브랜치('acm-memory')로 패턴·ADR·완료 기록을 팀원이나 다른 PC와 공유
 # 작업 브랜치를 건드리지 않고(GIT_INDEX_FILE) 병합하며, 비밀키/토큰이 나가지 않게 자동 필터링
 npx agent-context-memory sync --status

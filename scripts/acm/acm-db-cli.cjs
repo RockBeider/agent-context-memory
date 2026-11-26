@@ -32,6 +32,8 @@ const {
 } = require('./storage/markdown-bridge.cjs');
 const { parseLangFlag, resolveLanguage, createTranslator } = require('./i18n.cjs');
 const { syncWithGitOrphan } = require('./storage/git-orphan-sync.cjs');
+const { buildViewerSnapshot } = require('./viewer/read-model.cjs');
+const { renderViewerHtml } = require('./viewer/ui-template.cjs');
 
 const VALUE_FLAGS = new Set([
   'lang',
@@ -863,9 +865,40 @@ function handleExportCommand(rootDir, flags, lang, tr) {
 
   const rawFmt = (flags.format || 'json').toLowerCase();
   const format = rawFmt === 'markdown' ? 'md' : rawFmt;
-  if (format !== 'json' && format !== 'md') {
+  if (format !== 'json' && format !== 'md' && format !== 'html') {
     emitError(flags, tr('dbCli.invalidFormat', { format: flags.format }));
     return 1;
+  }
+
+  if (format === 'html') {
+    const scrubSecrets = !flags['no-scrub'];
+    const snapshot = buildViewerSnapshot(rootDir, { scrubSecrets, lang });
+    const html = renderViewerHtml({
+      mode: 'snapshot',
+      lang,
+      readOnly: true,
+      snapshot,
+    });
+    if (flags.out) {
+      const outPath = path.resolve(rootDir, flags.out);
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(outPath, html, 'utf-8');
+      emitOutput(
+        flags,
+        {
+          ok: true,
+          format: 'html',
+          out: outPath,
+          scrubbed: snapshot.scrubbed,
+          redactedCount: snapshot.redactedCount,
+          counts: snapshot.overview.counts,
+        },
+        tr('dbCli.exportHtmlDone', { out: outPath })
+      );
+      return 0;
+    }
+    console.log(html);
+    return 0;
   }
 
   const store = createMemoryStore(rootDir, { lang, skipProjection: true });

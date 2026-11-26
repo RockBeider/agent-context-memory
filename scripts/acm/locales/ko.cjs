@@ -43,12 +43,14 @@ Three-Tier Context Memory Governance & Task-Centric Engine
   adr [하위명령]          아키텍처 결정 기록(ADR) 관리 (list, add, show)
   search <검색어>         태스크·패턴·ADR 통합 전문 검색
   migrate [옵션]          sqlite <-> markdown 저장소 양방향 마이그레이션
-  export [옵션]           전체 메모리 저장소 JSON 또는 Markdown 내보내기
+  export [옵션]           전체 메모리 저장소 JSON, Markdown 또는 정적 HTML 내보내기
   import <파일> [옵션]    JSON 스냅샷을 메모리 저장소로 가져오기
   sync [옵션]             Git orphan 브랜치(acm-memory)와 공유 메모리 동기화
   compact [옵션]          오래된 완료 태스크 아카이빙, sync_log 정리 및 SQLite DB 최적화
   config [show|get|set]   보존 정책 및 저장소 설정 조회/변경 (.agents/acm/config.json)
   stats [--json]          메모리 저장소 건수, DB 용량 및 보존 정책 현황 출력
+  view [옵션]             터미널 텍스트 또는 대화형 TUI(-i)로 로컬 메모리 조회
+  ui [옵션]               원샷 로컬 루프백 브라우저 뷰어 실행 (http://127.0.0.1:43821)
   mcp [--print-config]    순수 stdio MCP 서버 실행 (또는 클라이언트 JSON 설정 출력)
 
 옵션:
@@ -710,10 +712,11 @@ ACM 메모리 DB CLI
 사용법: acm export [옵션]
 
 옵션:
-  --format=json|md    내보내기 형식 (기본값: json)
-  --out=<경로>        출력 파일(json) 또는 디렉터리(md) 경로
-  --include-deleted   소프트 삭제된 레코드 포함 (json 전용)
-  --json              JSON 요약 출력
+  --format=json|md|html  내보내기 형식 (기본값: json)
+  --out=<경로>           출력 파일(json/html) 또는 디렉터리(md) 경로
+  --include-deleted      소프트 삭제된 레코드 포함 (json 전용)
+  --no-scrub             html 내보내기 시 Secret Scrubber 비활성화 (비권장)
+  --json                 JSON 요약 출력
 `,
     importHelp: `
 사용법: acm import <파일|-> [옵션]
@@ -728,7 +731,7 @@ ACM 메모리 DB CLI
     missingArg: '[오류] 필수 인자가 누락되었습니다: {{arg}}',
     invalidJsonStdin: '[오류] stdin JSON 입력 파싱에 실패했습니다: {{message}}',
     invalidStrategy: '[오류] 잘못된 가져오기 전략입니다: "{{strategy}}". merge, skip, replace 중 하나를 지정하십시오.',
-    invalidFormat: '[오류] 잘못된 내보내기 형식입니다: "{{format}}". json 또는 md를 지정하십시오.',
+    invalidFormat: '[오류] 잘못된 내보내기 형식입니다: "{{format}}". json, md 또는 html을 지정하십시오.',
     invalidTargetProvider: '[오류] 잘못된 마이그레이션 대상입니다: "{{to}}". sqlite 또는 markdown을 지정하십시오.',
     fileNotFound: '[오류] 입력 파일을 찾을 수 없습니다: {{file}}',
     notFound: '[오류] 레코드를 찾을 수 없습니다: {{id}}',
@@ -751,6 +754,7 @@ ACM 메모리 DB CLI
     migrateAlready: '[안내] 저장소 설정이 이미 "{{to}}"입니다. 레코드를 동기화했습니다.',
     exportJsonDone: '[JSON 내보내기 완료] 스냅샷 저장됨: {{out}}',
     exportMdDone: '[Markdown 내보내기 완료] 마크다운 파일 생성됨: {{out}}',
+    exportHtmlDone: '[HTML 내보내기 완료] 오프라인 뷰어 스냅샷 저장됨: {{out}}',
     importDone: '[가져오기 완료] 전략={{strategy}}: 태스크={{tasks}}, 패턴={{patterns}}, ADR={{adrs}}, 건너뜀={{skipped}}',
     syncHelp: `
 사용법: acm sync [옵션]
@@ -835,5 +839,43 @@ ACM Stdio MCP 서버
 `,
     printConfigHeader: '[ACM MCP] 바로 붙여넣을 수 있는 MCP 클라이언트 JSON 설정 스니펫 (대상 경로: {{rootDir}}):',
     printConfigNote: '안내: 위 "mcpServers" 항목 중 하나를 Antigravity, Claude Code, Cursor 등의 MCP 설정 파일에 병합하세요. 로그는 stderr로만 출력되며 stdio로 JSON-RPC 2.0 통신합니다.',
+  },
+
+  viewer: {
+    viewHelp: `
+사용법: acm view [옵션]
+
+옵션:
+  --tab=<tasks|patterns|adrs|archive>  조회할 탭 선택 (기본값: tasks)
+  --status=<all|active|ready|done|...> 태스크 상태 필터 (기본값: all)
+  --search=<검색어>, -q <검색어>       저장소 내 키워드 검색
+  --id=<코드|UID>                      단일 레코드 상세 조회
+  --limit=<N>                          최대 표시 건수 (기본값: 50)
+  -i, --interactive                    대화형 터미널 UI 실행 (TTY 전용)
+  --read-only                          대화형 TUI에서 쓰기 액션 비활성화
+  --no-color                           ANSI 컬러 출력 비활성화
+  --json                               JSON 형식으로 출력
+`,
+    uiHelp: `
+사용법: acm ui [옵션]
+
+옵션:
+  --port=<N>                           루프백 HTTP 포트 (기본값: 43821, 사용 중 시 자동 폴백)
+  --no-open                            시스템 브라우저 자동 실행 건너뛰기
+  --read-only                          UI에서 태스크 편집 및 DB 정리 기능 비활성화
+  --tab=<tasks|patterns|adrs|archive>  초기 활성 탭 (기본값: tasks)
+  -l, --lang <en|ko>                   뷰어 UI 언어 지정
+`,
+    invalidTab: '[오류] 잘못된 뷰어 탭입니다: "{{tab}}". tasks, patterns, adrs, archive 중 하나를 지정하십시오.',
+    invalidStatus: '[오류] 잘못된 태스크 상태 필터 또는 값입니다: "{{status}}".',
+    invalidPort: '[오류] 잘못된 포트 번호입니다: "{{port}}". 0에서 65535 사이의 정수를 지정하십시오.',
+    doneTransitionBlocked: '[오류] 뷰어에서는 태스크를 직접 "done" 상태로 전환할 수 없습니다. 명시적 Git 커밋(npm run acm:commit)을 사용하십시오.',
+    doneTaskImmutable: '[오류] 이미 완료된 태스크({{code}})는 뷰어에서 수정할 수 없습니다.',
+    readOnlyBlocked: '[오류] 뷰어가 읽기 전용(--read-only) 모드로 실행 중입니다.',
+    nonTtyFallback: '[안내] 비대화형 터미널이 감지되어 TUI 대신 정적 뷰어 출력을 표시합니다.',
+    serverStarted: '[ACM UI] 로컬 루프백 뷰어가 실행되었습니다: {{url}}',
+    serverReadOnlyNote: '         모드: 읽기 전용 (--read-only)',
+    serverStopHint: '         종료하려면 Ctrl+C를 누르십시오.',
+    serverClosed: '[ACM UI] 로컬 뷰어 서버가 종료되었습니다.',
   },
 };
